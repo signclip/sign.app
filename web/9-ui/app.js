@@ -5,7 +5,8 @@
 //   live picture: tap = focus · hold = video while held · ← → front/back · pinch = zoom
 //   edges: upper left own · middle left strands · upper right Similar · middle right share · top full
 // Depends:   browser; 0-i18n, 1-model, 2-storage/local, 3-index, 4-save, 5-take, 9-ui
-// Test/Limits: needs a browser (parts tested in tests/ui.test.mjs); no Whisper and no share menu yet.
+//   share menu: tiles of the sharing points, chips on hold, ← paste one in (share-mount.js)
+// Test/Limits: needs a browser (parts tested in tests/ui.test.mjs, tests/list.test.mjs); no Whisper yet.
 
 import { translator } from '../0-i18n/t.js';
 import { LocalStore } from '../2-storage/local.js';
@@ -21,6 +22,8 @@ import { watch } from './ready.js';
 import { flip, zoomBy, focusAt, torch } from './camera.js';
 import { bind, edgeZone } from './touch.js';
 import { ownChips, strandChips, similarChips, draw } from './panels.js';
+import { mountShareMenu } from './share-mount.js';
+import { keychain } from './keychain.js';
 
 const $ = (sel) => document.querySelector(sel);
 const keep = (k, make) => { try { return localStorage.getItem(k) ?? (localStorage.setItem(k, make()), localStorage.getItem(k)); } catch { return make(); } };
@@ -34,7 +37,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const store = new LocalStore(await navigator.storage.getDirectory());
   let stream = await openDevices(navigator.mediaDevices, { facing: settings.facing });
   $('#live').srcObject = stream;
-  const state = { recording: null, only: null, on: new Set(settings.auto), ready: settings.ready, torch: false, replay: -1, index: await buildIndex([{ name: 'own', store }]) };
+  const state = { recording: null, only: null, on: new Set(settings.auto), ready: settings.ready, torch: false, replay: -1, sources: [{ name: 'own', store }], lastChain: null };
+  state.index = await buildIndex(state.sources);
+  const menu = await mountShareMenu({ panel: $('#share'), own: store, keychain, person, device, t, lastChain: async () => state.lastChain,
+    onSources: async (src) => { state.sources = src; state.index = await buildIndex(src); } });
+  menu.runRules().catch(() => {}); // copies and backups of the list, quietly in the background
   const events = [];
   const onActivity = (e) => {
     events.push(e); while (events.length > 100) events.shift();
@@ -60,9 +67,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const take = await state.recording.stop();
     const strands = state.only ? new Set([state.only]) : state.on;
     state.recording = null; state.only = null; paint();
-    await saveTake({ device, person, now: Date.now(), lengthMs: take.lengthMs, context: '', store,
+    const saved = await saveTake({ device, person, now: Date.now(), lengthMs: take.lengthMs, context: '', store,
       video: strands.has('v') ? take.video : null, audio: strands.has('a') ? take.audio : null });
-    state.index = await buildIndex([{ name: 'own', store }]);
+    state.lastChain = saved.chain.path;
+    await menu.afterTake(saved.paths); // (always) rules of the list
+    state.index = await buildIndex(state.sources);
     return take;
   }
   async function replay(step) {
@@ -97,6 +106,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'own-out': return showOwn(false);
       case 'similar-in': return showSimilar(true);
       case 'similar-out': return showSimilar(false);
+      case 'share-last': return menu.shareLast();
+      case 'share-menu': return menu.show(true);
+      case 'share-menu-out': return menu.show(false);
       case 'full': document.body.classList.add('full'); return document.documentElement.requestFullscreen?.().catch(() => {});
       case 'unfull': document.body.classList.remove('full'); return document.exitFullscreen?.().catch(() => {});
       default: return null;
@@ -120,5 +132,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }, true);
   $('#own').addEventListener('pointerup', (e) => { if (e.clientX < 72) act('edge-out', 'upper-left'); });
   $('#similar').addEventListener('pointerup', (e) => { if (innerWidth - e.clientX < 72) act('edge-out', 'upper-right'); });
+  $('#share').addEventListener('pointerup', (e) => { if (innerWidth - e.clientX < 24) act('edge-out', 'middle-right'); });
   paint();
 }

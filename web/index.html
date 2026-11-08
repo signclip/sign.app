@@ -12,12 +12,17 @@
     .fields { position: absolute; top: env(safe-area-inset-top, 12px); left: 12px; right: 12px; display: flex; gap: 8px; }
     [data-strand] { flex: 1; height: 48px; border-radius: 24px; background: #FAECE7cc; border: 1.5px solid #D85A30; }
     [data-strand] { opacity: 0.45; } [data-strand].on { opacity: 1; background: #D85A30; } [data-strand].hidden { display: none; }
-    body.full .fields, body.full #own, body.full #similar, body.full #chips { display: none; }
+    body.full .fields, body.full #own, body.full #similar, body.full #chips, body.full #share { display: none; }
     #replay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
     #chips { position: absolute; top: 72px; left: 12px; right: 12px; text-align: center; }
     #point { position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); left: 50%; transform: translateX(-50%); width: 96px; height: 96px; }
     #similar { position: absolute; top: 72px; right: 0; width: 42%; bottom: 140px; background: #E6F1FBdd; border-radius: 16px 0 0 16px; padding: 12px; overflow: auto; }
     #own { position: absolute; top: 72px; left: 0; width: 46%; bottom: 140px; background: #FAECE7ee; border-radius: 0 16px 16px 0; padding: 12px; overflow: auto; }
+    #share { position: absolute; top: 25%; right: 0; width: 64%; max-height: 50%; background: #E1F5EEee; border-radius: 16px 0 0 16px; padding: 12px; overflow: auto; }
+    #share .row { margin: 6px 0; } #share .points { display: flex; flex-wrap: wrap; gap: 8px; }
+    #share .tile { width: 96px; min-height: 64px; padding: 8px; border-radius: 12px; background: #fff; border: 1.5px solid #1D9E75; display: flex; flex-direction: column; }
+    #share .tile small { color: #0F6E56; } #share .tile.error, #share .tile.closed { opacity: 0.5; } #share .tile.focus { background: #9FE1CB; }
+    #share .tile-chips { flex-basis: 100%; } #share .note { color: #0F6E56; font-size: 0.9em; }
     .chip.on { outline: 2px solid #D85A30; }
     #own .chip { background: #fff; color: #712B13; border: 1px solid #D85A30; }
     .chip { display: inline-block; margin: 4px; padding: 6px 12px; border-radius: 16px; background: #378ADD; color: #fff; }
@@ -30,6 +35,7 @@
   <div id="chips" hidden></div>
   <div id="similar" hidden></div>
   <div id="own" hidden></div>
+  <div id="share" hidden></div>
   <div id="point" role="button"></div>
   <script type="module">
     import { start } from './9-ui/app.js';

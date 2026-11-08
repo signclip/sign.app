@@ -13,7 +13,7 @@
 //            Passwords are never in either file; the device keychain holds them by q_ id.
 // Depends:   file.js, ids.js, layout.js, memory.js
 // Test:      tests/storage.test.mjs
-// Limits:    the list is read once at start (one file, ~100 B per sharing point).
+// Limits:    the list is read once at start (one file, ~100 B per sharing point); changes: list.js.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
 import { write } from '../1-model/notation.js';
@@ -143,11 +143,7 @@ export async function saveEverywhere(targets, files) {
 /** Copy what is missing from one sharing point to another (move, backup, "only landmarks"). */
 export async function copyMissing(from, to, { filter = () => true } = {}) {
   const have = new Set((await to.list()).map((f) => f.path));
-  const copied = [];
-  for (const { path } of await from.list()) {
-    if (have.has(path) || !filter(path)) continue;
-    await to.write(path, await from.read(path));
-    copied.push(path);
-  }
+  const copied = (await from.list()).map((f) => f.path).filter((p) => !have.has(p) && filter(p));
+  for (const path of copied) await to.write(path, await from.read(path));
   return copied;
 }

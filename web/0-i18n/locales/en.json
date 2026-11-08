@@ -21,5 +21,13 @@
   "join.waiting": "waiting for join",
   "join.done": "join done",
   "error.origin": "origin missing: {name}",
-  "error.prefix": "a prefix needs its own bracket"
+  "error.prefix": "a prefix needs its own bracket",
+  "mark.always": "always",
+  "mark.ask": "ask",
+  "mark.show": "show",
+  "mark.write": "write",
+  "mark.backup": "backup",
+  "menu.paste": "paste",
+  "menu.secret": "paste password",
+  "menu.native": "works in the app"
 }
