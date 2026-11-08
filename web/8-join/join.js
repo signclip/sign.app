@@ -21,7 +21,6 @@ import { hashBytes } from '../1-model/hash.js';
 import { signed, seal, unseal, checkWitness } from '../1-model/crypto.js';
 import { timeLabel, buildName, readName } from '../1-model/filename.js';
 import { withState, accountFolder, nameOf } from './state.js';
-import { labelOf } from '../2-storage/sharing-point.js';
 import { relationLine } from '../2-storage/relations.js';
 
 export { STATES, withState, accountFolder, stateOf } from './state.js';
@@ -42,7 +41,7 @@ const belowOf = async (bytes) => ({ id: readFile(dec.decode(bytes)).head.id, has
 /** 1 · Device: say hello. device: { id, label, key } · pickup: ECDH public key · target: label. */
 export async function sayHello({ store, device, deviceKey = null, person, target, pickup, now = Date.now() }) {
   const f = await chainFile({ by: person, device: device.id, deviceKey, now, words: ['hello', target],
-    defs: [defLine('sharing-point.1', { hint: `local:${device.label}`, id: `${device.id} z_${device.key}` })],
+    defs: [defLine('sharing-point.1', { hint: device.label, id: `${device.id} z_${device.key}` })],
     line: ['hello', target, `pickup ${pickup}`, '{:sharing-point.1}'] });
   const path = `hello/${f.name}`;
   await store.write(path, enc.encode(f.text));
@@ -55,7 +54,7 @@ export function readHello(text) {
   const d = f.defs.get('sharing-point.1');
   const m = /\(\(hello\) \(([^()]*)\) \(pickup ([0-9A-Z]+)\)/.exec(f.rows[0]?.text ?? '');
   if (!d?.id?.z || !m) throw new Error('not a hello');
-  return { person: { id: f.head.id.n, label: f.head['@'] }, device: { label: labelOf(d.hint), id: d.id.q, key: d.id.z.slice(2) }, target: m[1], pickup: m[2] };
+  return { person: { id: f.head.id.n, label: f.head['@'] }, device: { label: d.hint, id: d.id.q, key: d.id.z.slice(2) }, target: m[1], pickup: m[2] };
 }
 
 /**
@@ -66,7 +65,7 @@ export function readHello(text) {
 export async function helloBack({ store, helloPath, secret, sharingPoints = [], signer, now = Date.now() }) {
   const bytes = await store.read(helloPath);
   const ask = readHello(dec.decode(bytes));
-  const payload = [secret, ...sharingPoints.map((sp, i) => defLine(`sharing-point.${i + 1}`, { hint: sp.path, id: sp.id, person: sp.person }))].join('\n');
+  const payload = [secret, ...sharingPoints.map((sp, i) => defLine(`sharing-point.${i + 1}`, { hint: sp.label, path: sp.path, id: sp.id }))].join('\n');
   const f = await chainFile({ by: signer.person, device: signer.device, deviceKey: signer.deviceKey, now,
     below: await belowOf(bytes), words: ['join', readName(nameOf(helloPath)).u], line: ['hello', `sealed ${await seal(ask.pickup, payload)}`] });
   const path = `join/${f.name}`;
@@ -90,7 +89,7 @@ export async function join({ store, joinPath, pickupKey, signers, device, device
   const m = /\(\(hello\) \(sealed ([0-9A-Z]+ [0-9A-Z]+ [0-9A-Z]+)\)\)/.exec(readFile(text).rows[0]?.text ?? '');
   if (!m) throw new Error('no sealed access in this file');
   const [secret, ...defs] = (await unseal(pickupKey, m[1])).split('\n');
-  const sharingPoints = [...readFile([':chain', ...defs].join('\n')).defs.values()].map((d) => ({ label: labelOf(d.hint, d.person), path: d.hint, id: d.id?.q ?? null, ...(d.person ? { person: d.person } : {}) }));
+  const sharingPoints = [...readFile([':chain', ...defs].join('\n')).defs.values()].map((d) => ({ label: d.hint, path: d.path, id: d.id?.q ?? null }));
   const f = await chainFile({ by: person, device: device.id, deviceKey, now, below: await belowOf(enc.encode(text)),
     words: ['join', ...readName(nameOf(joinPath)).words.slice(1)], line: ['join'] });
   await store.write(`hello/${f.name}`, enc.encode(f.text));
@@ -103,7 +102,7 @@ export async function join({ store, joinPath, pickupKey, signers, device, device
  */
 export async function consent({ store, marker, kinds, at, device, deviceKey = null, person, now = Date.now() }) {
   const f = await chainFile({ by: person, device: device.id, deviceKey, now, below: await belowOf(marker), words: ['join', 'consent'],
-    defs: [defLine('sharing-point.1', { hint: at.path, id: at.id })], raw: relationLine({ what: kinds, to: 1, marks: ['consent'] }) });
+    defs: [defLine('sharing-point.1', { hint: at.label, path: at.path, id: at.id })], raw: relationLine({ what: kinds, to: 1, marks: ['consent'] }) });
   await store.write(`hello/${f.name}`, enc.encode(f.text));
   return `hello/${f.name}`;
 }

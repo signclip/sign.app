@@ -5,7 +5,7 @@
 //            For each target: copy the chosen strand files, write a chain there that names only
 //            those strands. At home: a new chain on top of the old one (decision 07.11., A):
 //              :chain.1!(old chain, hash)  :v.1!(…)~(:chain.1)  :x.1!(…)~(:chain.1)
-//              :sharing-point.1^(full path)!(q_…)       where it went
+//              :sharing-point.1^(Kurs 3)=(full path)!(q_…)  where it went
 //              {:v.1 :x.1} {:sharing-point.1}'t(…)      new line on top: what, then where (relations.js)
 //              {:chain.1}                               bottom: the chain it builds on
 //            Its file name starts with ^(Kurs 3) (a view).
@@ -113,7 +113,7 @@ export async function shareTake({ own, chainPath, targets, once = null, device, 
     report.shared.push({ to: entry.label, kinds, paths: [...copied, path] });
     for (const d of chosen) sharedNames.add(d.name);
     const n = shareRows.length + 1;
-    shareRows.push({ label: entry.label, def: defLine(`sharing-point.${n}`, { hint: entry.path ?? `local:${entry.label}`, id: entry.id }), row: `${relationLine({ what: chosen.map((d) => d.name), to: n })}'t(${at})` });
+    shareRows.push({ label: entry.label, def: defLine(`sharing-point.${n}`, { hint: entry.label, path: entry.path, id: entry.id }), row: `${relationLine({ what: chosen.map((d) => d.name), to: n })}'t(${at})` });
   }
 
   if (shareRows.length) {

@@ -2,7 +2,7 @@
 //
 // Purpose:   read and write .sign files (SCHEMA.md, decisions 07.11.):
 //              head         :art!(id)~(…)@(…)°(…)'t(…)          first line, the file itself
-//              definitions  :art.n(…)^(sharing point path)!(id hash)~(…)@(person)'(part), one per line
+//              definitions  :art.n(…)^(name)=(full path)!(id hash)~(…)@(person)'(part), one per line
 //              rows         { … } _( ) ^( ){ } ?( ) ( …)        steps, newest on top
 //            A line break inside a bracket is a space; outside, it ends a definition or row.
 // Depends:   notation.js, symbols.js, ids.js, hash.js
@@ -57,7 +57,7 @@ function readDef(node) {
     name: `${ref.kind}.${ref.path[0]}`, kind: ref.kind, n: Number(ref.path[0]),
     label: body?.t === 'value' ? body.text : null,
     body: body && body.t !== 'value' ? body : null,
-    hint: valueOf(m['^']), id: m['!'] ? readId(valueOf(m['!'])) : null,
+    hint: valueOf(m['^']), path: valueOf(m['=']), id: m['!'] ? readId(valueOf(m['!'])) : null,
     echo: valueOf(m['~']), person: valueOf(m['@']), where: valueOf(m['°']), part: valueOf(m["'"]) ?? valueOf(m["'t"]), node,
   };
 }
@@ -102,9 +102,9 @@ export function headLine(kind, parts) {
   return `:${kind}` + META.filter((s) => parts[s]).map((s) => `${s}(${parts[s]})`).join('');
 }
 
-/** Definition line: :name(label)^(sharing point path)!(id hash)~(echo)@(person)'(part). */
-export function defLine(name, { label, hint, id, echo, person, part, body } = {}) {
-  return `:${name}` + (label ? `(${label})` : '') + (body ?? '') + (hint ? `^(${hint})` : '') +
+/** Definition line: :name(label)^(name of a sharing point)=(its full path)!(id hash)~(echo)@(person)'(part). */
+export function defLine(name, { label, hint, path, id, echo, person, part, body } = {}) {
+  return `:${name}` + (label ? `(${label})` : '') + (body ?? '') + (hint ? `^(${hint})` : '') + (path ? `=(${path})` : '') +
     (id ? `!(${id})` : '') + (echo ? `~(${echo})` : '') + (person ? `@(${person})` : '') + (part ? `'(${part})` : '');
 }
 

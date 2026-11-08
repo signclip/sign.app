@@ -22,7 +22,7 @@ export async function welcome({ door, helloPath, admin, signer, also = [], quota
   const ask = readHello(dec.decode(await door.read(helloPath)));
   const account = await createAccount(admin, ask.person, { quota, fetch });
   const appPassword = await appPasswordFor({ server: admin.server, ...account }, { fetch });
-  const own = { label: ask.person.label, person: ask.person.label, path: webdavUrl(admin.server, account.user), id: newSource() };
+  const own = { label: ask.person.label, path: webdavUrl(admin.server, account.user), id: newSource() };
   const secret = JSON.stringify({ server: admin.server, user: account.user, appPassword, id: own.id });
   return helloBack({ store: door, helloPath, secret, sharingPoints: [own, ...also], signer, now });
 }

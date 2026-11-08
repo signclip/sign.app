@@ -3,7 +3,7 @@
 // Purpose:   the person cannot delete in a sharing point she does not hold; she drops a request into
 //            its hello/ (the same drop as for joining):
 //              :v.1!(q_ n_ t_ u_ HASH) …        what she asks to remove
-//              ((quiet) {:v.1})'t(…)
+//              {:v.1} (quiet)'t(…)
 //            The signer's app honours it by itself when the request comes from the author: her n_
 //            is in the strand's id and the request is sealed by one of her devices (authorKeys).
 //            Anything else waits for the signer. The request moves to quiet/ as the record.
@@ -25,7 +25,7 @@ export async function askRemove({ store, strands, device, person, deviceKey = nu
   const at = timeLabel(now);
   const text = await signed(deviceKey, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": at }),
     strands.map((s) => defLine(s.name, { id: writeId(s.id, s.id.hash) })),
-    [`((quiet) {${strands.map((s) => `:${s.name}`).join(' ')}})'t(${at})`]));
+    [`{${strands.map((s) => `:${s.name}`).join(' ')}} (quiet)'t(${at})`]));
   const path = `hello/${buildName({ words: ['quiet'], person: person.label, time: at, u: shortU(id), kind: 'chain', ext: 'sign' })}`;
   await store.write(path, enc.encode(text));
   return path;

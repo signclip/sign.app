@@ -6,8 +6,8 @@
 // Limits:    adding a symbol or kind is an addition here plus a line in SCHEMA.md; existing
 //            files stay valid because no symbol changes its meaning.
 
-/** Meta symbols in the order they are written: ^ sharing point (its full path), ! id, ~ came from, @ whose (person or sharing point), ° where it was, 't time, ' part. */
-export const META = ['^', '!', '~', '@', '°', "'t", "'"];
+/** Meta symbols in the order they are written: ^ which sharing point (its name), = its full path, ! id, ~ came from, @ whose (person), ° where it was, 't time, ' part. */
+export const META = ['^', '=', '!', '~', '@', '°', "'t", "'"];
 
 /** Symbols that wrap or filter: without, must contain (reserved), search (Similar), gap (Take). */
 export const WRAP = ['-', '+', '?', '_'];

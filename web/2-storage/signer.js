@@ -35,10 +35,11 @@ export async function nextVersion(previousText, nextText) {
  */
 export async function followMove({ text, from, known, now = Date.now(), since = now }) {
   const next = await nextVersion(known.text, text);
-  if (!next?.moveTo) return { action: 'reject', path: null };
-  if (from === 'old') return { action: 'follow', path: next.moveTo.path };
+  const was = readDescription(known.text).path;
+  if (!next?.path || next.path === was) return { action: 'reject', path: null };
+  if (from === 'old') return { action: 'follow', path: next.path };
   const waited = now - since >= WAIT_DAYS * 864e5;
-  return { action: waited ? 'follow' : 'confirm', path: next.moveTo.path };
+  return { action: waited ? 'follow' : 'confirm', path: next.path };
 }
 
 /**
@@ -58,4 +59,4 @@ export async function newVersion({ store, signer, change, now = Date.now(), time
 
 /** Signer side: a planned move. Written at the old location, so it proves the old account too. */
 export const planMove = ({ store, signer, path, now = Date.now(), time }) =>
-  newVersion({ store, signer, change: { moveTo: { path, time } }, now, time });
+  newVersion({ store, signer, change: { path }, now, time });

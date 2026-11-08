@@ -7,7 +7,7 @@
 //              training  also out of modeling/smoothing: a ((quiet)) line goes to atlas
 //            If search is chosen without training and an atlas store is given, the files go to atlas
 //            first (they stay a training set). Every removal is a new chain on top:
-//              ((quiet) {:l.1})'t(…) · {:chain.1}      so a restore skips these ids (quietIds)
+//              {:l.1} (quiet)'t(…) · {:chain.1}        what first, the mark behind; a restore skips these ids
 // Depends:   1-model (file, ids, hash, crypto, filename), 2-storage/layout
 // Test:      tests/remove.test.mjs
 // Limits:    one removal ≈ 0.4 KB chain + one copy per file; a strand = 1–2 files (.x has .json).
@@ -58,7 +58,7 @@ export async function removeStrands({ own, chainPath, names, chips = {}, atlas =
   const text = await signed(deviceKey, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": at }), [
     defLine('chain.1', { id: writeId(file.head.id, await hashBytes(bytes)) }),
     ...defs.map((d) => defLine(d.name, { id: writeId(d.id, d.id.hash), echo: ':chain.1' })),
-  ], [`((quiet) {${refs}})'t(${at})`, '{:chain.1}']));
+  ], [`{${refs}} (quiet)'t(${at})`, '{:chain.1}']));
   const name = partsOf(chainPath);
   result.chain = pathOf({ words: ['quiet', ...name.words], person: person.label, time: at, kind: 'chain', u: shortU(id) });
   await own.write(result.chain, enc.encode(text));
@@ -72,7 +72,7 @@ export function quietIds(texts) {
   for (const t of texts) {
     const f = readFile(t);
     for (const row of f.rows) {
-      const m = /^\(\(quiet\) \{([^{}]*)\}\)/.exec(row.text);
+      const m = /^\{([^{}]*)\} \(quiet\)/.exec(row.text);
       if (!m) continue;
       for (const ref of m[1].split(' ')) { const d = f.defs.get(ref.slice(1)); if (d?.id) out.add(shortU(d.id)); }
     }
