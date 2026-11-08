@@ -36,7 +36,8 @@ export function specOf({ label, id, path, key }) {
  */
 export function readPaste(text) {
   const s = String(text ?? '').trim();
-  if (/^[^\s@/:]+@[^\s@/]+\.[a-z]{2,}$/i.test(s)) return { kind: 'cloud', cloudId: s };
+  // a cloud id; the user part may hold an @ itself: name@uni-koeln.de@uni-koeln.sciebo.de
+  if (/^[^\s/:]+@[^\s@/]+\.[a-z]{2,}$/i.test(s)) return { kind: 'cloud', cloudId: s };
   if (!/^https?:\/\/\S+$/.test(s)) return null;
   const u = new URL(s);
   const share = /^(.*?)\/(?:index\.php\/)?s\/([A-Za-z0-9]+)\/?$/.exec(u.origin + u.pathname);

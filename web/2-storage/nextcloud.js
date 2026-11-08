@@ -22,7 +22,10 @@ const PERMS = { read: 1, write: 1 | 2 | 4 | 8, all: 31 };
 
 export class Nextcloud {
   /** server: https://cloud.example.org · user, password: user and app password of this device. */
-  constructor({ server, user, password, fetch = globalThis.fetch }) {
+  // via: 'webapppassword' in the browser (that Nextcloud app allows CORS for shares, address in its field
+  // "Files sharing"; tested in lab/storage-test) · 'ocs' in the native app (no browser block there).
+  constructor({ server, user, password, fetch = globalThis.fetch, via = globalThis.Capacitor ? 'ocs' : 'webapppassword' }) {
+    this.via = via;
     this.server = server.replace(/\/$/, '');
     this.user = user;
     this.fetch = fetch;
@@ -30,7 +33,8 @@ export class Nextcloud {
   }
 
   async ocs(method, path, params = null) {
-    const res = await this.fetch(`${this.server}/ocs/v2.php/apps/files_sharing/api/v1/${path}${path.includes('?') ? '&' : '?'}format=json`, {
+    const base = this.via === 'webapppassword' && path.startsWith('shares') ? 'index.php/apps/webapppassword/api/v1' : 'ocs/v2.php/apps/files_sharing/api/v1';
+    const res = await this.fetch(`${this.server}/${base}/${path}${path.includes('?') ? '&' : '?'}format=json`, {
       method,
       headers: { Authorization: this.auth, 'OCS-APIRequest': 'true', Accept: 'application/json', ...(params ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) },
       body: params ? new URLSearchParams(params).toString() : undefined,

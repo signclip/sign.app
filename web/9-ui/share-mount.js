@@ -47,7 +47,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   }
   async function edit(change) { await changeList(own, change, meta()); await load(); draw(); }
   const say = (text) => { s.note = text; draw(); };
-  const ctx = { s, keychain, edit, load, say, t, tileOf: (n) => all().find((x) => x.n === n) };
+  const ctx = { s, keychain, edit, load, say, t, tileOf: (n) => all().find((x) => x.n === n), all };
 
   async function tap(tile) {
     if (tile.state === 'waiting') { // permission needs a tap; then its rules catch up

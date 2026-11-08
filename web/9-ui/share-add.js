@@ -5,11 +5,11 @@
 //                  Ordner wählen: a folder or a disk (folders.js), read and write.
 //            out: a Nextcloud folder of mine, only the chosen kinds (take/x, echo/x …) read-only:
 //                  Link kopieren (one link per kind folder on the clipboard) · an Adresse (paste a
-//                  cloud id: Sciebo, another Nextcloud). iCloud, Google Drive, OneDrive have no
+//                  cloud id: Sciebo, another Nextcloud; in the PWA too, via WebAppPassword). iCloud, Google Drive, OneDrive have no
 //                  read-only share an app can make: there the way is a backup into their folder.
 // Depends:   browser; 2-storage (spec, login-flow, nextcloud, routes); folders.js, system-share.js
 // Test:      needs a browser; readPaste and give are tested (list.test.mjs, connect.test.mjs).
-// Limits:    the browser blocks login and OCS shares (CORS) → "geht in der App"; a link per kind.
+// Limits:    the browser blocks the one-click login (CORS) → "geht in der App"; a link per kind.
 
 import { readPaste } from '../2-storage/spec.js';
 import { startLogin, waitLogin } from '../2-storage/login-flow.js';
@@ -32,7 +32,8 @@ export async function bringIn(ctx) {
   if (s.waitSecret) { await keychain.set(s.waitSecret, text.trim()); s.waitSecret = null; await ctx.load(); return say(t('copied')); }
   if (s.giveTo) return giveOut(ctx, s.giveTo, text.trim());
   const what = readPaste(text);
-  if (!what || what.kind === 'cloud') return say(what ? t('menu.native') : t('menu.paste'));
+  if (!what) return say(t('menu.paste'));
+  if (what.kind === 'cloud') { const own = ctx.tileOf(s.focus) ?? ctx.all().find((x) => x.canGive); return own ? giveOut(ctx, own.n, what.cloudId) : say(t('notReachable')); }
   const id = newSource();
   if (what.kind === 'login') {
     try {
@@ -75,5 +76,5 @@ export async function giveOut(ctx, n, how) {
     const given = await giveStrands(nc, { root: sp.spec.folder, kinds, to });
     if (to === 'link') await copy(given.map((g) => g.url ?? g).join('\n'));
     say(t(to === 'link' ? 'copied' : 'share'));
-  } catch { say(t('menu.native')); }
+  } catch { say(t('notReachable')); } // WebAppPassword missing or the address not entered there
 }
