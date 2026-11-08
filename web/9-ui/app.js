@@ -1,28 +1,27 @@
-// app.js — the first web-app shell: one display, four strand fields, the point. Wires gestures to
-// modules; holds no logic of its own (that lives in gestures, settings, glyph, 4-save, 5-take).
-//
-// Purpose:   tap point = take on/off · hold point = take while held · double-tap = always ready ·
-//            hold a strand field = only these strands · camera gestures on the video strand (camera.js) ·
-//            upper right edge = Similar in/out · upper left edge = own settings as chips.
-// Depends:   browser (camera, OPFS, localStorage), 0-i18n, 2-storage/local, 3-index, 4-save, 5-take,
-//            7-similar, 9-ui (gestures, settings, glyph, render)
-// Test/Limits: needs a browser (parts tested in tests/ui.test.mjs); first shell: no Whisper, no share menu yet.
+// app.js — the web app: one display, strand fields, the point. Only wiring; the meaning of every
+// gesture is in gestures.js, the detection in touch.js (decision 08.11., 18.07):
+//   point: tap = all strands that are on · hold = while held · double-tap = always ready · ← → replay
+//   strand: tap = on/off · hold = only this strand while held · hold audio and drop on text = text of it
+//   live picture: tap = focus · hold = video while held · ← → front/back · pinch = zoom
+//   edges: upper left own · middle left strands · upper right Similar · middle right share · top full
+// Depends:   browser; 0-i18n, 1-model, 2-storage/local, 3-index, 4-save, 5-take, 9-ui
+// Test/Limits: needs a browser (parts tested in tests/ui.test.mjs); no Whisper and no share menu yet.
 
 import { translator } from '../0-i18n/t.js';
 import { LocalStore } from '../2-storage/local.js';
 import { buildIndex } from '../3-index/index.js';
 import { saveTake } from '../4-save/save-take.js';
 import { openDevices, startTake, browserTap } from '../5-take/recorder.js';
-import { combinedSimilar } from '../7-similar/combine.js';
 import { newPerson, newSource } from '../1-model/ids.js';
 import { actionFor } from './gestures.js';
-import { normalize, readyStep, choose, CHOICES } from './settings.js';
-import { watch } from './ready.js';
-import { flip, zoomBy, focusAt, torch, onGestures } from './camera.js';
+import { normalize, readyStep, choose } from './settings.js';
 import { glyph } from './glyph.js';
 import { glyphSvg } from './render.js';
+import { watch } from './ready.js';
+import { flip, zoomBy, focusAt, torch } from './camera.js';
+import { bind, edgeZone } from './touch.js';
+import { ownChips, strandChips, similarChips, draw } from './panels.js';
 
-const HOLD_MS = 400, DOUBLE_MS = 300, EDGE_PX = 48;
 const $ = (sel) => document.querySelector(sel);
 const keep = (k, make) => { try { return localStorage.getItem(k) ?? (localStorage.setItem(k, make()), localStorage.getItem(k)); } catch { return make(); } };
 
@@ -35,116 +34,91 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const store = new LocalStore(await navigator.storage.getDirectory());
   let stream = await openDevices(navigator.mediaDevices, { facing: settings.facing });
   $('#live').srcObject = stream;
+  const state = { recording: null, only: null, on: new Set(settings.auto), ready: settings.ready, torch: false, replay: -1, index: await buildIndex([{ name: 'own', store }]) };
   const events = [];
-  let unwatch = () => {};
-  function onActivity(e) {
+  const onActivity = (e) => {
     events.push(e); while (events.length > 100) events.shift();
     const step = readyStep({ ...settings, ready: state.ready }, events, Boolean(state.recording), e.at);
     if (step === 'start') begin(); else if (step === 'stop') end();
-  }
-  async function switchCamera() {
-    if (state.recording) return;
-    settings = choose(settings, 'facing', settings.facing === 'user' ? 'environment' : 'user'); save();
-    unwatch();
-    stream = await flip(stream, settings.facing);
-    $('#live').srcObject = stream;
-    unwatch = watch(stream, onActivity, { video: $('#live') });
-  }
-  const state = { recording: null, held: new Set(), ready: settings.ready, lastTap: 0, index: await buildIndex([{ name: 'own', store }]) };
+  };
+  let unwatch = watch(stream, onActivity, { video: $('#live') });
 
-  unwatch = watch(stream, onActivity, { video: $('#live') }); // after state exists
-  onGestures($('[data-strand="v"]'), { swipe: (dir) => act(dir, 'strand:v') });
-  onGestures($('#live'), { pinch: (f) => zoomBy(stream, f), tap: (x, y) => focusAt(stream, x, y) });
-  const draw = () => { $('#point').innerHTML = glyphSvg(glyph({ recording: Boolean(state.recording), ready: state.ready }), 96); };
-  for (const field of document.querySelectorAll('[data-strand]')) {
-    field.setAttribute('aria-label', t(`kind.${field.dataset.strand}`));
-    field.onpointerdown = () => { state.held.add(field.dataset.strand); field.classList.add('held'); };
-    let lastTap = 0;
-    field.onpointerup = field.onpointercancel = () => {
-      state.held.delete(field.dataset.strand); field.classList.remove('held');
-      const now = performance.now();
-      if (now - lastTap < DOUBLE_MS) act('double-tap', `strand:${field.dataset.strand}`);
-      lastTap = now;
-    };
-  }
-
-  async function begin() {
-    if (state.recording) return;
+  const paint = () => {
+    $('#point').innerHTML = glyphSvg(glyph({ recording: Boolean(state.recording), ready: state.ready }), 96);
+    for (const f of document.querySelectorAll('[data-strand]')) f.classList.toggle('on', state.on.has(f.dataset.strand));
+  };
+  async function begin(only = null) {
+    if (state.recording || state.replay >= 0) return;
+    state.only = only;
     const tap = await browserTap(stream);
     state.recording = startTake(stream, { MediaRecorder, tapAudio: () => tap });
     const tick = (ts) => { if (state.recording) { state.recording.frame(ts); requestAnimationFrame(tick); } };
-    requestAnimationFrame(tick);
-    draw();
+    requestAnimationFrame(tick); paint();
   }
   async function end() {
     if (!state.recording) return;
     const take = await state.recording.stop();
-    state.recording = null;
-    draw();
-    const strands = state.held.size ? state.held : new Set(settings.auto);
+    const strands = state.only ? new Set([state.only]) : state.on;
+    state.recording = null; state.only = null; paint();
     await saveTake({ device, person, now: Date.now(), lengthMs: take.lengthMs, context: '', store,
       video: strands.has('v') ? take.video : null, audio: strands.has('a') ? take.audio : null });
     state.index = await buildIndex([{ name: 'own', store }]);
+    return take;
   }
-  const act = async (gesture, target) => {
-    const row = actionFor({ gesture, target, mode: state.recording ? 'take' : 'search' });
-    if (!row) return;
-    if (row.action === 'take') return state.recording ? end() : begin();
-    if (row.action === 'take-while-held') return begin();
-    if (row.action === 'ready') { state.ready = !state.ready; settings = choose(settings, 'ready', state.ready); save(); return draw(); }
-    if (row.action === 'switch-camera') return switchCamera();
-    if (row.action === 'torch') { state.torch = !state.torch; return torch(stream, state.torch); }
-    if (row.action === 'own-in') return showOwn(true);
-    if (row.action === 'own-out') return showOwn(false);
-    if (row.action === 'similar-in') return showSimilar(true);
-    if (row.action === 'similar-out') return showSimilar(false);
-  };
+  async function replay(step) {
+    const videos = (await store.list('take/')).map((f) => f.path).filter((p) => p.endsWith('.v.mp4')).sort().reverse();
+    state.replay = Math.max(-1, Math.min(videos.length - 1, state.replay + step));
+    const v = $('#replay');
+    v.hidden = state.replay < 0;
+    if (state.replay >= 0) { v.src = URL.createObjectURL(new Blob([await store.read(videos[state.replay])], { type: 'video/mp4' })); v.play(); }
+  }
+  const panel = (id, on, chips, onChip) => { $(id).hidden = !on; if (on) draw($(id), chips, onChip); };
+  const showOwn = (on) => panel('#own', on, ownChips(settings, t), (c) => { settings = choose(settings, c.key, c.value); state.on = new Set(settings.auto); save(); paint(); showOwn(true); });
+  const showSimilar = (on) => panel('#similar', on, similarChips(state.index, [...state.index.tables.context.keys()].slice(-3)));
 
-  let downAt = 0, held = false, timer = null;
-  $('#point').onpointerdown = () => { downAt = performance.now(); held = false; timer = setTimeout(() => { held = true; act('hold', 'point'); }, HOLD_MS); };
-  $('#point').onpointerup = () => {
-    clearTimeout(timer);
-    if (held) return end();
-    const now = performance.now();
-    if (now - state.lastTap < DOUBLE_MS) { state.lastTap = 0; return act('double-tap', 'point'); }
-    state.lastTap = now;
-    setTimeout(() => { if (state.lastTap === now) act('tap', 'point'); }, DOUBLE_MS);
-  };
+  async function act(gesture, target, x = {}) {
+    const row = actionFor({ gesture, target: target === 'strand' && gesture === 'drag' ? x.drag : target, mode: state.recording ? 'take' : 'search' });
+    switch (row?.action) {
+      case 'take': return state.recording ? end() : begin();
+      case 'take-while-held': return begin();
+      case 'ready': state.ready = !state.ready; settings = choose(settings, 'ready', state.ready); save(); return paint();
+      case 'replay-back': return replay(+1);
+      case 'replay-on': return replay(-1);
+      case 'strand-on-off': state.on.has(x.k) ? state.on.delete(x.k) : state.on.add(x.k); return paint();
+      case 'strand-while-held': return begin(x.k ?? 'v');
+      case 'transcribe': return; // EXTEND(S2, whisper): text of the audio just taken (5-take/whisper.js)
+      case 'chips-in': return panel('#chips', true, strandChips(x.k, state), async (c) => { state.torch = c.value; await torch(stream, state.torch); act('up', 'strand', x); });
+      case 'chips-out': return panel('#chips', false);
+      case 'hide-strand': return $(`[data-strand="${x.k}"]`).classList.add('hidden');
+      case 'strands-in': return document.querySelectorAll('[data-strand]').forEach((f) => f.classList.remove('hidden'));
+      case 'focus': return focusAt(stream, x.x, x.y);
+      case 'switch-camera': if (state.recording) return; settings = choose(settings, 'facing', settings.facing === 'user' ? 'environment' : 'user'); save(); unwatch(); stream = await flip(stream, settings.facing); $('#live').srcObject = stream; unwatch = watch(stream, onActivity, { video: $('#live') }); return;
+      case 'own-in': return showOwn(true);
+      case 'own-out': return showOwn(false);
+      case 'similar-in': return showSimilar(true);
+      case 'similar-out': return showSimilar(false);
+      case 'full': document.body.classList.add('full'); return document.documentElement.requestFullscreen?.().catch(() => {});
+      case 'unfull': document.body.classList.remove('full'); return document.exitFullscreen?.().catch(() => {});
+      default: return null;
+    }
+  }
 
+  bind($('#point'), { tap: () => act('tap', 'point'), doubleTap: () => act('double-tap', 'point'), hold: () => act('hold', 'point'), holdEnd: end, swipe: (d) => act(d, 'point') });
+  bind($('#live'), { tap: (px, py) => act('tap', 'live', { x: px, y: py }), hold: () => act('hold', 'live'), holdEnd: end, swipe: (d) => act(d, 'live'), pinch: (f) => zoomBy(stream, f) });
+  for (const f of document.querySelectorAll('[data-strand]')) {
+    const k = f.dataset.strand;
+    bind(f, { tap: () => act('tap', 'strand', { k }), hold: () => act('hold', 'strand', { k }), swipe: (d) => act(d, 'strand', { k }), holdEnd: end,
+      dragEnd: (el) => { const to = el?.dataset?.strand; if (to && to !== k) act('drag', 'strand', { k, drag: `strand:${k}>strand:${to}` }); } });
+  }
   let edge = null;
-  document.body.onpointerdown = (e) => {
-    const top = e.clientY < EDGE_PX * 3;
-    edge = top && innerWidth - e.clientX < EDGE_PX ? ['right', e.clientX] : top && e.clientX < EDGE_PX ? ['left', e.clientX] : null;
-  };
-  document.body.onpointerup = (e) => {
-    if (edge?.[0] === 'right' && edge[1] - e.clientX > 60) act('edge-in', 'upper-right');
-    if (edge?.[0] === 'left' && e.clientX - edge[1] > 60) act('edge-in', 'upper-left');
-    edge = null;
-  };
-  $('#similar').onpointerup = (e) => { if (e.clientX > innerWidth - EDGE_PX) act('edge-out', 'upper-right'); };
-  $('#own').onpointerup = (e) => { if (e.clientX < EDGE_PX) act('edge-out', 'upper-left'); };
-
-  function showOwn(on) {
-    $('#own').hidden = !on;
-    if (!on) return;
-    const chip = (key, value, label, on) => Object.assign(document.createElement('span'), { className: `chip${on ? ' on' : ''}`, textContent: label, onclick: () => { settings = choose(settings, key, value); save(); showOwn(true); } });
-    $('#own').replaceChildren(
-      ...CHOICES.waitStartMs.map((v) => chip('waitStartMs', v, `▶ ${v / 1000} s`, settings.waitStartMs === v)),
-      ...CHOICES.waitStopMs.map((v) => chip('waitStopMs', v, `■ ${v / 1000} s`, settings.waitStopMs === v)),
-      ...['v', 'a', 'x', 'l'].map((k) => chip('auto', k, t(`kind.${k}`), settings.auto.includes(k))),
-      ...CHOICES.facing.map((f) => chip('facing', f, f === 'user' ? '◐' : '◑', settings.facing === f)));
-  }
-
-  function showSimilar(on) {
-    $('#similar').hidden = !on;
-    if (!on) return;
-    const words = [...state.index.tables.context.keys()].slice(-3);
-    $('#similar').replaceChildren(...combinedSimilar(state.index, [{ kind: 'x', words }]).map((h) => {
-      const chip = document.createElement('span');
-      chip.className = 'chip';
-      chip.textContent = h.strand?.head?.['@'] ?? '·';
-      return chip;
-    }));
-  }
-  draw();
+  addEventListener('pointerdown', (e) => { edge = { zone: edgeZone(e.clientX, e.clientY, innerWidth, innerHeight), x: e.clientX, y: e.clientY }; }, true);
+  addEventListener('pointerup', (e) => {
+    const z = edge?.zone, dx = e.clientX - (edge?.x ?? 0), dy = e.clientY - (edge?.y ?? 0); edge = null;
+    if (z === 'top-middle' && Math.abs(dy) > 50) act(dy < 0 ? 'up' : 'down', 'top-middle');
+    else if (z?.endsWith('left') && dx > 60) act('edge-in', z);
+    else if (z?.endsWith('right') && dx < -60) act('edge-in', z);
+  }, true);
+  $('#own').addEventListener('pointerup', (e) => { if (e.clientX < 72) act('edge-out', 'upper-left'); });
+  $('#similar').addEventListener('pointerup', (e) => { if (innerWidth - e.clientX < 72) act('edge-out', 'upper-right'); });
+  paint();
 }

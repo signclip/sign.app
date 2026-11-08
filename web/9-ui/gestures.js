@@ -2,8 +2,8 @@
 //
 // Purpose:   help, hints and tests come from this table; a new action = one row, no code change.
 //            Only strand fields, the point (record) and what is on screen are targets: no extra buttons.
-//            Directions (decision design chat 4 and 07.11.): ↑ share · ↓ remove (chips) · ← next/another
-//            · → before. Upper right edge: Similar (others) · upper left edge: own settings (mirror).
+//            tap = on/off or start · hold = record while held (point: all on; strand: only it) · items: ↑ share
+//            · ↓ remove (chips) · ← next · → before. Edges in zones, starting ~1–2 cm inside (Android back).
 // Depends:   nothing
 // Test:      tests/ui.test.mjs
 // Limits:    a lookup is a scan of ~20 rows (< 1 µs); each (gesture, target, mode) means one action.
@@ -13,26 +13,37 @@ export const MODES = ['take', 'search', 'any'];
 
 /** [action, gesture, target, mode, what it does] */
 export const TABLE = [
-  ['take', 'tap', 'point', 'any', 'record on / off with the chosen strands'],
-  ['take-while-held', 'hold', 'point', 'any', 'record while held'],
+  ['take', 'tap', 'point', 'any', 'all switched-on strands start / stop together'],
+  ['take-while-held', 'hold', 'point', 'any', 'all switched-on strands record while held'],
   ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait'],
-  ['choose-strands', 'hold', 'strand', 'any', 'only the held strands take part; several held = together'],
-  ['transcribe', 'drag', 'strand:a>strand:x', 'any', 'audio becomes text (Whisper), live when possible'],
-  ['search-from', 'drag', 'strand>similar', 'any', 'search Similar from this strand or the held combination'],
-  ['switch-camera', 'left', 'strand:v', 'any', 'front / back camera'],
-  ['switch-camera', 'right', 'strand:v', 'any', 'front / back camera'],
-  ['torch', 'double-tap', 'strand:v', 'any', 'torch on / off (back camera)'],
-  ['zoom', 'pinch', 'live', 'any', 'zoom the camera'],
+  ['share-last', 'up', 'point', 'any', 'share the last take'],
+  ['remove-last', 'down', 'point', 'any', 'remove the last take (chips)'],
+  ['replay-back', 'left', 'point', 'any', 'watch the take before (plays in the display)'],
+  ['replay-on', 'right', 'point', 'any', 'watch the next take; past the newest = live again'],
+  ['strand-on-off', 'tap', 'strand', 'any', 'this strand on / off for the point'],
+  ['strand-while-held', 'hold', 'strand', 'any', 'record only this strand while held'],
+  ['strand-while-held', 'hold', 'live', 'any', 'record only video while held'],
+  ['transcribe', 'drag', 'strand:a>strand:x', 'any', 'record audio while held and make text of it, live'],
+  ['search-from', 'drag', 'strand>similar', 'any', 'search Similar from this strand'],
+  ['chips-in', 'up', 'strand', 'any', 'show the chips of this strand (camera: light, exposure; audio: stereo, Whisper)'],
+  ['chips-out', 'down', 'strand', 'any', 'hide the chips of this strand'],
+  ['hide-strand', 'left', 'strand', 'any', 'hide this field (it still records when on)'],
   ['focus', 'tap', 'live', 'any', 'focus where tapped'],
-  ['own-in', 'edge-in', 'upper-left', 'any', 'settings of the own sharing point: waits, strands, camera, consent'],
-  ['own-out', 'edge-out', 'upper-left', 'any', 'push the own settings off the display'],
+  ['zoom', 'pinch', 'live', 'any', 'zoom the camera'],
+  ['switch-camera', 'left', 'live', 'any', 'front / back camera'],
+  ['switch-camera', 'right', 'live', 'any', 'front / back camera'],
+  ['own-in', 'edge-in', 'upper-left', 'any', 'own settings: waits, strands, camera, consent'],
+  ['own-out', 'edge-out', 'upper-left', 'any', 'push the own settings off'],
+  ['strands-in', 'edge-in', 'middle-left', 'any', 'show the strand fields (hidden ones come back)'],
   ['similar-in', 'edge-in', 'upper-right', 'any', 'pull Similar onto the display'],
-  ['similar-out', 'edge-out', 'upper-right', 'any', 'push Similar off the display'],
+  ['similar-out', 'edge-out', 'upper-right', 'any', 'push Similar off'],
+  ['share-menu', 'edge-in', 'middle-right', 'any', 'share menu: sharing points, hello / join'],
+  ['full', 'up', 'top-middle', 'any', 'full screen: only picture and point'],
+  ['unfull', 'down', 'top-middle', 'any', 'show everything again'],
   ['share', 'up', 'item', 'any', 'share to the sharing point in focus (no question)'],
   ['remove', 'down', 'item', 'any', 'remove: chips share-first · out of search and shares · out of training'],
   ['next', 'left', 'item', 'any', 'next / another; on hello: go on to join'],
   ['before', 'right', 'item', 'any', 'before'],
-  ['add-sharing-point', 'left', 'sharing-point', 'any', 'add another sharing point (in the share menu)'],
   ['settings', 'hold', 'sharing-point', 'any', 'settings and consent of this sharing point'],
   ['take-over', 'tap', 'similar-item', 'search', 'take a result into the Take in the middle'],
 ];
