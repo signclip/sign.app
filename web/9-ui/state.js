@@ -7,19 +7,23 @@
 //              screen   rest · wait · record · toText · search · line · pick · share · delete · add · stream
 //              line     play · spread · nextPrev · scrub        share   hello · join · own
 //              stream   live · seg · people                     overlays: full, similar (both any time)
-//            fields: v a x l each 'on' | 'off'; in add also 'keep' (an existing strand stays) and 'new'
-//            (recorded again); saving add = a new combination on top, the old one stays below.
+//            fields: v a x l each 'on' | 'off', ONE selection for everything (decided 08.11.): the point,
+//            always-ready and adding to an element all record the 'on' ones; it stays as chosen (settings.auto)
+//            until changed. Adding to an element: what it has and is 'off' is kept (solid), what is 'on' is
+//            recorded new (dashed) → a new combination on top, the old one stays below. So: only picture on,
+//            then chip after chip: tap, hold, record — each gets a new picture, the rest stays.
 // Depends:   nothing
 // Test:      tests/state.test.mjs
 // Limits:    pure and synchronous; one event < 1 µs; unknown events leave the state as it is.
 
 export const KINDS = ['v', 'a', 'x', 'l'];
 
-export const START = Object.freeze({ screen: 'rest', sub: null, mode: 'take', full: false, similar: false, held: false, ready: false,
-  fields: Object.freeze({ v: 'on', a: 'on', x: 'on', l: 'on' }), base: null, aside: false });
+/** Start from the kept selection (settings.auto). */
+export const startState = (on = KINDS) => Object.freeze({ screen: 'rest', sub: null, mode: 'take', full: false, similar: false, held: false, ready: false,
+  fields: Object.freeze(Object.fromEntries(KINDS.map((k) => [k, on.includes(k) ? 'on' : 'off']))), base: null, has: [], aside: false });
+export const START = startState();
 
 const go = (s, screen, more = {}) => ({ ...s, screen, sub: null, held: false, only: null, ...more });
-const cycle = (f, add) => (add ? { keep: 'new', new: 'off', off: 'keep', on: 'new' }[f] : f === 'on' ? 'off' : 'on');
 
 /**
  * The next state. event: { action } from gestures.js, or a device event { action: 'motion' | 'still' |
@@ -33,15 +37,15 @@ export function next(s, e) {
     case 'unfull': return { ...s, full: false };
     case 'similar-in': return { ...s, similar: true };
     case 'similar-out': return { ...s, similar: false, mode: s.screen === 'search' ? 'take' : s.mode, ...(s.screen === 'search' ? { screen: 'rest' } : {}) };
-    case 'strand-on-off': return { ...s, fields: { ...s.fields, [e.kind]: cycle(s.fields[e.kind], s.screen === 'add') } };
+    case 'strand-on-off': return { ...s, fields: { ...s.fields, [e.kind]: s.fields[e.kind] === 'on' ? 'off' : 'on' } };
   }
   if (s.screen === 'record') {
     if (a === 'take' || (a === 'release' && s.held) || (a === 'still' && s.ready)) return { ...s, held: false, sub: 'saving' };
-    if (a === 'saved') return go(s, s.ready ? 'wait' : 'rest', { base: null });
+    if (a === 'saved') return go(s, s.ready ? 'wait' : 'rest', { base: null, has: [] });
     return s;
   }
   switch (a) {
-    case 'take': return go(s, 'record');
+    case 'take': return go(s, 'record', s.screen === 'add' ? { base: s.base, has: s.has } : { base: null, has: [] });
     case 'take-while-held': return go(s, 'record', { held: true });
     case 'strand-while-held': return go(s, 'record', { held: true, only: e.kind ?? 'v' });
     case 'ready': return s.ready ? go(s, 'rest', { ready: false }) : go(s, 'wait', { ready: true });
@@ -64,10 +68,7 @@ export function next(s, e) {
     case 'scrub': return s.mode === 'line' ? { ...s, screen: 'line', sub: 'scrub', held: true } : s;
     case 'release': return s.sub === 'scrub' ? { ...s, sub: 'play', held: false } : s;
     case 'spread': return s.mode === 'line' ? { ...s, screen: 'line', sub: 'spread' } : s;
-    case 'add-to': {
-      const has = e.kinds ?? [];
-      return go(s, 'add', { base: e.base ?? null, fields: Object.fromEntries(KINDS.map((k) => [k, has.includes(k) ? 'keep' : 'new'])) });
-    }
+    case 'add-to': return go(s, 'add', { base: e.base ?? null, has: e.kinds ?? [] }); // the selection stays as it is
     case 'stream': return { ...go(s, 'stream'), sub: 'live' };
     case 'segment': return s.screen === 'stream' ? { ...s, sub: 'seg' } : s;
     case 'people': return s.screen === 'stream' ? { ...s, sub: 'people' } : s;
@@ -76,9 +77,12 @@ export function next(s, e) {
   }
 }
 
-/** What the point records now: the fields that are 'on' or 'new' (add keeps the 'keep' ones by reference). */
-export const toRecord = (s) => (s.only ? [s.only] : KINDS.filter((k) => s.fields[k] === 'on' || s.fields[k] === 'new'));
-export const toKeep = (s) => KINDS.filter((k) => s.fields[k] === 'keep');
+/** What the point records now: the 'on' fields (or the one held). */
+export const toRecord = (s) => (s.only ? [s.only] : KINDS.filter((k) => s.fields[k] === 'on'));
+/** Adding to an element: what it has and is not recorded again stays, by reference. */
+export const toKeep = (s) => KINDS.filter((k) => s.has.includes(k) && s.fields[k] !== 'on');
+/** How a field is drawn: 'new' dashed (will be recorded) · 'keep' solid · 'off' grey. */
+export const look = (s, k) => (s.fields[k] === 'on' ? 'new' : s.has.includes(k) ? 'keep' : 'off');
 
 /** The canvas name of a state (Design · Geste Overview), to compare drawing and design one to one. */
 export function canvasStep(s) {

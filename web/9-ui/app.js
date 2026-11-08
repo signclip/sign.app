@@ -93,7 +93,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'ready': state.ready = !state.ready; settings = choose(settings, 'ready', state.ready); save(); return paint();
       case 'replay-back': return replay(+1);
       case 'replay-on': return replay(-1);
-      case 'strand-on-off': state.on.has(x.k) ? state.on.delete(x.k) : state.on.add(x.k); return paint();
+      case 'strand-on-off': state.on.has(x.k) ? state.on.delete(x.k) : state.on.add(x.k); settings = { ...settings, auto: [...state.on] }; save(); return paint(); // the selection stays until changed
       case 'strand-while-held': return begin(x.k ?? 'v');
       case 'transcribe': return; // EXTEND(S2, whisper): text of the audio just taken (5-take/whisper.js)
       case 'chips-in': return panel('#chips', true, strandChips(x.k, state), async (c) => { state.torch = c.value; await torch(stream, state.torch); act('up', 'strand', x); });
