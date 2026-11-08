@@ -30,7 +30,7 @@ export class Nextcloud {
   }
 
   async ocs(method, path, params = null) {
-    const res = await this.fetch(`${this.server}/ocs/v2.php/apps/files_sharing/api/v1/${path}?format=json`, {
+    const res = await this.fetch(`${this.server}/ocs/v2.php/apps/files_sharing/api/v1/${path}${path.includes('?') ? '&' : '?'}format=json`, {
       method,
       headers: { Authorization: this.auth, 'OCS-APIRequest': 'true', Accept: 'application/json', ...(params ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) },
       body: params ? new URLSearchParams(params).toString() : undefined,
@@ -73,6 +73,13 @@ export class Nextcloud {
   async readOnlyLink({ path, password, expires = null }) {
     const d = await this.ocs('POST', 'shares', { path, shareType: 3, permissions: PERMS.read, password, ...(expires ? { expireDate: expires } : {}) });
     return { id: String(d.id), token: d.token, url: d.url, webdav: publicWebdavUrl(this.server, d.token) };
+  }
+
+  /** Folders others shared with me, as they appear in my tree (internal and accepted federated). */
+  async sharedWithMe() {
+    const inner = (await this.ocs('GET', 'shares?shared_with_me=true')).map((s) => ({ label: s.file_target?.replace(/^\//, '') ?? s.path, folder: (s.file_target ?? s.path).replace(/^\//, ''), from: s.uid_owner }));
+    const fed = (await this.ocs('GET', 'remote_shares')).map((s) => ({ label: s.name, folder: s.mountpoint.replace(/^\//, ''), from: `${s.owner}@${new URL(s.remote).host}` }));
+    return [...inner, ...fed];
   }
 
   /** Stop a link or share at once (lost laptop, course over). */

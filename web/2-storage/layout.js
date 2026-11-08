@@ -2,8 +2,10 @@
 //
 // Purpose:   as few folders as possible (decision 07.11.):
 //              sharing-point.sign        the sharing point describes itself (who, what may go here)
-//              take/2026.11/             originals: .v.mp4 .a.wav .x.sign/.json
-//              echo/2026.11/             computed: .l.parquet .m.mp4, Whisper text, cuts
+//              take/<kind>/2026.11/      originals: v/ .v.mp4 · a/ .a.wav · x/ .x.sign/.json
+//              echo/<kind>/2026.11/      computed: l/ .l.parquet · m/ .m.mp4 · x/ Whisper text, cuts
+//                                        (one folder per strand kind, so a kind can be shared
+//                                        read-only on its own, decision 08.11., 20.02)
 //              chain/2026.11/            chain files: Takes, steps, shares (name starts with ^),
 //                                        a person's list of sharing points
 //              index/                    index parts, computed, rebuildable
@@ -35,7 +37,9 @@ export function pathOf(parts, { echo = false } = {}) {
   const ext = parts.ext ?? KINDS[parts.kind].ext;
   const name = buildName({ ...parts, ext });
   const folder = folderOf(parts.kind, { echo: echo || Boolean(parts.echo) });
-  return folder ? `${folder}/${monthOf(parts.time)}/${name}` : name;
+  if (!folder) return name;
+  const byKind = folder === 'take' || folder === 'echo'; // strand folders: each kind can be shared on its own
+  return byKind ? `${folder}/${parts.kind}/${monthOf(parts.time)}/${name}` : `${folder}/${monthOf(parts.time)}/${name}`;
 }
 
 /** The .json next to a .sign: same name, other ending. */

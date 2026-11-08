@@ -12,6 +12,9 @@
 //            Secrets stay in the keychain, found by the sharing point id (q_); entries hold none.
 //            acceptExpected(): shares waiting in the own Nextcloud are taken in by themselves only
 //            when they come from an address the person registered (her own Sciebo).
+//            mountedSharingPoints(): every folder shared with me (internal or federated) becomes a
+//            sharing point reached through the own Nextcloud: the native app and the PWA alike
+//            (the PWA needs only the own Nextcloud to allow its origin).
 // Depends:   webdav.js, nextcloud.js, memory.js (ExistsError)
 // Test:      tests/connect.test.mjs
 // Limits:    the browser reaches only servers that allow its origin (CORS, WebAppPassword); links
@@ -79,4 +82,9 @@ export async function acceptExpected(nc, expected) {
     taken.push({ label: share.name, folder, cloudId: w.cloudId });
   }
   return taken;
+}
+
+/** Folders shared with me → sharing point specs reached through the own Nextcloud (same login). */
+export async function mountedSharingPoints(nc, { newId }) {
+  return (await nc.sharedWithMe()).map((m) => ({ kind: 'nextcloud', label: m.label, id: newId(), server: nc.server, user: nc.user, folder: m.folder, from: m.from }));
 }
