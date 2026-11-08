@@ -53,7 +53,7 @@ export function pathOfSpec(spec) {
  */
 export function connect(spec, { secret = null, local = null, fetch = globalThis.fetch } = {}) {
   const path = pathOfSpec(spec);
-  const readOnly = spec.kind === 'link' || Boolean(spec.readOnly);
+  const readOnly = (spec.kind === 'link' && !spec.write) || Boolean(spec.readOnly); // write: a link that allows editing
   let store;
   if (spec.kind === 'local') store = local;
   else if (spec.kind === 'link') store = new WebDavStore({ base: path, user: spec.token, password: secret ?? '', fetch, name: spec.label });

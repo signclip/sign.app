@@ -55,6 +55,20 @@ export class WebDavStore {
     for (const e of await this.propfind(folder)) if (e.folder) await this.walk(e.path, out); else out.push({ path: e.path, size: e.size });
   }
 
+  /**
+   * May I write here? (a public Nextcloud link with "allow upload and editing"). Asks the folder's
+   * own permissions: oc:permissions holds C (create) or nc:share-permissions has bit 4. → true | false
+   */
+  async canWrite() {
+    const res = await this.request('PROPFIND', '', { headers: { Depth: '0', 'Content-Type': 'application/xml' },
+      body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns"><d:prop><oc:permissions/><nc:share-permissions/></d:prop></d:propfind>' });
+    if (res.status !== 207) return false;
+    const xml = await res.text();
+    const perms = /<oc:permissions>([^<]*)</i.exec(xml)?.[1] ?? '';
+    const share = Number(/<nc:share-permissions>(\d+)</i.exec(xml)?.[1] ?? 0);
+    return perms.includes('C') || (share & 4) === 4;
+  }
+
   /** Folders directly inside one folder (to choose which one to bring in). → ['Kurs 3/', 'Sign/'] */
   async folders(folder = '') { return (await this.propfind(folder)).filter((e) => e.folder).map((e) => e.path); }
 

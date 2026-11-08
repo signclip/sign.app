@@ -4,6 +4,7 @@
 //              (always) no from    after a take: write the new files there        afterTake
 //              (ask)               offered as a tile, sent only on a tap            offers
 //              (show) [(write)]    brought into search, read only [writing too]    sources
+//                                  (a public link writes only when it allows editing)
 //              (always) [from →] to  copy what is missing, again and again (catches up
 //                                  what a take could not write, e.g. disk unplugged)  runRules
 //              (backup)            encrypted copy (backup.js)                      runRules
@@ -42,7 +43,8 @@ export async function openAll(entries, { keychain, own, folders = null, fetch = 
     try {
       if (spec.kind === 'folder') { const store = await folders?.open(entry.id); open.set(i + 1, store ? { entry, spec, store } : { entry, spec, waiting: true }); continue; }
       const secret = spec.kind === 'local' ? null : await keychain.get(entry.id);
-      const { store } = connect(spec, { secret, local: own, fetch });
+      let { store } = connect(spec, { secret, local: own, fetch });
+      if (spec.kind === 'link' && await store.inner.canWrite().catch(() => false)) ({ store } = connect({ ...spec, write: true }, { secret, fetch })); // link allows editing
       let description = null;
       try { description = readDescription(dec.decode(await store.read(SELF))); } catch { /* not described yet */ }
       open.set(i + 1, { entry, spec, store, description });
