@@ -9,26 +9,28 @@
 //              layers   older versions of the chain as pale rings behind (C): editing = one more on top
 //              Similar  arcs out of the upper-right corner, results at their ends (B, chosen 08.11.)
 //              line     a thread through the point, the current element half see-through in it (B)
-//              chips    under the ring, stable part below, new part above, at most two rows; while
-//                       playing: the chip at the time in --hl, past full, coming pale; the row scrolls so
-//                       the current chip stands above the point (Initial §8)
+//              chips    under the ring, clustered, stable below (chips.js); in full-screen replay above the point
+//              stretched  a line or a live take as parallel threads in one time span (timeline.js)
+//              template a template (Vorlage) small and blue at the upper left, beside the own take
 //            No labels (decided 08.11.). Colours only as classes (index.html): own, other, wait, now,
 //            later, keep, off, hold; never colour alone — dashed, filled or a shape says it too.
-// Depends:   9-ui/state.js (look)
+// Depends:   9-ui/state.js (look), chips.js, timeline.js
 // Test:      tests/view.test.mjs
 // Limits:    phone 390 × 844 as the unit, scaled to any width; ≤ 3 layers, ≤ 3 Similar arcs, ≤ 6 line
 //            neighbours, chips at most 2 rows; one layout < 1 ms.
 
 import { look, KINDS } from '../state.js';
+import { chipShapes } from './chips.js';
+import { timelineShapes } from './timeline.js';
 
 const SIDES = { a: [-40, 40], v: [50, 130], x: [140, 220], l: [230, 310] }; // degrees from top, clockwise
 const at = (cx, cy, r, deg) => [cx + r * Math.sin((deg * Math.PI) / 180), cy - r * Math.cos((deg * Math.PI) / 180)];
-const chipW = (text, k) => Math.round((text ? 26 + text.length * 8.4 : 56) * k);
 
 /**
  * st: state.js · data: { chips: [{ text, t: [fromMs, toMs], stable }], timeMs, levels: [0–1],
  * similar: [id], line: { before: n, after: n }, versions: n } · size: { w, h }.
- * → { video: { cx, cy, d }, point: { cx, cy, d }, shapes: [...] }
+ * items: a stretched line (timeline.js) · template: true = a template plays beside the own take.
+ * → { video, template, point, shapes }
  */
 export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const k = w / 390, cx = w / 2, cy = (st.screen === 'delete' ? 392 : 362) * k, D = 240 * k, R = 158 * k;
@@ -51,23 +53,13 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   }
   add('video', { ...video, cls: st.screen === 'delete' ? 'video faded' : 'video' });
 
-  // chips: stable below, new above; current one at the time
-  if (!st.full && st.screen !== 'line') {
-    const rows = [data.chips?.filter((c) => !c.stable) ?? [], data.chips?.filter((c) => c.stable) ?? []].filter((r) => r.length);
-    if (!rows.length) rows.push([{ text: '', wait: true }]);
-    const base = cy + R + 32 * k, t = data.timeMs;
-    rows.slice(-2).forEach((row, r) => {
-      const ws = row.map((c) => chipW(c.text, k));
-      const total = ws.reduce((a, b) => a + b, 0) + 8 * k * (row.length - 1);
-      const now = row.findIndex((c) => c.t && t != null && t >= c.t[0] && t < c.t[1]);
-      let x = total <= w - 24 * k ? cx - total / 2 : cx - (ws.slice(0, Math.max(0, now)).reduce((a, b) => a + b + 8 * k, 0) + (ws[now] ?? 0) / 2);
-      row.forEach((c, i) => {
-        const tone = c.wait ? 'wait' : c.stable || t == null || !c.t ? 'own' : i === now ? 'now' : t >= c.t[1] ? 'own' : 'later';
-        add('chip', { x, y: base + (r - (rows.length - 1)) * 40 * k, w: ws[i], h: 32 * k, text: c.text, cls: `chip ${tone}`, role: c.wait ? null : `chip:${c.text}` });
-        x += ws[i] + 8 * k;
-      });
-    });
-  }
+  // chips: clustered, stable below, the one at the time highlighted (chips.js); not while a timeline shows words
+  const stretched = data.items?.length && ['line', 'record', 'stream'].includes(st.screen);
+  if (!stretched && (!st.full || st.mode === 'line') && st.screen !== 'line') shapes.push(...chipShapes(data.chips, { timeMs: data.timeMs, cx, y: st.full ? point.cy - 70 * k : cy + R + 32 * k, k, w }));
+
+  // template (Vorlage) beside the own take: smaller, blue, upper left, plays in the same time
+  const template = data.template && !st.full ? { cx: cx - R * 0.95, cy: cy - R * 0.95, d: 96 * k } : null;
+  if (template) add('video', { ...template, cls: 'video other template', role: 'template' });
 
   // Similar: arcs out of the upper-right corner (B)
   if (st.similar) {
@@ -79,7 +71,8 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   }
 
   // line: a thread through the point, neighbours left and right (B)
-  if (st.screen === 'line') {
+  if (stretched) shapes.push(...timelineShapes(data.items, { timeMs: data.timeMs ?? 0, sub: st.sub ?? 'play', cx, y: point.cy, k, w }));
+  else if (st.screen === 'line') {
     const g = (st.sub === 'spread' ? 104 : 80) * k, y = point.cy;
     add('line', { x1: 0, y1: y, x2: w, y2: y, cls: 'thread own' });
     for (const i of [-3, -2, -1, 1, 2, 3]) {
@@ -93,7 +86,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
 
   const pcls = st.screen === 'record' ? 'point recording' : st.screen === 'wait' ? 'point waiting' : st.screen === 'line' ? 'point line' : 'point';
   add('point', { ...point, cls: pcls, role: 'point' });
-  return { video, point, shapes };
+  return { video, template, point, shapes };
 }
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -107,6 +100,7 @@ function arcPath({ cx, cy, r, from, to }) {
 export function toSvg({ shapes }, { w = 390, h = 844 } = {}) {
   const out = shapes.map((s) => {
     switch (s.type) {
+      case 'frame': return `<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="${s.h / 2}" class="${s.cls}"/>`;
       case 'circle': return `<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" class="${s.cls}"/>`;
       case 'arc': return `<path d="${arcPath(s)}" class="${s.cls}"${role(s)}/>`;
       case 'line': return `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" class="${s.cls}"/>`;

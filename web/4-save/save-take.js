@@ -8,12 +8,14 @@
 // Test:      tests/storage.test.mjs
 // Limits:    a 4.2 s Take ≈ 8 MB video + 0.8 MB audio + 2 small text files + 2 chain files ·
 //            every strand may be missing (only audio, only text …).
+//            onto + keep: adding to an existing combination (SCHEMA G4b): the kept strands come from the
+//            chain below by reference, the new ones are recorded: {:x.1 _({:v.1})} and {:chain.1} at the bottom.
 // EXTEND(S2, video head): write the head line into the MP4 (udta box) once real recordings exist.
 // EXTEND(S5, landmarks): .l.parquet and .m.mp4 come as echo in a new chain on top of this one.
 
 import { newId, writeId, shortU } from '../1-model/ids.js';
 import { hashBytes, storedText } from '../1-model/hash.js';
-import { headLine, defLine, fileText } from '../1-model/file.js';
+import { headLine, defLine, fileText, readFile } from '../1-model/file.js';
 import { toJson } from '../1-model/json.js';
 import { encodeWav } from '../1-model/wav.js';
 import { flatWords, timeLabel } from '../1-model/filename.js';
@@ -27,9 +29,10 @@ const enc = new TextEncoder();
  * now: start in ms · lengthMs · context: text of the gestures · video: Uint8Array or null
  * audio: { channels: [Float32Array], sampleRate } or null · store: storage adapter
  * deviceKey: from crypto.newDeviceKey(); if given, every text file gets its witness y_
+ * onto: path of the chain it adds to · keep: kinds taken over from there by reference (state.toKeep)
  * Returns { chain: { path, id }, paths }.
  */
-export async function saveTake({ device, person, cell = null, where = null, now = Date.now(), lengthMs = 0, context = '', video = null, audio = null, store, deviceKey = null }) {
+export async function saveTake({ device, person, cell = null, where = null, now = Date.now(), lengthMs = 0, context = '', video = null, audio = null, store, deviceKey = null, onto = null, keep = [] }) {
   const time = timeLabel(now, lengthMs);
   const words = context ? flatWords(context) : [];
   const base = { words, person: person.label, time };
@@ -59,7 +62,16 @@ export async function saveTake({ device, person, cell = null, where = null, now 
 
   const chainId = make();
   const chainHead = headLine('chain', { '!': writeId(chainId), '@': person.label, '°': where, "'t": time });
-  const chainText = await signed(deviceKey, fileText(chainHead, defs, [`_({${used.map((u) => `:${u}`).join(' ')}})'t(${time})`]));
+  const took = `_({${used.map((u) => `:${u}`).join(' ')}})`;
+  let line = `${took}'t(${time})`, below = [];
+  if (onto) { // adding: kept definitions as they stand below, the old combination as :chain.1
+    const baseText = new TextDecoder().decode(await store.read(onto));
+    const kept = baseText.split('\n').filter((l) => keep.some((k) => l.startsWith(`:${k}.`)));
+    defs.unshift(...kept, defLine('chain.1', { id: writeId(readFile(baseText).head.id, await hashBytes(enc.encode(baseText))) }));
+    line = `{${kept.map((l) => /^:[a-z]+\.\d+/.exec(l)[0]).join(' ')} ${took}}'t(${time})`;
+    below = ['{:chain.1}'];
+  }
+  const chainText = await signed(deviceKey, fileText(chainHead, defs, [line, ...below]));
   const chainPath = pathOf({ ...base, where, kind: 'chain', u: shortU(chainId) });
   files.push({ path: chainPath, bytes: enc.encode(chainText) }, { path: jsonPath(chainPath), bytes: enc.encode(toJson(chainText)) });
 
