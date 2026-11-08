@@ -2,7 +2,7 @@
 //
 // Purpose:   read and write .sign files (SCHEMA.md, decisions 07.11.):
 //              head         :art!(id)~(…)@(…)°(…)'t(…)          first line, the file itself
-//              definitions  :art.n(label)^(hint)!(id hash)~(…)'(part)   variables, one per line
+//              definitions  :art.n(…)^(sharing point path)!(id hash)~(…)@(person)'(part), one per line
 //              rows         { … } _( ) ^( ){ } ?( ) ( …)        steps, newest on top
 //            A line break inside a bracket is a space; outside, it ends a definition or row.
 // Depends:   notation.js, symbols.js, ids.js, hash.js
@@ -58,7 +58,7 @@ function readDef(node) {
     label: body?.t === 'value' ? body.text : null,
     body: body && body.t !== 'value' ? body : null,
     hint: valueOf(m['^']), id: m['!'] ? readId(valueOf(m['!'])) : null,
-    echo: valueOf(m['~']), where: valueOf(m['°']), part: valueOf(m["'"]) ?? valueOf(m["'t"]), node,
+    echo: valueOf(m['~']), person: valueOf(m['@']), where: valueOf(m['°']), part: valueOf(m["'"]) ?? valueOf(m["'t"]), node,
   };
 }
 
@@ -102,10 +102,10 @@ export function headLine(kind, parts) {
   return `:${kind}` + META.filter((s) => parts[s]).map((s) => `${s}(${parts[s]})`).join('');
 }
 
-/** Definition line: :name(label)^(hint)!(id hash)~(echo)'(part). */
-export function defLine(name, { label, hint, id, echo, part, body } = {}) {
+/** Definition line: :name(label)^(sharing point path)!(id hash)~(echo)@(person)'(part). */
+export function defLine(name, { label, hint, id, echo, person, part, body } = {}) {
   return `:${name}` + (label ? `(${label})` : '') + (body ?? '') + (hint ? `^(${hint})` : '') +
-    (id ? `!(${id})` : '') + (echo ? `~(${echo})` : '') + (part ? `'(${part})` : '');
+    (id ? `!(${id})` : '') + (echo ? `~(${echo})` : '') + (person ? `@(${person})` : '') + (part ? `'(${part})` : '');
 }
 
 /** Whole file: head, definitions, rows (newest first). Ends with one line break. */

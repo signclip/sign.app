@@ -7,8 +7,9 @@
 //                                   = which kinds may lie here · optional join rule:
 //                                   :_.1((join) (gestures 1) (vouch 2))°(Hörsaal 2)'t(2026.11.10 10.00_12.00)
 //              list of a person     a chain file in her own chain/: one definition per sharing point
-//                                   :sharing-point.1(label)^(full path)!(q_… z_…), and per sharing point
-//                                   one line {{:sharing-point.1}{:v :x}} = these kinds always go there
+//                                   :sharing-point.1^(full path)!(q_… z_…)@(whose), and relation lines
+//                                   (relations.js), e.g. {:v :x} {:sharing-point.1} = always there
+//            ^( ) is the sharing point: its full path. A device: ^(local:<name>). @( ) is whose.
 //            Passwords are never in either file; the device keychain holds them by q_ id.
 // Depends:   file.js, ids.js, layout.js, memory.js
 // Test:      tests/storage.test.mjs
@@ -19,6 +20,14 @@ import { write } from '../1-model/notation.js';
 import { writeId } from '../1-model/ids.js';
 import { partsOf } from './layout.js';
 import { ExistsError } from './memory.js';
+import { relationLine, readRelation } from './relations.js';
+
+/** Name to show: the device name, the whose (@) of a whole account, else the last folder of the path. */
+export function labelOf(path, person = null) {
+  if (path?.startsWith('local:')) return path.slice(6);
+  if (person && /\/remote\.php\/dav\/files\/[^/]+\/?$/.test(path ?? '')) return person;
+  return decodeURIComponent(String(path ?? '').replace(/\/$/, '').split('/').pop() ?? '');
+}
 
 /**
  * Text of sharing-point.sign. kinds: what consent covers · join: { gestures, vouch, where, time } ·
@@ -29,9 +38,9 @@ export function describe({ id, by, time, label, kinds, join = null, key = null, 
   const rule = join ? [defLine('_.1', {
     body: `((join)${join.gestures ? ` (gestures ${join.gestures})` : ''}${join.vouch ? ` (vouch ${join.vouch})` : ''})`,
   }) + (join.where ? `°(${join.where})` : '') + (join.time ? `'t(${join.time})` : '')] : [];
-  const defs = [...signers.map((sg, i) => defLine(`sharing-point.${i + 1}`, { label: sg.label, id: `${sg.id} z_${sg.key}` })), ...rule];
+  const defs = [...signers.map((sg, i) => defLine(`sharing-point.${i + 1}`, { hint: `local:${sg.label}`, id: `${sg.id} z_${sg.key}` })), ...rule];
   return fileText(headLine('sharing-point', { '!': key ? `${id} z_${key}` : id, '@': by, "'t": time }), defs, [
-    ...(moveTo ? [`{^(${moveTo.path})}'t(${moveTo.time})`] : []),
+    ...(moveTo ? [`^(${moveTo.path})'t(${moveTo.time})`] : []),
     `(${label})`,
     `{${kinds.map((k) => `:${k}`).join(' ')}}`,
   ]);
@@ -42,7 +51,7 @@ export function readDescription(text) {
   const f = readFile(text);
   const labelRow = f.rows.find((r) => r.items[0]?.t === 'value');
   const kindRow = f.rows.find((r) => r.items[0]?.t === 'line' && r.items[0].items.every((i) => i.t === 'ref'));
-  const move = f.rows.find((r) => r.items[0]?.items?.[0]?.sym === '^');
+  const move = f.rows.find((r) => r.items[0]?.t === 'sym' && r.items[0].sym === '^');
   const textOf = (d) => (d.body ? write([d.body]) : '');
   const rule = [...f.defs.values()].find((d) => d.kind === '_' && textOf(d).includes('(join)'));
   const num = (word) => Number(new RegExp(`\\(${word} (\\d+)\\)`).exec(rule ? textOf(rule) : '')?.[1] ?? 0);
@@ -52,8 +61,8 @@ export function readDescription(text) {
     label: labelRow?.items[0]?.text ?? null,
     kinds: (kindRow?.items[0]?.items ?? []).map((r) => r.kind),
     join: rule ? { gestures: num('gestures'), vouch: num('vouch'), where: rule.where, time: rule.part } : null,
-    signers: [...f.defs.values()].filter((d) => d.kind === 'sharing-point' && d.id?.z).map((d) => ({ label: d.label, id: d.id.q, key: d.id.z.slice(2) })),
-    moveTo: move ? { path: move.items[0].items[0].value, time: move.time } : null,
+    signers: [...f.defs.values()].filter((d) => d.kind === 'sharing-point' && d.id?.z).map((d) => ({ label: labelOf(d.hint), id: d.id.q, key: d.id.z.slice(2) })),
+    moveTo: move ? { path: move.items[0].value, time: move.time } : null,
   };
 }
 
@@ -78,12 +87,17 @@ export function allows(description, path) {
   return description.kinds.includes(kind);
 }
 
-/** The person's list: her sharing points and what always goes there; devices carry z_: :sharing-point.2(Pixel)!(q_… z_…). */
-export function listText({ id, person, time }, sharingPoints) {
+/**
+ * The person's list: her sharing points (^(full path), devices with z_) and the relation lines between
+ * them. sharingPoints: [{ path, id, key, person, always }] · relations: [{ what, from, to, marks }]
+ * with from/to as 1-based positions in sharingPoints.
+ */
+export function listText({ id, person, time }, sharingPoints, relations = []) {
   return fileText(
     headLine('chain', { '!': writeId(id), '@': person, "'t": time }),
-    sharingPoints.map((sp, i) => defLine(`sharing-point.${i + 1}`, { label: sp.label, hint: sp.path, id: sp.key ? `${sp.id} z_${sp.key}` : sp.id })),
-    sharingPoints.map((sp, i) => (sp.always?.length ? `{{:sharing-point.${i + 1}}{${sp.always.map((k) => `:${k}`).join(' ')}}}` : null)).filter(Boolean),
+    sharingPoints.map((sp, i) => defLine(`sharing-point.${i + 1}`, { hint: sp.path, id: sp.key ? `${sp.id} z_${sp.key}` : sp.id, person: sp.person })),
+    [...sharingPoints.map((sp, i) => (sp.always?.length ? relationLine({ what: sp.always, to: i + 1, time }) : null)).filter(Boolean),
+      ...relations.map((r) => relationLine({ ...r, time }))],
   );
 }
 
@@ -92,19 +106,19 @@ export function readKeys(text) {
   return Object.fromEntries(readList(text).filter((sp) => sp.key).map((sp) => [sp.id, sp.key]));
 }
 
-/** Read the list back: [{ label, path, id, key, always }] (key only for devices). */
+/** Read the list back: [{ label, path, id, key, person, always }] and its relations (readRelations). */
 export function readList(text) {
   const f = readFile(text);
   const always = new Map();
-  for (const row of f.rows) {
-    const n = row.items[0]?.items?.[0]; // {{:sharing-point.1}{:v :x}}
-    if (n?.t === 'prefix' && n.head.items?.[0]?.kind === 'sharing-point') {
-      always.set(n.head.items[0].path[0], n.body.items.map((r) => r.kind));
-    }
-  }
+  for (const r of readRelations(text)) if (!r.from && !r.marks.length && r.what.length && r.what.every((k) => !k.includes('.'))) always.set(r.to, r.what);
   return [...f.defs.values()]
     .filter((d) => d.kind === 'sharing-point')
-    .map((d) => ({ label: d.label, path: d.hint, id: d.id?.q ?? null, ...(d.id?.z ? { key: d.id.z.slice(2) } : {}), always: always.get(String(d.n)) ?? [] }));
+    .map((d) => ({ label: labelOf(d.hint, d.person), path: d.hint, id: d.id?.q ?? null, ...(d.id?.z ? { key: d.id.z.slice(2) } : {}), ...(d.person ? { person: d.person } : {}), always: always.get(d.n) ?? [] }));
+}
+
+/** All relation lines of a chain, newest first. */
+export function readRelations(text) {
+  return readFile(text).rows.map((r) => readRelation(r.text)).filter(Boolean);
 }
 
 /**

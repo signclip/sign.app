@@ -16,13 +16,13 @@ const dec = new TextDecoder();
 
 /**
  * Signer app. door: store with hello/ join/ · admin: { server, user, password } of the instance ·
- * also: more sharing points for this person [{ label, path, id }] · → path of the answer in join/.
+ * also: more sharing points for this person [{ path, id, person }] · → path of the answer in join/.
  */
 export async function welcome({ door, helloPath, admin, signer, also = [], quota, fetch = globalThis.fetch, now = Date.now() }) {
   const ask = readHello(dec.decode(await door.read(helloPath)));
   const account = await createAccount(admin, ask.person, { quota, fetch });
   const appPassword = await appPasswordFor({ server: admin.server, ...account }, { fetch });
-  const own = { label: ask.person.label, path: webdavUrl(admin.server, account.user), id: newSource() };
+  const own = { label: ask.person.label, person: ask.person.label, path: webdavUrl(admin.server, account.user), id: newSource() };
   const secret = JSON.stringify({ server: admin.server, user: account.user, appPassword, id: own.id });
   return helloBack({ store: door, helloPath, secret, sharingPoints: [own, ...also], signer, now });
 }

@@ -4,7 +4,7 @@
 // Purpose:   a new version of sharing-point.sign counts only with the seal y_ of a signer listed in
 //            the last trusted version. The old version is never changed: it moves (rename only) to
 //              chain/JJJJ.MM/(sharing-point <label>)'t(…)!(u_…).sharing-point.sign
-//            Planned move = newest line {^(new path)}'t(…), sealed by a signer, read at the OLD location
+//            Planned move = newest line ^(new path)'t(…), sealed by a signer, read at the OLD location
 //            (only who has the old account can put it there) → devices follow.
 //            Same line read only from atlas (old location gone) = a new location → the person confirms,
 //            or after 14 days it counts by itself; anyone with the old location or a seal can stop it.

@@ -5,9 +5,10 @@
 //            For each target: copy the chosen strand files, write a chain there that names only
 //            those strands. At home: a new chain on top of the old one (decision 07.11., A):
 //              :chain.1!(old chain, hash)  :v.1!(…)~(:chain.1)  :x.1!(…)~(:chain.1)
-//              {^(Kurs 3!(q_…)){:v.1 :x.1}}'t(…)        new line on top
+//              :sharing-point.1^(full path)!(q_…)       where it went
+//              {:v.1 :x.1} {:sharing-point.1}'t(…)      new line on top: what, then where (relations.js)
 //              {:chain.1}                               bottom: the chain it builds on
-//            Its name starts with ^(Kurs 3).
+//            Its file name starts with ^(Kurs 3) (a view).
 // Depends:   1-model (file, ids, filename), 2-storage (layout, memory)
 // Test:      tests/share.test.mjs
 // Limits:    one share = small copies + 2 chain files (~0.5–1 KB) · withheld strands are not
@@ -17,6 +18,7 @@
 // (a playlist of others' chains) stay references – the target needs its own access.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
+import { relationLine } from '../2-storage/relations.js';
 import { newId, writeId, shortU, idKey } from '../1-model/ids.js';
 import { timeLabel } from '../1-model/filename.js';
 import { toJson } from '../1-model/json.js';
@@ -110,7 +112,8 @@ export async function shareTake({ own, chainPath, targets, once = null, device, 
     await writeOnce(store, jsonPath(path), enc.encode(toJson(text)));
     report.shared.push({ to: entry.label, kinds, paths: [...copied, path] });
     for (const d of chosen) sharedNames.add(d.name);
-    shareRows.push({ label: entry.label, id: entry.id, row: `{^(${entry.label}!(${entry.id})){${refs}}}'t(${at})` });
+    const n = shareRows.length + 1;
+    shareRows.push({ label: entry.label, def: defLine(`sharing-point.${n}`, { hint: entry.path ?? `local:${entry.label}`, id: entry.id }), row: `${relationLine({ what: chosen.map((d) => d.name), to: n })}'t(${at})` });
   }
 
   if (shareRows.length) {
@@ -119,6 +122,7 @@ export async function shareTake({ own, chainPath, targets, once = null, device, 
     const defs = [
       defLine('chain.1', { id: writeId(file.head.id, await hashBytes(oldBytes)) }),
       ...strands.filter((d) => sharedNames.has(d.name)).map((d) => defLine(d.name, { id: writeId(d.id, d.id.hash), echo: ':chain.1' })),
+      ...shareRows.map((s) => s.def),
     ];
     const text = await signed(deviceKey, fileText(head, defs, [...shareRows.map((s) => s.row), '{:chain.1}']));
     const path = pathOf({ to: shareRows.map((s) => s.label), words: name.words, person: person.label, where: name.where, time: at, kind: 'chain', u: shortU(id) });
