@@ -8,7 +8,7 @@
 // Test:      tests/ui.test.mjs
 // Limits:    a lookup is a scan of ~20 rows (< 1 µs); each (gesture, target, mode) means one action.
 
-export const GESTURES = ['tap', 'double-tap', 'hold', 'up', 'down', 'left', 'right', 'edge-in', 'edge-out', 'drag'];
+export const GESTURES = ['tap', 'double-tap', 'hold', 'up', 'down', 'left', 'right', 'edge-in', 'edge-out', 'drag', 'pinch'];
 export const MODES = ['take', 'search', 'any'];
 
 /** [action, gesture, target, mode, what it does] */
@@ -19,7 +19,11 @@ export const TABLE = [
   ['choose-strands', 'hold', 'strand', 'any', 'only the held strands take part; several held = together'],
   ['transcribe', 'drag', 'strand:a>strand:x', 'any', 'audio becomes text (Whisper), live when possible'],
   ['search-from', 'drag', 'strand>similar', 'any', 'search Similar from this strand or the held combination'],
-  ['switch-camera', 'double-tap', 'strand:v', 'any', 'front / back camera'],
+  ['switch-camera', 'left', 'strand:v', 'any', 'front / back camera'],
+  ['switch-camera', 'right', 'strand:v', 'any', 'front / back camera'],
+  ['torch', 'double-tap', 'strand:v', 'any', 'torch on / off (back camera)'],
+  ['zoom', 'pinch', 'live', 'any', 'zoom the camera'],
+  ['focus', 'tap', 'live', 'any', 'focus where tapped'],
   ['own-in', 'edge-in', 'upper-left', 'any', 'settings of the own sharing point: waits, strands, camera, consent'],
   ['own-out', 'edge-out', 'upper-left', 'any', 'push the own settings off the display'],
   ['similar-in', 'edge-in', 'upper-right', 'any', 'pull Similar onto the display'],

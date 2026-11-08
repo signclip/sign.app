@@ -2,12 +2,11 @@
 // modules; holds no logic of its own (that lives in gestures, settings, glyph, 4-save, 5-take).
 //
 // Purpose:   tap point = take on/off · hold point = take while held · double-tap = always ready ·
-//            hold a strand field = only these strands · double-tap the video field = front/back ·
+//            hold a strand field = only these strands · camera gestures on the video strand (camera.js) ·
 //            upper right edge = Similar in/out · upper left edge = own settings as chips.
 // Depends:   browser (camera, OPFS, localStorage), 0-i18n, 2-storage/local, 3-index, 4-save, 5-take,
 //            7-similar, 9-ui (gestures, settings, glyph, render)
-// Test:      not in node (needs a browser); its parts are tested in tests/ui.test.mjs.
-// Limits:    first shell for the test day: no Whisper yet, no share menu yet (next steps).
+// Test/Limits: needs a browser (parts tested in tests/ui.test.mjs); first shell: no Whisper, no share menu yet.
 
 import { translator } from '../0-i18n/t.js';
 import { LocalStore } from '../2-storage/local.js';
@@ -19,6 +18,7 @@ import { newPerson, newSource } from '../1-model/ids.js';
 import { actionFor } from './gestures.js';
 import { normalize, readyStep, choose, CHOICES } from './settings.js';
 import { watch } from './ready.js';
+import { flip, zoomBy, focusAt, torch, onGestures } from './camera.js';
 import { glyph } from './glyph.js';
 import { glyphSvg } from './render.js';
 
@@ -45,14 +45,16 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   async function switchCamera() {
     if (state.recording) return;
     settings = choose(settings, 'facing', settings.facing === 'user' ? 'environment' : 'user'); save();
-    unwatch(); stream.getTracks().forEach((tr) => tr.stop());
-    stream = await openDevices(navigator.mediaDevices, { facing: settings.facing });
+    unwatch();
+    stream = await flip(stream, settings.facing);
     $('#live').srcObject = stream;
     unwatch = watch(stream, onActivity, { video: $('#live') });
   }
   const state = { recording: null, held: new Set(), ready: settings.ready, lastTap: 0, index: await buildIndex([{ name: 'own', store }]) };
 
   unwatch = watch(stream, onActivity, { video: $('#live') }); // after state exists
+  onGestures($('[data-strand="v"]'), { swipe: (dir) => act(dir, 'strand:v') });
+  onGestures($('#live'), { pinch: (f) => zoomBy(stream, f), tap: (x, y) => focusAt(stream, x, y) });
   const draw = () => { $('#point').innerHTML = glyphSvg(glyph({ recording: Boolean(state.recording), ready: state.ready }), 96); };
   for (const field of document.querySelectorAll('[data-strand]')) {
     field.setAttribute('aria-label', t(`kind.${field.dataset.strand}`));
@@ -91,6 +93,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (row.action === 'take-while-held') return begin();
     if (row.action === 'ready') { state.ready = !state.ready; settings = choose(settings, 'ready', state.ready); save(); return draw(); }
     if (row.action === 'switch-camera') return switchCamera();
+    if (row.action === 'torch') { state.torch = !state.torch; return torch(stream, state.torch); }
     if (row.action === 'own-in') return showOwn(true);
     if (row.action === 'own-out') return showOwn(false);
     if (row.action === 'similar-in') return showSimilar(true);
@@ -125,10 +128,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     $('#own').hidden = !on;
     if (!on) return;
     const chip = (key, value, label, on) => Object.assign(document.createElement('span'), { className: `chip${on ? ' on' : ''}`, textContent: label, onclick: () => { settings = choose(settings, key, value); save(); showOwn(true); } });
-    const sec = (ms) => `${ms / 1000} s`;
     $('#own').replaceChildren(
-      ...CHOICES.waitStartMs.map((v) => chip('waitStartMs', v, `▶ ${sec(v)}`, settings.waitStartMs === v)),
-      ...CHOICES.waitStopMs.map((v) => chip('waitStopMs', v, `■ ${sec(v)}`, settings.waitStopMs === v)),
+      ...CHOICES.waitStartMs.map((v) => chip('waitStartMs', v, `▶ ${v / 1000} s`, settings.waitStartMs === v)),
+      ...CHOICES.waitStopMs.map((v) => chip('waitStopMs', v, `■ ${v / 1000} s`, settings.waitStopMs === v)),
       ...['v', 'a', 'x', 'l'].map((k) => chip('auto', k, t(`kind.${k}`), settings.auto.includes(k))),
       ...CHOICES.facing.map((f) => chip('facing', f, f === 'user' ? '◐' : '◑', settings.facing === f)));
   }
