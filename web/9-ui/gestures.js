@@ -3,13 +3,17 @@
 // Purpose:   help, hints and tests come from this table; a new action = one row, no code change.
 //            Only strand fields, the point (record) and what is on screen are targets: no extra buttons.
 //            tap = on/off or start · hold = record while held (point: all on; strand: only it) · items: ↑ share
-//            · ↓ remove (chips) · ← next · → before. Edges in zones, starting ~1–2 cm inside (Android back).
+//            · ↓ set aside, all the way ↓ delete (chips) · ← next · → before · slow hold = find the moment.
+//            No labels on screen (decided 08.11.): the help shows while something is held.
+//            Edges in zones, starting ~1–2 cm inside (Android back).
+//            Intent × device (Design · Geste Overview): VOICE = the keyword for an action (Initial §4.2);
+//            glasses later as one more map, the table stays.
 // Depends:   nothing
 // Test:      tests/ui.test.mjs
 // Limits:    a lookup is a scan of ~20 rows (< 1 µs); each (gesture, target, mode) means one action.
 
-export const GESTURES = ['tap', 'double-tap', 'hold', 'up', 'down', 'left', 'right', 'edge-in', 'edge-out', 'drag', 'pinch'];
-export const MODES = ['take', 'search', 'any'];
+export const GESTURES = ['tap', 'double-tap', 'hold', 'hold-slow', 'up', 'down', 'down-far', 'left', 'right', 'edge-in', 'edge-out', 'drag', 'pinch'];
+export const MODES = ['take', 'search', 'line', 'any'];
 
 /** [action, gesture, target, mode, what it does] */
 export const TABLE = [
@@ -17,7 +21,11 @@ export const TABLE = [
   ['take-while-held', 'hold', 'point', 'any', 'all switched-on strands record while held'],
   ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait'],
   ['share-last', 'up', 'point', 'any', 'show the sharing points that can take it; tap one = share the last take there'],
-  ['remove-last', 'down', 'point', 'any', 'remove the last take (chips)'],
+  ['aside-last', 'down', 'point', 'any', 'set the last take aside (it stays, dashed)'],
+  ['remove-last', 'down-far', 'point', 'any', 'delete: chips take · strand · part, then share-first · out of search · out of training'],
+  ['scrub', 'hold-slow', 'point', 'line', 'find the moment: the strip spreads, the chips follow the time'],
+  ['next', 'left', 'point', 'line', 'next element of the line'],
+  ['before', 'right', 'point', 'line', 'element before'],
   ['replay-back', 'left', 'point', 'any', 'watch the take before (plays in the display)'],
   ['replay-on', 'right', 'point', 'any', 'watch the next take; past the newest = live again'],
   ['strand-on-off', 'tap', 'strand', 'any', 'this strand on / off for the point'],
@@ -45,12 +53,23 @@ export const TABLE = [
   ['full', 'up', 'top-middle', 'any', 'full screen: only picture and point'],
   ['unfull', 'down', 'top-middle', 'any', 'show everything again'],
   ['share', 'up', 'item', 'any', 'share to the sharing point in focus (no question)'],
-  ['remove', 'down', 'item', 'any', 'remove: chips share-first · out of search and shares · out of training'],
+  ['aside', 'down', 'item', 'any', 'set aside'],
+  ['remove', 'down-far', 'item', 'any', 'delete: chips share-first · out of search and shares · out of training'],
+  ['after', 'drag', 'item>beside-point', 'any', 'one after another: a new line on top'],
+  ['together', 'drag', 'item>point', 'any', 'at the same time: a new line on top'],
+  ['chip-on-off', 'tap', 'chip', 'any', 'this context on / off for search'],
+  ['context-out', 'left', 'chip', 'any', 'take this context away: a new line on top'],
   ['next', 'left', 'item', 'any', 'next / another; on hello: go on to join'],
   ['before', 'right', 'item', 'any', 'before'],
   ['settings', 'hold', 'sharing-point', 'any', 'settings and consent of this sharing point'],
   ['take-over', 'tap', 'similar-item', 'search', 'take a result into the Take in the middle'],
 ];
+
+/** Intent × keyword (Initial §4.2): saying it does the same as the gesture. */
+export const VOICE = {
+  take: 'Start', next: 'Weiter', before: 'Zurück', scrub: 'Marker', after: 'Zusammenfügen',
+  'remove-last': 'Alle löschen', 'share-last': 'Senden', share: 'Senden', full: 'Vollbild', 'own-in': 'Einstellungen',
+};
 
 const rows = TABLE.map(([action, gesture, target, mode, what]) => ({ action, gesture, target, mode, what }));
 

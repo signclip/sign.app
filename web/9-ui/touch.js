@@ -9,10 +9,12 @@
 export const HOLD_MS = 350, DOUBLE_MS = 300, SWIPE_PX = 50, EDGE_IN = [12, 72];
 
 /** A finished one-finger touch → 'tap' | 'up' | 'down' | 'left' | 'right' | null (held touches end elsewhere). */
+/** far: a swipe down longer than FAR_PX (all the way ↓ = delete instead of set aside). */
+export const FAR_PX = 220;
 export function classify({ dx, dy, ms }) {
   if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return ms < HOLD_MS ? 'tap' : null;
   if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_PX) return null;
-  return Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
+  return Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : dy > FAR_PX ? 'down-far' : 'down');
 }
 
 /** Where a touch starts → edge zone or null. w, h = screen size. */
