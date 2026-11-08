@@ -29,5 +29,10 @@
   "mark.backup": "backup",
   "menu.paste": "paste",
   "menu.secret": "paste password",
-  "menu.native": "works in the app"
+  "menu.native": "works in the app",
+  "give.link": "copy link",
+  "give.address": "to address",
+  "menu.waiting": "not connected",
+  "menu.folder": "choose folder",
+  "menu.pick": "where to?"
 }

@@ -16,7 +16,7 @@ export const TABLE = [
   ['take', 'tap', 'point', 'any', 'all switched-on strands start / stop together'],
   ['take-while-held', 'hold', 'point', 'any', 'all switched-on strands record while held'],
   ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait'],
-  ['share-last', 'up', 'point', 'any', 'share the last take'],
+  ['share-last', 'up', 'point', 'any', 'show the sharing points that can take it; tap one = share the last take there'],
   ['remove-last', 'down', 'point', 'any', 'remove the last take (chips)'],
   ['replay-back', 'left', 'point', 'any', 'watch the take before (plays in the display)'],
   ['replay-on', 'right', 'point', 'any', 'watch the next take; past the newest = live again'],

@@ -4,16 +4,16 @@
 //              (always) no from    after a take: write the new files there        afterTake
 //              (ask)               offered as a tile, sent only on a tap            offers
 //              (show) [(write)]    brought into search, read only [writing too]    sources
-//              (always) from → to  copy what is missing, again and again           runRules
+//              (always) [from →] to  copy what is missing, again and again (catches up
+//                                  what a take could not write, e.g. disk unplugged)  runRules
 //              (backup)            encrypted copy (backup.js)                      runRules
 //              (show) from → to    give: a share of the folder, no copy (routes.give, Nextcloud) runRules
 //              (consent)           nothing to do here: atlas reads it
-//            Where a sharing point lies is its =(full path); from that the kind follows (specOf):
-//              local:  ·  …/remote.php/dav/files/<user>/<folder>/  ·  …/public.php/dav/files/<token>/
-//              any other https = WebDAV, user in the address (https://lena@dav.example/…), never a password.
+//            Where a sharing point lies is its =(full path); the kind follows from it (spec.js).
 //            Passwords live in the keychain by q_ (keychain.js), never in the list.
-// Depends:   connect.js, list.js, routes.js, backup.js, sharing-point.js, nextcloud.js, layout.js, memory.js
+// Depends:   connect.js, spec.js, list.js, routes.js, backup.js, sharing-point.js, layout.js, memory.js
 // Test:      tests/list.test.mjs
+//            A picked folder or disk that is not there = waiting; there again → reconnect, runRules.
 // Limits:    opening = one read of sharing-point.sign per sharing point (~0.2 s each over WebDAV);
 //            a run lists source and target once; a failed sharing point is reported, the rest go on.
 
@@ -22,7 +22,7 @@ import { wants } from './list.js';
 import { copyRoute } from './routes.js';
 import { backup } from './backup.js';
 import { readDescription } from './sharing-point.js';
-import { publicWebdavUrl } from './nextcloud.js';
+import { specOf } from './spec.js';
 import { SELF } from './layout.js';
 import { ExistsError } from './memory.js';
 import { KINDS } from '../1-model/symbols.js';
@@ -30,47 +30,17 @@ import { KINDS } from '../1-model/symbols.js';
 const ALL = Object.keys(KINDS).filter((k) => k !== 'sharing-point' && k !== 'chain');
 const dec = new TextDecoder();
 
-/** Entry of the list → spec for connect(), from its =(full path). Devices (key, no path) → null. */
-export function specOf({ label, id, path, key }) {
-  if (!path) return key ? null : { kind: 'local', label, id };
-  if (path === 'local:') return { kind: 'local', label, id };
-  const u = new URL(path);
-  const where = u.origin + u.pathname;
-  let m = /^(.*)\/public\.php\/dav\/files\/([^/]+)\/?$/.exec(where);
-  if (m) return { kind: 'link', label, id, server: m[1], token: m[2] };
-  m = /^(.*)\/remote\.php\/dav\/files\/([^/]+)\/(.*?)\/?$/.exec(where);
-  if (m) return { kind: 'nextcloud', label, id, server: m[1], user: decodeURIComponent(m[2]), folder: decodeURIComponent(m[3]) };
-  return { kind: 'webdav', label, id, url: where, user: decodeURIComponent(u.username) || null };
-}
-
-/**
- * Pasted text (clipboard instead of typing) → what to do with it:
- *   lena@uni.sciebo.de          { kind: 'cloud', cloudId }      give a folder to it (routes.give)
- *   https://host/s/AbC123       { kind: 'link', path }          a read-only link
- *   https://host                { kind: 'login', server }       one-click login (native app)
- *   https://host/remote.php/…   { kind: 'nextcloud', path, … }  · any other https: { kind: 'webdav', path }
- */
-export function readPaste(text) {
-  const s = String(text ?? '').trim();
-  if (/^[^\s@/:]+@[^\s@/]+\.[a-z]{2,}$/i.test(s)) return { kind: 'cloud', cloudId: s };
-  if (!/^https?:\/\/\S+$/.test(s)) return null;
-  const u = new URL(s);
-  const share = /^(.*?)\/(?:index\.php\/)?s\/([A-Za-z0-9]+)\/?$/.exec(u.origin + u.pathname);
-  if (share) return { kind: 'link', server: share[1], token: share[2], path: publicWebdavUrl(share[1], share[2]) };
-  if (u.pathname.replace(/\/$/, '') === '') return { kind: 'login', server: u.origin };
-  return { ...specOf({ path: s }), path: s };
-}
-
 /**
  * Open every sharing point of the list. → Map(n → { entry, spec, store, description }) or
  * { entry, error } · own: store of this device · keychain: { get(q_) } · devices are skipped.
  */
-export async function openAll(entries, { keychain, own, fetch = globalThis.fetch }) {
+export async function openAll(entries, { keychain, own, folders = null, fetch = globalThis.fetch }) {
   const open = new Map();
   for (const [i, entry] of entries.entries()) {
     const spec = specOf(entry);
     if (!spec) continue;
     try {
+      if (spec.kind === 'folder') { const store = await folders?.open(entry.id); open.set(i + 1, store ? { entry, spec, store } : { entry, spec, waiting: true }); continue; }
       const secret = spec.kind === 'local' ? null : await keychain.get(entry.id);
       const { store } = connect(spec, { secret, local: own, fetch });
       let description = null;
@@ -133,7 +103,8 @@ export async function runRules(rules, open, { own, backupKey = null, skip = () =
   for (const rule of rules) {
     const from = storeOf(rule.from), to = storeOf(rule.to), kinds = kindsFor(rule, open.get(rule.to));
     try {
-      if (rule.mark === 'always' && rule.from != null) report.push({ rule, result: await copyRoute(from, to, { kinds, skip }) });
+      if ((!from || !to) && [rule.from, rule.to].some((n) => open.get(n)?.waiting)) report.push({ rule, waiting: true }); // disk not plugged in
+      else if (rule.mark === 'always') report.push({ rule, result: await copyRoute(from, to, { kinds, skip }) });
       else if (rule.mark === 'backup') {
         if (!backupKey) throw new Error('no backup key on this device');
         report.push({ rule, result: await backup(from, to, backupKey, { filter: (p) => wants(rule.kinds, p) && !skip(p) }) });
@@ -141,4 +112,15 @@ export async function runRules(rules, open, { own, backupKey = null, skip = () =
     } catch (err) { report.push({ rule, error: String(err.message ?? err) }); }
   }
   return report;
+}
+
+/** Folders that are there again (a disk plugged in): reopen them. → numbers n now open. */
+export async function reconnect(open, folders, { ask = false, only = null } = {}) {
+  const back = [];
+  for (const [n, sp] of open) {
+    if (!sp.waiting || (only && only !== n)) continue;
+    const store = await folders.open(sp.entry.id, { ask });
+    if (store) { open.set(n, { entry: sp.entry, spec: sp.spec, store }); back.push(n); }
+  }
+  return back;
 }

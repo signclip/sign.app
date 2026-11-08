@@ -1,12 +1,14 @@
 // share-menu.js — the share menu as in the initial version: tiles, chips on hold, ← to bring one in.
 //
-// Purpose:   slides in from the middle-right edge. Three rows, chips only (no fields to type in):
+// Purpose:   slides in from the middle-right edge, or picks a target after ↑ on the point (pick:
+//            only tiles that can take the take, tap = share there). Three rows, chips only:
 //              teilen          the system share (send / copy) of the last take
 //              sharing points  one tile per sharing point of the list; marks under the name
 //              einfügen        ← or tap: take the clipboard (a link, an address, a cloud id)
 //            tile: tap = share the last take there now · hold = its chips · ↓ = out of the list
 //            chips of a tile: immer · fragen · zeigen · schreiben · backup, then the kinds it gets
-//            (the kinds belong to its "immer" rule, else to its "fragen" rule). Every chip = one
+//            (the kinds belong to its "immer" rule, else to its "fragen" rule); on a Nextcloud folder
+//            also geben: Link kopieren · an Adresse (those kinds read-only elsewhere). Every mark chip = one
 //            change of the list (list.js editList → a new chain version), nothing else is stored.
 // Depends:   2-storage/list.js (rules), sharing-points.js (offers)
 // Test:      tests/ui.test.mjs (model and chips); drawing in share-mount.js needs a browser.
@@ -20,7 +22,7 @@ const sendRule = (rules, n) => ruleOf(rules, n, 'always') ?? ruleOf(rules, n, 'a
 
 /**
  * Tiles of the list. entries: readList · rules: rulesOf · open: openAll (or an empty Map).
- * → [{ n, label, marks: [...], kinds: [...], state: 'ok' | 'error' | 'device' | 'closed', readOnly }]
+ * → [{ n, label, marks, kinds, state: 'ok' | 'error' | 'waiting' | 'device' | 'closed', readOnly, canGive }]
  */
 export function tiles(entries, rules, open = new Map()) {
   return entries.slice(0, 40).map((entry, i) => {
@@ -28,8 +30,9 @@ export function tiles(entries, rules, open = new Map()) {
     const marks = MENU_MARKS.filter((m) => (m === 'write' ? ruleOf(rules, n, 'show')?.write : ruleOf(rules, n, m)));
     const send = sendRule(rules, n);
     const kinds = send ? (send.kinds.length ? send.kinds : MENU_KINDS) : [];
-    const state = !entry.path && entry.key ? 'device' : sp?.error ? 'error' : sp?.store ? 'ok' : 'closed';
-    return { n, label: entry.label, marks, kinds, state, readOnly: Boolean(sp?.store?.readOnly) };
+    const state = !entry.path && entry.key ? 'device' : sp?.error ? 'error' : sp?.waiting ? 'waiting' : sp?.store ? 'ok' : 'closed';
+    const readOnly = Boolean(sp?.store?.readOnly);
+    return { n, label: entry.label, marks, kinds, state, readOnly, canGive: sp?.spec?.kind === 'nextcloud' && !readOnly };
   });
 }
 
@@ -38,6 +41,7 @@ export function tileChips(tile, t) {
   return [
     ...MENU_MARKS.filter((m) => !(m === 'write' && tile.readOnly)).map((m) => ({ key: 'mark', value: m, label: t(`mark.${m}`), on: tile.marks.includes(m) })),
     ...MENU_KINDS.map((k) => ({ key: 'kind', value: k, label: t(`kind.${k}`), on: tile.kinds.includes(k) })),
+    ...(tile.canGive ? ['link', 'address'].map((v) => ({ key: 'give', value: v, label: t(`give.${v}`), on: false })) : []),
   ];
 }
 
@@ -65,5 +69,9 @@ export function chipEdit(n, chip, rules) {
 /** What a tile says under its name: marks as short words, "nicht zugänglich" when it cannot open. */
 export function tileNote(tile, t) {
   if (tile.state === 'error') return t('notReachable');
+  if (tile.state === 'waiting') return t('menu.waiting');
   return [...tile.marks.map((m) => t(`mark.${m}`)), ...(tile.kinds.length && tile.kinds.length < MENU_KINDS.length ? [tile.kinds.map((k) => t(`kind.${k}`)).join(' ')] : [])].join(' · ');
 }
+
+/** Pick mode (↑ on the point): only tiles that can take a take now. */
+export const pickable = (all) => all.filter((tile) => tile.state === 'ok' && !tile.readOnly);

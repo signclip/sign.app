@@ -106,7 +106,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'own-out': return showOwn(false);
       case 'similar-in': return showSimilar(true);
       case 'similar-out': return showSimilar(false);
-      case 'share-last': return menu.shareLast();
+      case 'share-last': return menu.pick(); // ↑ on the point: choose where the last take goes
       case 'share-menu': return menu.show(true);
       case 'share-menu-out': return menu.show(false);
       case 'full': document.body.classList.add('full'); return document.documentElement.requestFullscreen?.().catch(() => {});
