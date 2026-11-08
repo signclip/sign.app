@@ -1,10 +1,11 @@
 // share-add.js — bring a sharing point in (paste, folder, one-click login) and give one out read-only.
 //
-// Purpose:   in:  ← paste: a link, a WebDAV address, a Nextcloud server (one click), a password
+// Purpose:   in:  ← paste: a link, a WebDAV address, a Nextcloud or Sciebo server (one click, then
+//                  choose: ganzes Konto or one folder, step by step into subfolders), a password
 //                  when one was asked for (straight into the keychain, never shown) ·
 //                  Ordner wählen: a folder or a disk (folders.js), read and write.
-//            out: a Nextcloud folder of mine, only the chosen kinds (take/x, echo/x …) read-only:
-//                  Link kopieren (one link per kind folder on the clipboard) · an Adresse (paste a
+//            out: a Nextcloud folder of mine, ganz or only chosen kinds (take/x, echo/x …), read-only:
+//                  WebDAV-Adresse kopieren (to bring it in elsewhere; one per folder) · an Adresse (paste a
 //                  cloud id: Sciebo, another Nextcloud; in the PWA too, via WebAppPassword). iCloud, Google Drive, OneDrive have no
 //                  read-only share an app can make: there the way is a backup into their folder.
 // Depends:   browser; 2-storage (spec, login-flow, nextcloud, routes); folders.js, system-share.js
@@ -14,7 +15,8 @@
 import { readPaste } from '../2-storage/spec.js';
 import { startLogin, waitLogin } from '../2-storage/login-flow.js';
 import { Nextcloud, webdavUrl } from '../2-storage/nextcloud.js';
-import { giveStrands } from '../2-storage/routes.js';
+import { giveStrands, giveAll } from '../2-storage/routes.js';
+import { connect } from '../2-storage/connect.js';
 import { newSource } from '../1-model/ids.js';
 import { folders, canPick } from './folders.js';
 import { copy } from './system-share.js';
@@ -41,7 +43,9 @@ export async function bringIn(ctx) {
       globalThis.open?.(login, '_blank');
       const got = await waitLogin(poll);
       await keychain.set(id, got.appPassword);
-      return edit({ add: { label: got.user, path: webdavUrl(got.server, got.user), id }, marks: ['show', 'write'] });
+      const { store } = connect({ kind: 'nextcloud', server: got.server, user: got.user, folder: '' }, { secret: got.appPassword });
+      s.browse = { id, server: got.server, user: got.user, store, at: '', inside: await store.folders('') };
+      return say(t('menu.account'));
     } catch { return say(t('menu.native')); } // the browser is blocked (CORS); the app is not
   }
   await edit({ add: { path: what.path, id }, marks: ['show'] });
@@ -67,14 +71,26 @@ export async function giveOut(ctx, n, how) {
   const { s, keychain, say, t } = ctx;
   if (how === 'address') { s.giveTo = n; return say(t('menu.paste')); }
   s.giveTo = null;
-  const sp = s.open.get(n), tile = ctx.tileOf(n);
+  const sp = s.open.get(n);
   try {
     const nc = new Nextcloud({ server: sp.spec.server, user: sp.spec.user, password: await keychain.get(sp.entry.id) });
-    const kinds = tile.kinds.length ? tile.kinds : ['v', 'a', 'x', 'l'];
+    const kinds = s.givePick ?? [];
     const to = how === 'link' ? 'link' : readPaste(how)?.cloudId;
     if (!to) return say(t('menu.paste'));
-    const given = await giveStrands(nc, { root: sp.spec.folder, kinds, to });
-    if (to === 'link') await copy(given.map((g) => g.url ?? g).join('\n'));
+    const given = kinds.length ? await giveStrands(nc, { root: sp.spec.folder, kinds, to }) : await giveAll(nc, { root: sp.spec.folder, to });
+    if (to === 'link') await copy(given.map((g) => g.webdav).join('\n')); // WebDAV addresses, read-only, no account
     say(t(to === 'link' ? 'copied' : 'share'));
   } catch { say(t('notReachable')); } // WebAppPassword missing or the address not entered there
+}
+
+/** After a login: chips to choose what to bring in. → [{ label, go }] · ganzes Konto / diesen Ordner, then subfolders. */
+export function browseChips(ctx) {
+  const { s, edit, t } = ctx, b = s.browse;
+  const take = (at) => { s.browse = null; return edit({ add: { label: at ? at.replace(/\/$/, '').split('/').pop() : b.user, path: webdavUrl(b.server, b.user, at.replace(/\/$/, '')), id: b.id }, marks: ['show', 'write'] }); };
+  const into = async (at) => { b.at = at; b.inside = await b.store.folders(at); ctx.draw(); };
+  return [
+    { label: t(b.at ? 'menu.here' : 'menu.account'), go: () => take(b.at) },
+    ...(b.at ? [{ label: '↑', go: () => into(b.at.replace(/[^/]+\/$/, '')) }] : []),
+    ...b.inside.map((f) => ({ label: f.replace(/\/$/, '').split('/').pop(), go: () => into(f) })),
+  ];
 }

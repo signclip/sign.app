@@ -30,9 +30,13 @@
   "menu.paste": "einfügen",
   "menu.secret": "Passwort einfügen",
   "menu.native": "geht in der App",
-  "give.link": "Link kopieren",
+  "give.link": "WebDAV-Adresse kopieren",
   "give.address": "an Adresse",
   "menu.waiting": "nicht verbunden",
   "menu.folder": "Ordner wählen",
-  "menu.pick": "wohin?"
+  "menu.pick": "wohin?",
+  "give.all": "ganz",
+  "menu.here": "diesen Ordner",
+  "menu.account": "ganzes Konto",
+  "menu.give": "geben"
 }

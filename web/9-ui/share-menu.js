@@ -8,7 +8,7 @@
 //            tile: tap = share the last take there now · hold = its chips · ↓ = out of the list
 //            chips of a tile: immer · fragen · zeigen · schreiben · backup, then the kinds it gets
 //            (the kinds belong to its "immer" rule, else to its "fragen" rule); on a Nextcloud folder
-//            also geben: Link kopieren · an Adresse (those kinds read-only elsewhere). Every mark chip = one
+//            also geben: ganz or some kinds, then WebDAV-Adresse kopieren · an Adresse. Every mark chip = one
 //            change of the list (list.js editList → a new chain version), nothing else is stored.
 // Depends:   2-storage/list.js (rules), sharing-points.js (offers)
 // Test:      tests/ui.test.mjs (model and chips); drawing in share-mount.js needs a browser.
@@ -41,7 +41,6 @@ export function tileChips(tile, t) {
   return [
     ...MENU_MARKS.filter((m) => !(m === 'write' && tile.readOnly)).map((m) => ({ key: 'mark', value: m, label: t(`mark.${m}`), on: tile.marks.includes(m) })),
     ...MENU_KINDS.map((k) => ({ key: 'kind', value: k, label: t(`kind.${k}`), on: tile.kinds.includes(k) })),
-    ...(tile.canGive ? ['link', 'address'].map((v) => ({ key: 'give', value: v, label: t(`give.${v}`), on: false })) : []),
   ];
 }
 
@@ -75,3 +74,19 @@ export function tileNote(tile, t) {
 
 /** Pick mode (↑ on the point): only tiles that can take a take now. */
 export const pickable = (all) => all.filter((tile) => tile.state === 'ok' && !tile.readOnly);
+
+/**
+ * geben (a Nextcloud folder of mine, read-only elsewhere): what — ganz or chosen kinds (only for this
+ * moment, nothing stored) — then how: WebDAV-Adresse kopieren · an Adresse (Sciebo, other Nextcloud).
+ * picked: [] = ganz · ['x', 'l'] = only these strand folders. → chips [{ key: 'give-what' | 'give', value, label, on }]
+ */
+export function giveChips(picked, t) {
+  return [
+    { key: 'give-what', value: 'all', label: t('give.all'), on: !picked.length },
+    ...MENU_KINDS.map((k) => ({ key: 'give-what', value: k, label: t(`kind.${k}`), on: picked.includes(k) })),
+    ...['link', 'address'].map((v) => ({ key: 'give', value: v, label: t(`give.${v}`), on: false })),
+  ];
+}
+
+/** A give-what chip tapped → the new choice. */
+export const pickGive = (picked, value) => (value === 'all' ? [] : picked.includes(value) ? picked.filter((k) => k !== value) : [...picked, value]);

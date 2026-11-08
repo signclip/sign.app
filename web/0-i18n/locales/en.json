@@ -30,9 +30,13 @@
   "menu.paste": "paste",
   "menu.secret": "paste password",
   "menu.native": "works in the app",
-  "give.link": "copy link",
+  "give.link": "copy WebDAV address",
   "give.address": "to address",
   "menu.waiting": "not connected",
   "menu.folder": "choose folder",
-  "menu.pick": "where to?"
+  "menu.pick": "where to?",
+  "give.all": "whole",
+  "menu.here": "this folder",
+  "menu.account": "whole account",
+  "menu.give": "give"
 }

@@ -14,7 +14,7 @@
 
 import { readName } from '../1-model/filename.js';
 import { ExistsError } from './memory.js';
-import { KINDS } from '../1-model/symbols.js';
+import { KINDS, FOLDERS } from '../1-model/symbols.js';
 
 const kindOf = (path) => readName(path.slice(path.lastIndexOf('/') + 1))?.kind ?? null;
 const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -58,5 +58,14 @@ export function strandFolders(root, kinds) {
 export async function giveStrands(nc, { root, kinds, to, password = null, expires = null }) {
   const out = [];
   for (const path of strandFolders(root, kinds)) out.push(await give(nc, { path, to, password, expires }));
+  return out;
+}
+
+/** give the whole sharing point: its folder, or (an account root cannot be shared) each Sign folder in it. */
+export async function giveAll(nc, { root, to, password = null, expires = null }) {
+  const base = root.replace(/\/$/, '');
+  const paths = base ? [base] : FOLDERS;
+  const out = [];
+  for (const path of paths) out.push(await give(nc, { path, to, password, expires }));
   return out;
 }

@@ -16,8 +16,8 @@ import { readList } from '../2-storage/sharing-point.js';
 import { openAll, afterTake, sources, runRules, reconnect } from '../2-storage/sharing-points.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
-import { tiles, tileChips, chipEdit, tileNote, pickable, MENU_KINDS } from './share-menu.js';
-import { bringIn, pickFolder, giveOut } from './share-add.js';
+import { tiles, tileChips, chipEdit, tileNote, pickable, giveChips, pickGive, MENU_KINDS } from './share-menu.js';
+import { bringIn, pickFolder, giveOut, browseChips } from './share-add.js';
 import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
 import { send } from './system-share.js';
@@ -31,7 +31,7 @@ const el = (tag, cls, text = '') => Object.assign(document.createElement(tag), {
  * → { show(on), pick(), afterTake(paths), runRules() }
  */
 export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, onSources = () => {} }) {
-  const s = { entries: [], rules: [], open: new Map(), hold: null, focus: null, pick: false, waitSecret: null, giveTo: null, note: '' };
+  const s = { entries: [], rules: [], open: new Map(), hold: null, focus: null, pick: false, waitSecret: null, giveTo: null, givePick: [], browse: null, note: '' };
   const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()) });
   const all = () => tiles(s.entries, s.rules, s.open);
   const run = async (only = null) => runRules(only ? s.rules.filter((r) => r.to === only || r.from === only) : s.rules,
@@ -47,7 +47,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   }
   async function edit(change) { await changeList(own, change, meta()); await load(); draw(); }
   const say = (text) => { s.note = text; draw(); };
-  const ctx = { s, keychain, edit, load, say, t, tileOf: (n) => all().find((x) => x.n === n), all };
+  const ctx = { s, keychain, edit, load, say, t, tileOf: (n) => all().find((x) => x.n === n), all, draw: () => draw() };
 
   async function tap(tile) {
     if (tile.state === 'waiting') { // permission needs a tap; then its rules catch up
@@ -76,15 +76,15 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         swipe: (d) => (d === 'down' ? edit({ remove: tile.n }) : d === 'up' ? tap(tile) : null) });
       if (s.hold !== tile.n || s.pick) continue;
       const chips = list.appendChild(el('div', 'tile-chips'));
-      for (const chip of tileChips(tile, t)) {
-        chips.appendChild(el('span', `chip${chip.on ? ' on' : ''}`, chip.label)).onclick = () => {
-          if (chip.key === 'give') return giveOut(ctx, tile.n, chip.value);
-          const change = chipEdit(tile.n, chip, s.rules);
-          if (change) edit(change);
-        };
+      const chip = (c, go) => { chips.appendChild(el('span', `chip${c.on ? ' on' : ''}`, c.label)).onclick = go; };
+      for (const c of tileChips(tile, t)) chip(c, () => { const change = chipEdit(tile.n, c, s.rules); if (change) edit(change); });
+      if (tile.canGive) chips.appendChild(el('div', 'note', t('menu.give')));
+      for (const c of tile.canGive ? giveChips(s.givePick, t) : []) {
+        chip(c, () => (c.key === 'give' ? giveOut(ctx, tile.n, c.value) : (s.givePick = pickGive(s.givePick, c.value), draw())));
       }
     }
     if (s.pick) return;
+    if (s.browse) { const b = row('browse'); for (const c of browseChips(ctx)) b.appendChild(el('span', 'chip', c.label)).onclick = c.go; }
     const add = row('add');
     add.appendChild(el('span', 'chip', `← ${t(s.waitSecret ? 'menu.secret' : 'menu.paste')}`)).onclick = () => bringIn(ctx);
     if (canPick()) add.appendChild(el('span', 'chip', t('menu.folder'))).onclick = () => pickFolder(ctx);

@@ -35,23 +35,28 @@ export class WebDavStore {
     return out.filter((f) => f.path.startsWith(prefix)).sort((a, b) => (a.path < b.path ? -1 : 1));
   }
 
-  async walk(folder, out) {
+  /** One level of a folder: [{ path, folder: true|false, size }]. */
+  async propfind(folder) {
     const res = await this.request('PROPFIND', folder, {
       headers: { Depth: '1', 'Content-Type': 'application/xml' },
       body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:getcontentlength/><d:resourcetype/></d:prop></d:propfind>',
     });
-    if (res.status === 404) return;
+    if (res.status === 404) return [];
     if (res.status !== 207) throw new Error(`PROPFIND ${folder}: ${res.status}`);
     const xml = await res.text();
     const basePath = new URL(this.base).pathname;
-    for (const block of xml.split(/<d:response>/i).slice(1)) {
+    return xml.split(/<d:response>/i).slice(1).map((block) => {
       const href = decodeURIComponent(/<d:href>([^<]*)<\/d:href>/i.exec(block)?.[1] ?? '');
-      const path = href.startsWith(basePath) ? href.slice(basePath.length) : href;
-      if (path === folder) continue;
-      if (/<d:collection\s*\/>/i.test(block)) await this.walk(path, out);
-      else out.push({ path, size: Number(/<d:getcontentlength>(\d+)/i.exec(block)?.[1] ?? 0) });
-    }
+      return { path: href.startsWith(basePath) ? href.slice(basePath.length) : href, folder: /<d:collection\s*\/>/i.test(block), size: Number(/<d:getcontentlength>(\d+)/i.exec(block)?.[1] ?? 0) };
+    }).filter((e) => e.path !== folder);
   }
+
+  async walk(folder, out) {
+    for (const e of await this.propfind(folder)) if (e.folder) await this.walk(e.path, out); else out.push({ path: e.path, size: e.size });
+  }
+
+  /** Folders directly inside one folder (to choose which one to bring in). → ['Kurs 3/', 'Sign/'] */
+  async folders(folder = '') { return (await this.propfind(folder)).filter((e) => e.folder).map((e) => e.path); }
 
   async read(path) {
     const res = await this.request('GET', path);
