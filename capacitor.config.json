@@ -1,0 +1,7 @@
+{
+  "appId": "org.signclip.signapp",
+  "appName": "Sign",
+  "webDir": "web",
+  "android": { "allowMixedContent": false },
+  "plugins": { "CapacitorHttp": { "enabled": true } }
+}

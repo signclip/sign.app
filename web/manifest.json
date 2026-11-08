@@ -1,0 +1,10 @@
+{
+  "name": "Sign",
+  "short_name": "Sign",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFFBF7",
+  "theme_color": "#FAECE7",
+  "icons": []
+}
