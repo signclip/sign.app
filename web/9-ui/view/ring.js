@@ -100,7 +100,7 @@ function arcPath({ cx, cy, r, from, to }) {
 export function toSvg({ shapes }, { w = 390, h = 844 } = {}) {
   const out = shapes.map((s) => {
     switch (s.type) {
-      case 'frame': return `<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="${s.h / 2}" class="${s.cls}"/>`;
+      case 'bubble': return `<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="${s.h / 2}" class="${s.cls}"/>`;
       case 'circle': return `<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" class="${s.cls}"/>`;
       case 'arc': return `<path d="${arcPath(s)}" class="${s.cls}"${role(s)}/>`;
       case 'line': return `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" class="${s.cls}"/>`;
