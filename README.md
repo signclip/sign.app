@@ -1,4 +1,4 @@
-# signapp
+# sign.app
 
 Veröffentlicht die Sign-App: **Web-App** über GitHub Pages und **Android-App** (APK) über Capacitor.
 Der Code entsteht in [signclip/signclip](https://github.com/signclip/signclip) im Ordner `app/`; hier liegt nur eine Kopie in `web/` (Stand in `web/VERSION`).
