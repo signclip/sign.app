@@ -4,7 +4,8 @@
 // Depends:   nothing
 // Test:      tests/ui.test.mjs
 // Limits:    hold after 350 ms · double-tap within 300 ms · swipe ≥ 50 px · edges start 12–72 px inside
-//            the screen edge (Android uses the outermost strip for "back") and only in the upper 2/3.
+//            the screen edge (Android uses the outermost strip for "back") and only in the upper 2/3 ·
+//            at most two fingers: held + action (parallel) or two moving (pinch).
 
 export const HOLD_MS = 350, DOUBLE_MS = 300, SWIPE_PX = 50, EDGE_IN = [12, 72];
 
@@ -35,85 +36,98 @@ export function edgeZone(x, y, w, h) {
 }
 
 /**
- * bind(el, handlers) → detach(). handlers: down(event) (first touch, before anything is known), tap(x, y),
- * doubleTap(), hold(), holdEnd(), swipe(dir), pinch(factor), dragEnd(targetElement, moved). x, y are 0–1 inside el.
+ * bind(el, handlers) → detach(). Each finger is its own touch; the role a finger touched is what down(event)
+ * returns (or null) and is handed back as the last argument, so two fingers never mix up their targets.
+ *   down(event) → role       a finger goes down, before anything is known
+ *   tap(x, y, role)          x, y are 0–1 inside el · doubleTap(role)
+ *   hold(role)               the finger stayed HOLD_MS · holdEnd(role) · dragEnd(element, moved, role)
+ *   swipe(dir, role)         · pinch(factor): two fingers, neither held yet
+ *   parallel(heldRole, role) a second finger went down while the first one is held: from now on the first
+ *                            finger is a property (DESIGN principle 4), the second does the action
+ * Without a held finger, a second finger is a pinch (as before). A third finger is ignored.
  */
 export function bind(el, h) {
-  const fingers = new Map(); // pointerId → { x, y }
-  let touch = null; // the one-finger touch in progress: { x, y, at }
-  let timer = null;
-  let held = false;
+  const touches = new Map(); // pointerId → { x, y, at, role, held, timer, pinch }
   let lastTap = 0;
   let spread = null; // distance between two fingers while pinching
 
+  const pinchers = () => [...touches.values()].filter((t) => t.pinch);
   const distance = () => {
-    const [p, q] = [...fingers.values()];
+    const [p, q] = pinchers();
     return Math.hypot(p.x - q.x, p.y - q.y);
   };
 
   const down = (e) => {
-    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (fingers.size === 2) { // a second finger: pinch, not a touch
-      clearTimeout(timer);
+    const others = [...touches.values()];
+    if (others.length >= 2) return; // a third finger: ignored
+    const heldOne = others.find((t) => t.held && !t.pinch);
+    if (others.length === 1 && !heldOne) { // a second finger, the first not held: pinch, not a touch
+      clearTimeout(others[0].timer);
+      others[0].pinch = true;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY, pinch: true });
       spread = distance();
-      touch = null;
       return;
     }
-    h.down?.(e);
-    touch = { x: e.clientX, y: e.clientY, at: performance.now() };
-    held = false;
-    timer = setTimeout(() => {
-      held = true;
-      h.hold?.();
+    const role = h.down?.(e) ?? null;
+    const t = { x: e.clientX, y: e.clientY, at: performance.now(), role, held: false, pinch: false };
+    touches.set(e.pointerId, t);
+    if (heldOne) h.parallel?.(heldOne.role, role);
+    t.timer = setTimeout(() => {
+      t.held = true;
+      h.hold?.(role);
     }, HOLD_MS);
   };
 
   const move = (e) => {
-    if (!fingers.has(e.pointerId)) return;
-    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (spread && fingers.size === 2) {
-      const d = distance();
-      h.pinch?.(d / spread);
-      spread = d;
+    const t = touches.get(e.pointerId);
+    if (!t) return;
+    if (t.pinch) {
+      Object.assign(t, { x: e.clientX, y: e.clientY });
+      if (spread && pinchers().length === 2) {
+        const d = distance();
+        h.pinch?.(d / spread);
+        spread = d;
+      }
       return;
     }
-    const moved = touch && Math.hypot(e.clientX - touch.x, e.clientY - touch.y) > 10;
-    if (moved && !held) clearTimeout(timer); // a swipe, not a hold
+    const moved = Math.hypot(e.clientX - t.x, e.clientY - t.y) > 10;
+    if (moved && !t.held) clearTimeout(t.timer); // a swipe, not a hold
   };
 
   const up = (e) => {
-    fingers.delete(e.pointerId);
-    clearTimeout(timer);
-    if (!touch) {
-      if (!fingers.size) spread = null;
+    const t = touches.get(e.pointerId);
+    if (!t) return;
+    touches.delete(e.pointerId);
+    clearTimeout(t.timer);
+    if (t.pinch) {
+      if (!pinchers().length) spread = null;
       return;
     }
-    if (held) {
-      const moved = Math.hypot(e.clientX - touch.x, e.clientY - touch.y) > 30; // held and carried = a drag
-      h.holdEnd?.();
-      h.dragEnd?.(document.elementFromPoint(e.clientX, e.clientY), moved);
-      touch = null;
+    if (t.held) {
+      const moved = Math.hypot(e.clientX - t.x, e.clientY - t.y) > 30; // held and carried = a drag
+      h.holdEnd?.(t.role);
+      h.dragEnd?.(globalThis.document?.elementFromPoint?.(e.clientX, e.clientY) ?? null, moved, t.role);
       return;
     }
-    const gesture = classify({ dx: e.clientX - touch.x, dy: e.clientY - touch.y, ms: performance.now() - touch.at });
-    if (gesture === 'tap') tapped(e);
-    else if (gesture) h.swipe?.(gesture);
-    touch = null;
+    const gesture = classify({ dx: e.clientX - t.x, dy: e.clientY - t.y, ms: performance.now() - t.at });
+    if (gesture === 'tap') tapped(e, t.role);
+    else if (gesture) h.swipe?.(gesture, t.role);
   };
 
   // a tap waits DOUBLE_MS when a double-tap is possible
-  const tapped = (e) => {
+  const tapped = (e, role) => {
     const now = performance.now();
     if (h.doubleTap && now - lastTap < DOUBLE_MS) {
       lastTap = 0;
-      h.doubleTap();
+      h.doubleTap(role);
       return;
     }
     lastTap = now;
     const r = el.getBoundingClientRect();
     const x = (e.clientX - r.left) / r.width;
     const y = (e.clientY - r.top) / r.height;
-    setTimeout(() => { if (lastTap === now || !h.doubleTap) h.tap?.(x, y); }, h.doubleTap ? DOUBLE_MS : 0);
+    const waits = Boolean(h.doubleTap);
+    setTimeout(() => { if (lastTap === now || !waits) h.tap?.(x, y, role); }, waits ? DOUBLE_MS : 0);
   };
 
   const events = [['pointerdown', down], ['pointermove', move], ['pointerup', up], ['pointercancel', up]];

@@ -1,6 +1,7 @@
 // view/chips.js — context as chips, clustered and following the time (Initial §5, §8; SCHEMA G2–G4).
 //
-// Purpose:   one field: stable part below, new part above, at most two rows.
+// Purpose:   one field under the window (the bottom side, decided 13.11.): the sticky context lies in front,
+//            clustered together in ONE bubble (it holds for the series); the context of this take follows.
 //            One gesture = one background bubble (G3: the outermost brackets are gestures); its word chips
 //            sit inside, the bubble ends where the next gesture begins. A prefix (cluster, G4) is glued to
 //            the front of the bubble, no gap: ((Frucht) (Banane Erdbeeren)) → (Frucht)Banane Erdbeeren
@@ -45,15 +46,10 @@ function spaceBefore(chips, i, k) {
  * row), k (scale), w (screen width). → shapes [{ type: 'bubble' | 'chip', … }]
  */
 export function chipShapes(groups = [], { timeMs = null, cx, y, k = 1, w = 390 }) {
-  const rows = [groups.filter((g) => !g.stable), groups.filter((g) => g.stable)].filter((row) => row.length);
-  if (!rows.length) rows.push([{ text: '', wait: true }]); // nothing yet: one dashed chip
-  const shown = rows.slice(-2);
-  const out = [];
-  shown.forEach((row, r) => {
-    const rowY = y + (r - (shown.length - 1)) * ROW * k; // the stable row is the lowest
-    out.push(...rowShapes(row, { timeMs, cx, y: rowY, k, w }));
-  });
-  return out;
+  const sticky = groups.filter((g) => g.stable).flatMap(chipsOf); // prefixes stay glued inside the bubble
+  const row = [...(sticky.length ? [{ items: sticky, stable: true, sticky: true }] : []), ...groups.filter((g) => !g.stable)];
+  if (!row.length) row.push({ text: '', wait: true }); // nothing yet: one dashed chip
+  return rowShapes(row, { timeMs, cx, y, k, w });
 }
 
 /** One row of gestures: centred, or scrolled so the chip at the time stands above the point (x = cx). */
@@ -61,7 +57,7 @@ function rowShapes(row, { timeMs, cx, y, k, w }) {
   const units = row.map((gesture) => {
     const chips = chipsOf(gesture).map((c) => ({ ...c, w: chipW(c.text, k) }));
     const words = chips.reduce((sum, c, i) => sum + spaceBefore(chips, i, k) + c.w, 0);
-    return { gesture, chips, width: words + (chips.length > 1 ? 2 * PAD * k : 0) };
+    return { gesture, chips, width: words + (chips.length > 1 || gesture.sticky ? 2 * PAD * k : 0) };
   });
   const total = units.reduce((sum, u) => sum + u.width, 0) + GAP * k * (units.length - 1);
 
@@ -74,12 +70,13 @@ function rowShapes(row, { timeMs, cx, y, k, w }) {
   const out = [];
   for (const { gesture, chips, width } of units) {
     const stable = Boolean(gesture.stable);
-    if (chips.length > 1) {
+    const bubbled = chips.length > 1 || gesture.sticky; // the sticky context is always one bubble, even of one word
+    if (bubbled) {
       const lit = chips.some((c) => toneOf(c, stable, timeMs) === 'now');
       out.push({ type: 'bubble', x, y: y - 20 * k, w: width, h: 40 * k,
-        cls: `bubble${stable ? ' stable' : ''}${lit ? ' now' : ''}`, role: `gesture:${chips.map((c) => c.text).join(' ')}` });
+        cls: `bubble${stable ? ' stable' : ''}${gesture.sticky ? ' sticky' : ''}${lit ? ' now' : ''}`, role: gesture.sticky ? 'sticky' : `gesture:${chips.map((c) => c.text).join(' ')}` });
     }
-    let chipX = x + (chips.length > 1 ? PAD * k : 0);
+    let chipX = x + (bubbled ? PAD * k : 0);
     chips.forEach((c, i) => {
       chipX += spaceBefore(chips, i, k);
       out.push({ type: 'chip', x: chipX, y, w: c.w, h: 32 * k, text: c.text,

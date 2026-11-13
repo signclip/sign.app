@@ -14,7 +14,8 @@
 //              ↓                 out of the list
 //              drag tile → tile   copy what is missing, again and again; double-tap the bridge =
 //                                encrypted backup instead of a copy. The first tile (0) is this
-//                                device: 0 → n is the same as "always" (every take goes there)
+//                                device: 0 → n is the same as "always" (every take goes there);
+//                                n → 0 = bring its files here once (a backup is restored)
 //            Two dashed tiles at the end bring new ones in: clipboard (link, address, server) · folder.
 //            Every change = one edit of the list (list.js editList → a new chain version).
 // Depends:   nothing (rules come from 2-storage/list.js)
@@ -31,9 +32,10 @@ const allOrSome = (kinds) => (kinds.length === KINDS.length ? [] : ordered(kinds
 
 /**
  * Tiles of the list. entries: readList · rules: rulesOf · open: openAll (or an empty Map).
- * → [{ n, label, always, ask, kinds, shown, write, copyTo: [n], backupTo: [n], backupOwn, state, readOnly, canGive }]
+ * runs: n → how its last copy or backup went (upkeep.summary).
+ * → [{ n, label, always, ask, kinds, shown, write, copyTo: [n], backupTo: [n], backupOwn, state, run, readOnly, canGive }]
  */
-export function tiles(entries, rules, open = new Map()) {
+export function tiles(entries, rules, open = new Map(), runs = new Map()) {
   const list = entries.slice(0, 40).map((entry, i) => {
     const n = i + 1;
     const sp = open.get(n);
@@ -57,6 +59,7 @@ export function tiles(entries, rules, open = new Map()) {
       backupTo: rules.filter((r) => r.from === n && r.mark === 'backup').map((r) => r.to),
       backupOwn: Boolean(ruleOf(rules, n, 'backup')), // this device backs up there
       state,
+      run: runs.get(n)?.state ?? null, // 'ok' | 'waiting' | 'error' after a copy or backup to it
       readOnly,
       dropOnly: Boolean(sp?.store?.dropOnly),
       canGive: sp?.spec?.kind === 'nextcloud' && !readOnly,

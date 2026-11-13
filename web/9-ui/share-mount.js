@@ -4,16 +4,24 @@
 //            of the list it reopens them and hands Similar its sources (show rules). What a gesture means
 //            is in share-menu.js, how it looks in view/points.js; this file only listens and calls.
 //            A folder or disk that comes back (checked every 30 s) gets its rules run at once: backup and
-//            copies catch up by themselves.
+//            copies catch up by themselves. Upkeep (2-storage/upkeep.js): a new rule runs right after it
+//            is made, copies every hour, backups every 7 days; a sharing point offline at start is opened
+//            again; each tile shows how its last run went; a tile dropped on this device (0) brings its
+//            files home (a backup is restored).
 // Depends:   browser; 2-storage (list, sharing-point, sharing-points), 4-save/share-take,
 //            9-ui (share-menu, share-add, folders, touch, view/points, view/ring)
 // Test:      needs a browser; the parts are tested in tests/list.test.mjs and tests/ui.test.mjs.
 // Limits:    one list per device store; 30 s until a plugged-in disk is noticed (browser: only while the
-//            app is open, and after one tap on its tile per session for permission).
+//            app is open, and after one tap on its tile per session for permission); upkeep runs only while
+//            the app is open (native app: EXTEND(S10, background) a background task).
 
 import { findList, changeList, rulesOf } from '../2-storage/list.js';
 import { readList } from '../2-storage/sharing-point.js';
 import { openAll, afterTake, sources, runRules, reconnect } from '../2-storage/sharing-points.js';
+import { dueRules, remember, retry, backupKey, summary, reopen, bringHome } from '../2-storage/upkeep.js';
+import { partsOf } from '../2-storage/layout.js';
+import { quietIds } from '../4-save/remove.js';
+import { deviceKeys } from './device-keys.js';
 import { readPaste } from '../2-storage/spec.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
@@ -27,6 +35,10 @@ import { toSvg } from './view/ring.js';
 
 const dec = new TextDecoder();
 
+/** Small things this device remembers about its own runs (never shared). */
+function kept(key) { try { return JSON.parse(localStorage.getItem(key) ?? '{}'); } catch { return {}; } }
+function keep(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode */ } }
+
 async function clipboardText() {
   try {
     const cap = globalThis.Capacitor?.Plugins?.Clipboard;
@@ -39,10 +51,11 @@ async function clipboardText() {
 /**
  * panel: element over the screen · own: the device store · keychain: { get, set } · person: { id, label } ·
  * device: q_ · t: translator · lastChain(): newest take chain · selection(): kinds on in the ring ·
+ * once(): kinds for this share only (a strand held on the screen while ↑ on the point) or null ·
  * onSources(list): new sources for Similar · nameSign(): bytes of the name sign video or null (goes with each hello).
  * → { show(on), afterTake(paths), runRules(), dropKind(n, kind) }
  */
-export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, onSources = () => {}, nameSign = async () => null }) {
+export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
@@ -56,6 +69,9 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     hellos: [], // signer: hellos waiting in my group folders
     joinStates: new Map(), // member: label → 'hello' | 'join'
     note: '', // one short line under the circles
+    runs: new Map(), // n → how its last run went (upkeep.summary)
+    last: kept('sign.upkeep'), // ruleKey → ms of its last run (this device only)
+    running: false,
   };
   const svg = document.createElement('div');
   svg.className = 'points';
@@ -64,11 +80,43 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   panel.append(svg, note);
 
   const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()) });
-  const all = () => tiles(s.entries, s.rules, s.open);
+  const all = () => tiles(s.entries, s.rules, s.open, s.runs);
+
+  // ---------- upkeep: what is due runs by itself (2-storage/upkeep.js) ----------
+  const host = async () => { const { pickup } = await deviceKeys(); return { id: device, pickup: pickup.public, privateKey: pickup.privateKey }; };
+  const paper = async () => { const text = (await clipboardText()).trim().toUpperCase(); return /^[0-9A-Z]{26}$/.test(text) ? text : null; };
+  async function skip() { // removed takes never come back through a copy or a restore
+    const texts = [];
+    for (const { path } of await own.list('chain/')) if (path.includes('quiet') && path.endsWith('.sign')) texts.push(dec.decode(await own.read(path)));
+    const ids = quietIds(texts);
+    return (path) => ids.has(partsOf(path)?.u);
+  }
+  /** Run what is due (or, with only = n, everything of that sharing point now). → report */
   const run = async (only = null) => {
-    const rules = only == null ? s.rules : s.rules.filter((r) => r.to === only || r.from === only);
-    return runRules(rules, s.open, { own, backupKey: await keychain.get('backup') }); // the key, opened once by backup-key.js
+    if (s.running) return [];
+    const rules = only == null ? dueRules(s.rules, s.last) : s.rules.filter((r) => r.to === only || r.from === only);
+    if (!rules.length) return [];
+    s.running = true;
+    try {
+      let key = null;
+      for (const r of rules.filter((x) => x.mark === 'backup')) { // one key per device, sealed at every backup target
+        const target = s.open.get(r.to)?.store;
+        if (target) key = await backupKey(target, { keychain, host: await host(), paper }).catch(() => key);
+      }
+      const report = await runRules(rules, s.open, { own, backupKey: key, skip: await skip() });
+      for (const [n, line] of summary(report)) s.runs.set(n, line);
+      s.last = remember(s.last, report);
+      keep('sign.upkeep', s.last);
+      if (only != null) tell(only);
+      if (!panel.hidden) draw();
+      return report;
+    } finally { s.running = false; }
   };
+  /** One line about sharing point n under the tiles. */
+  function tell(n) {
+    const line = s.runs.get(n), label = s.entries[n - 1]?.label ?? '';
+    if (line) say(t(`run.${line.state}`, { label, n: line.copied }));
+  }
 
   async function load() {
     const at = await findList(own);
@@ -90,6 +138,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     await changeList(own, change, meta());
     await load();
     draw();
+    run().catch(() => {}); // a new copy or backup starts now, not at the next start
   }
   const say = (text) => { s.note = text; draw(); };
   const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
@@ -102,7 +151,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     s.focus = n;
     const tile = ctx.tileOf(n);
     const target = { entry: { ...sp.entry, always: tile.kinds.length ? tile.kinds : KINDS }, description: sp.description ?? { kinds: KINDS }, store: sp.store };
-    await shareTake({ own, chainPath, device, person, now: Date.now(), targets: [target] });
+    await shareTake({ own, chainPath, device, person, now: Date.now(), targets: [target], once: once() }); // once: a held strand (parallel)
     return say(`${t('share')} → ${sp.entry.label}`);
   }
 
@@ -127,6 +176,11 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'sp') {
       const tile = ctx.tileOf(Number(a));
       if (tile?.state === 'cloud') return askAccount(ctx, tile.n); // my cloud id copied, their server opens
+      if (tile?.state === 'error') { // not reachable at start: try again now, then catch up
+        const back = await reopen(s.open, s.entries, { keychain, own, folders });
+        if (back.length) { onSources(sources(s.rules, s.open, own)); await run(tile.n); }
+        return draw();
+      }
       if (tile?.state === 'waiting') { // permission needs a tap; then its rules catch up
         const back = await reconnect(s.open, folders, { ask: true, only: tile.n });
         if (back.length) {
@@ -195,18 +249,33 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       const from = circleOf(role);
       if (!moved) return from ? apply(gestureOn(from, 'hold', s.rules)) : null; // held still: bring in / out
       const onto = circleOf(roleOf(el));
+      if (from && onto === 0) return home(from); // onto this device: bring its files here (a backup is restored)
       return from != null && onto ? apply(gestureOn(onto, 'drop-point', s.rules, { from })) : null; // carried onto another: copy
     },
   };
   bind(panel, handlers);
 
+  /** A tile dropped on this device: its files come here once (no rule); a backup is opened and restored. */
+  async function home(n) {
+    const store = s.open.get(n)?.store;
+    if (!store) return say(t('notReachable'));
+    try {
+      const r = await bringHome(store, own, { keychain, host: await host(), paper, skip: await skip() });
+      say(r.restored ? t('home.restored', { n: r.restored.length }) : t('home.copied', { n: r.copied.length }));
+      onSources(sources(s.rules, s.open, own)); // Similar sees what came home
+    } catch { say(t('home.key')); } // a backup of another device: the paper password on the clipboard opens it
+  }
+
   await load();
-  setInterval(async () => { // a disk plugged in again → its rules run (backup, copies)
-    for (const n of await reconnect(s.open, folders)) {
-      onSources(sources(s.rules, s.open, own));
-      await run(n).catch(() => {});
-      if (!panel.hidden) draw();
+  setInterval(async () => { // every 30 s: a disk plugged in again, a sharing point online again, what is due
+    let changed = false;
+    for (const n of await reconnect(s.open, folders)) { changed = true; await run(n).catch(() => {}); }
+    if (globalThis.navigator?.onLine !== false && [...s.open.values()].some((sp) => sp.error)) {
+      if ((await reopen(s.open, s.entries, { keychain, own, folders })).length) changed = true;
     }
+    if (changed) onSources(sources(s.rules, s.open, own));
+    await run().catch(() => {});
+    if (changed && !panel.hidden) draw();
   }, 30e3);
 
   function show(on) {
@@ -217,9 +286,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     show,
     async afterTake(paths) {
       const files = await Promise.all(paths.map(async (path) => ({ path, bytes: await own.read(path) })));
-      return afterTake(s.rules, s.open, files);
+      const result = await afterTake(s.rules, s.open, files);
+      if (result.failed.length) { // e.g. offline: the copy rule of that sharing point runs again on the next tick
+        s.last = retry(s.last, s.rules, [...new Set(result.failed.map(([n]) => n))]);
+        keep('sign.upkeep', s.last);
+      }
+      return result;
     },
-    runRules: () => run(),
+    runRules: () => run(), // what is due (all new rules at the first start)
     /** A ring arc dropped on tile n (app.js): that strand always goes there. */
     dropKind: (n, kind) => apply(gestureOn(targetFor(ctx.tileOf(n), 'drop-kind'), 'drop-kind', s.rules, { kind })),
   };

@@ -9,20 +9,22 @@
 //                          filled blue = brought in (shows in Similar) · dashed grey = not there now
 //                          (disk unplugged) or not reachable · green ring = shared to last
 //              edge bars   which strands go there: solid = always, dashed = only on a tap, grey = not
-//                          (left visual · right audio · bottom context · top landmarks, as in the ring)
+//                          (the same sides as on the field: ring.js SIDES)
 //              bridges     lines between tiles: copy (solid) or encrypted backup (double line);
 //                          0 → n = every take goes there
+//              run dot     lower right: filled = the last copy/backup there went through · open ring = it failed
 //              dashed +    bring a new one in: clipboard · folder
 //              dashed blue a share waiting for me (tap = take in), or the other side's page to accept
 //                          what I just gave (tap = open it, log in there if asked)
 //              browse      after a login: the folders of the account as tiles, ↑ = one level up
 //            Names under the tiles are the only words (a sharing point has no other face).
-// Depends:   nothing (shapes are drawn by view/ring.js toSvg)
+// Depends:   view/ring.js (SIDES, sideOf; shapes are drawn by its toSvg)
 // Test:      tests/ui.test.mjs
 // Limits:    3 tiles a row on a 390 px phone, up to 40 sharing points (the area scrolls past 12).
 
-// Where each strand shows on a tile: the same sides as on the ring (left visual, right audio,
-// bottom context, top landmarks), as a short bar on that edge.
+import { SIDES, sideOf } from './ring.js';
+
+// Where each strand shows on a tile: the same sides as on the field (ring.js SIDES), a short bar on that edge.
 const EDGES = ['v', 'a', 'x', 'l'];
 const COLS = 3;
 
@@ -31,13 +33,13 @@ function grid(i, { w, k, y0 }) {
   return { cx: gap / 2 + (i % COLS) * gap, cy: y0 + Math.floor(i / COLS) * 112 * k };
 }
 
-/** The bar of one strand on a tile's edge. */
+/** The bar of one strand on a tile's edge (tiles are about square: the side of the field, 14 px in from the corners). */
 function edgeBar(kind, { cx, cy, tw, th }) {
-  const inset = 14;
-  if (kind === 'v') return { x1: cx - tw / 2, y1: cy - th / 2 + inset, x2: cx - tw / 2, y2: cy + th / 2 - inset };
-  if (kind === 'a') return { x1: cx + tw / 2, y1: cy - th / 2 + inset, x2: cx + tw / 2, y2: cy + th / 2 - inset };
-  if (kind === 'x') return { x1: cx - tw / 2 + inset, y1: cy + th / 2, x2: cx + tw / 2 - inset, y2: cy + th / 2 };
-  return { x1: cx - tw / 2 + inset, y1: cy - th / 2, x2: cx + tw / 2 - inset, y2: cy - th / 2 };
+  const inward = kind === 'l' ? 6 : 0; // a second track on the same side (landmarks next to visual), a little inside
+  const bar = sideOf(SIDES[kind], { x: cx - tw / 2 + inward, y: cy - th / 2, s: tw - 2 * inward, r: 14 });
+  if (SIDES[kind] === 'bottom') return { ...bar, y1: cy + th / 2, y2: cy + th / 2 }; // tiles may be lower than wide
+  if (SIDES[kind] === 'left' || SIDES[kind] === 'right') return { ...bar, y2: cy + th / 2 - 14 };
+  return bar;
 }
 
 /**
@@ -94,6 +96,9 @@ export function pointShapes(all, { own = '', focus = null, waitSecret = false, b
     if (joined) {
       add('circle', { cx: cx + tw / 2 - 4 * k, cy: cy - th / 2 + 4 * k, r: 7 * k, cls: 'badge' });
       if (joined === 'join') add('circle', { cx: cx + tw / 2 + 6 * k, cy: cy - th / 2 + 4 * k, r: 7 * k, cls: 'badge joined' });
+    }
+    if (t.run === 'ok' || t.run === 'error') { // last copy or backup: filled dot = went through · open ring = failed
+      add('circle', { cx: cx + tw / 2 - 4 * k, cy: cy + th / 2 - 4 * k, r: 6 * k, cls: `badge ${t.run === 'ok' ? 'ran' : 'failed'}` });
     }
     for (const kind of EDGES) {
       const look = !t.kinds.includes(kind) ? 'off' : t.always ? 'own' : 'new';

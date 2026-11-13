@@ -15,15 +15,26 @@
     @media (prefers-color-scheme: dark) { :root { --bg: #171716; --fg: #eeece7; --card: #222; --line: #333; --hl: #5f5010; } }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, sans-serif; overflow: hidden; touch-action: none; }
     #screen { position: absolute; inset: 0; }
-    #screen video { position: absolute; object-fit: cover; background: var(--video); }
+    #screen video { position: absolute; object-fit: cover; background: transparent; opacity: 0; transition: opacity .45s ease-out; }
+    #screen video.on { opacity: 1; } /* only once a frame plays: no black box, no grey play button */
+    video::-webkit-media-controls, video::-webkit-media-controls-start-playback-button { display: none !important; -webkit-appearance: none; }
+    /* start: plain background → picture fades in → the shapes follow (app.js adds .ready) */
+    #overlay { opacity: 0; transform: scale(.985); transition: opacity .5s ease-out .25s, transform .5s ease-out .25s; }
+    #screen.ready #overlay { opacity: 1; transform: none; }
     #overlay, #overlay svg { position: absolute; inset: 0; width: 100%; height: 100%; }
     #overlay [data-role] { cursor: pointer; }
     /* the view's classes (view/ring.js, chips.js, timeline.js): colour never alone, dashed / filled say it too */
     .layer { fill: none; stroke: var(--rc-stroke); stroke-width: 2; opacity: .25; }
+    .field-rest { fill: var(--bg); opacity: .62; pointer-events: none; } /* the rest of the 1080 field: visible, greyed */
     .strand { fill: none; stroke-width: 7; stroke-linecap: round; }
     .strand.new { stroke: var(--rc-stroke); stroke-dasharray: 10 8; }
     .strand.keep, .strand.own { stroke: var(--rc-stroke); }
     .strand.off { stroke: var(--mut); stroke-width: 3; opacity: .5; }
+    .chip.hold rect, .bubble.hold { stroke: var(--hold); stroke-width: 4; }
+    .strand.hold { stroke: var(--hold); stroke-width: 11; }
+    .strand.thin { stroke-width: 3; } /* a second track on the same side (landmarks next to visual) */
+    .flow { fill: none; stroke-width: 4; stroke-linecap: round; } .flow.own { stroke: var(--rc-stroke); } .flow.waiting { stroke: var(--mut); stroke-dasharray: 4 5; }
+    .bubble.sticky { fill: var(--rc); opacity: .7; stroke: var(--rc-stroke); stroke-width: 1.5; } /* held as property: thicker too, not colour alone */
     .video { fill: none; } .video.faded { opacity: .55; }
     .video.other { stroke: var(--sc-stroke); stroke-width: 3; }
     .bar { stroke-width: 3; stroke-linecap: round; } .bar.own { stroke: var(--rc-stroke); } .bar.other { stroke: var(--sc-stroke); }
@@ -35,9 +46,14 @@
     .bubble { fill: var(--rc); opacity: .45; } .bubble.now { fill: var(--hl); opacity: .8; }
     .thread { fill: none; stroke-width: 3; } .thread.own { stroke: var(--rc-stroke); opacity: .5; } .thread.other { stroke: var(--sc-stroke); }
     .thumb { stroke-width: 3; fill: var(--video); } .thumb.own { stroke: var(--rc-stroke); } .thumb.other { stroke: var(--sc-stroke); } .thumb.far { opacity: .4; }
+    /* the line in its arc over the point, the chain under it (view/arc.js) */
+    .thumb.now { stroke-width: 4; stroke: var(--rc-stroke); } .thumb.own:not(.now) { stroke-width: 1.5; }
+    .thread.line-arc { opacity: .75; } .thumb.near { stroke-width: 2.5; } .thread.level { opacity: .22; stroke-width: 2; } .thread.level.open { opacity: .45; stroke-dasharray: 6 5; }
+    .arriving { opacity: .6; } .thumb.flying { stroke-width: 3; }
     .now-mark { stroke: var(--fg); stroke-width: 2; opacity: .5; }
     .point .ring { fill: none; stroke: var(--rc-stroke); stroke-width: 3; } .point .core { fill: var(--rc-stroke); }
     .point.waiting .ring { stroke-dasharray: 8 6; } .point.line .core { opacity: .55; }
+    .point.with .ring { stroke: var(--hold); stroke-width: 5; } /* the point acts on the held property */
     /* panels slide in from the edges */
     body.full #own, body.full #similar, body.full #chips, body.full #share { display: none; }
     #chips { position: absolute; top: 72px; left: 12px; right: 12px; text-align: center; }
@@ -71,6 +87,7 @@
     .sp.folder { fill: var(--sc); }
     .sp.group { stroke: var(--sc-stroke); stroke-width: 2.5; }
     .badge { fill: var(--card); stroke: var(--sc-stroke); stroke-width: 2; stroke-dasharray: 3 2; pointer-events: none; } .badge.joined { fill: var(--sc); stroke-dasharray: none; }
+    .badge.ran { fill: var(--hold); stroke: var(--hold); stroke-dasharray: none; } .badge.failed { fill: none; stroke: var(--rc-stroke); stroke-dasharray: none; stroke-width: 2.5; }
     .hello { fill: none; stroke: var(--sc-stroke); stroke-width: 2.5; stroke-dasharray: 6 4; } .hello-dot { fill: var(--sc-stroke); pointer-events: none; }
     .sp.cloud { fill: none; stroke: var(--sc-stroke); stroke-width: 2; }
     .sp.incoming { fill: none; stroke: var(--sc-stroke); stroke-width: 2.5; stroke-dasharray: 6 4; } .sp.incoming.there { fill: var(--sc); fill-opacity: .4; }
@@ -86,9 +103,9 @@
 </head>
 <body>
   <div id="screen">
-    <video id="live" autoplay muted playsinline></video>
-    <video id="replay" hidden playsinline loop></video>
-    <video id="template" hidden playsinline muted loop></video>
+    <video id="live" autoplay muted playsinline disablepictureinpicture poster="data:image/gif;base64,R0lGODlhAQABAAAAACw="></video>
+    <video id="replay" hidden playsinline loop disablepictureinpicture poster="data:image/gif;base64,R0lGODlhAQABAAAAACw="></video>
+    <video id="template" hidden playsinline muted loop disablepictureinpicture poster="data:image/gif;base64,R0lGODlhAQABAAAAACw="></video>
     <div id="overlay"></div>
   </div>
   <div id="chips" hidden></div>

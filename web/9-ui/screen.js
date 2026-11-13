@@ -2,8 +2,9 @@
 // SVG of arcs, chips, Similar and the point on top, and tells for a touch what was touched.
 //
 // Purpose:   the view only computes shapes; this file is the only one that touches the DOM for it.
-//            The picture is the real <video> (live camera, or the take being replayed), cut round
-//            by CSS at layout().video; the template plays in its own small round <video>.
+//            The picture is the real <video> (live camera, or the take being replayed), the whole
+//            square field at layout().video; the greyed rest outside the window is drawn by the view.
+//            The template plays in its own small round <video>.
 //            What was touched comes from data-role on the shapes ("point", "strand:v", "chip:Kaffee",
 //            "similar:0", "line:-1", "delete:take", "template"), else "live" inside the picture.
 // Depends:   browser; view/ring.js
@@ -13,15 +14,15 @@
 
 import { layout, toSvg } from './view/ring.js';
 
-/** Fit a <video> as a circle (or the whole screen when d covers it). */
-function fit(video, circle, full) {
-  if (!video || !circle) {
+/** Fit a <video> into its square (the field, a small round template, or the whole screen). */
+function fit(video, box, full) {
+  if (!video || !box) {
     if (video) video.hidden = true;
     return;
   }
   Object.assign(video.style, full
     ? { left: '0px', top: '0px', width: '100%', height: '100%', borderRadius: '0' }
-    : { left: `${circle.cx - circle.d / 2}px`, top: `${circle.cy - circle.d / 2}px`, width: `${circle.d}px`, height: `${circle.d}px`, borderRadius: '50%' });
+    : { left: `${box.cx - box.d / 2}px`, top: `${box.cy - box.d / 2}px`, width: `${box.d}px`, height: `${box.d}px`, borderRadius: box.radius != null ? `${box.radius}px` : '50%' });
 }
 
 /**
@@ -50,7 +51,7 @@ export function mountScreen({ root, live, replay, template, overlay }) {
     const v = screen.last?.video;
     if (!v) return null;
     const r = root.getBoundingClientRect();
-    const inside = Math.hypot(event.clientX - r.left - v.cx, event.clientY - r.top - v.cy) <= v.d / 2;
+    const inside = Math.max(Math.abs(event.clientX - r.left - v.cx), Math.abs(event.clientY - r.top - v.cy)) <= v.d / 2; // the whole field
     return inside ? 'live' : null;
   };
 
@@ -68,6 +69,8 @@ export function targetOf(role) {
     case 'chip': case 'gesture': return { target: 'chip', text: rest };
     case 'similar': return { target: 'similar-item', index: Number(rest) };
     case 'line': return { target: 'item', index: Number(rest) };
+    case 'line-arc': return { target: 'line-arc' };
+    case 'level': return { target: 'level', index: Number(rest) };
     case 'template': return { target: 'item', template: true };
     case 'delete': return { target: 'delete', what: rest };
     default: return { target: role }; // edge zones and other named targets pass through

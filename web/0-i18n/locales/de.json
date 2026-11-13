@@ -40,5 +40,11 @@
   "menu.account": "ganzes Konto",
   "menu.give": "geben",
   "time.today": "heute",
-  "time.week": "7 Tage"
+  "time.week": "7 Tage",
+  "run.ok": "{label}: {n} neu",
+  "run.waiting": "{label} wartet",
+  "run.error": "{label}: nicht erreicht",
+  "home.restored": "{n} aus dem Backup geholt",
+  "home.copied": "{n} geholt",
+  "home.key": "Backup: Papier-Passwort kopieren, dann erneut ziehen"
 }

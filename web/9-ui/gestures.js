@@ -8,14 +8,21 @@
 //            Edges in zones, starting ~1–2 cm inside (Android back).
 //            Intent × device (Design · Geste Overview): VOICE = the keyword for an action (Initial §4.2);
 //            glasses later as one more map, the table stays.
+//            Parallel (DESIGN principle 4): one finger holds a property (a strand or a chip), the other does
+//            the action. A sixth column `held` says which property the row needs; rows without it are the
+//            gesture alone. A held property never blocks: with no parallel row the gesture does what it
+//            does alone. Voice and glasses give the same pair later (keyword + held field), the table stays.
 // Depends:   nothing
 // Test:      tests/ui.test.mjs
-// Limits:    a lookup is a scan of ~20 rows (< 1 µs); each (gesture, target, mode) means one action.
+// Limits:    a lookup is a scan of ~50 rows (< 1 µs); each (gesture, target, mode, held) means one action;
+//            one property at a time (two fingers; a third is ignored).
 
 export const GESTURES = ['tap', 'double-tap', 'hold', 'hold-slow', 'up', 'down', 'down-far', 'left', 'right', 'edge-in', 'edge-out', 'drag', 'pinch'];
 export const MODES = ['take', 'similar', 'line', 'any'];
+/** What the other finger can hold (the property of a parallel gesture). */
+export const HELD = ['strand', 'chip'];
 
-/** [action, gesture, target, mode, what it does] */
+/** [action, gesture, target, mode, what it does, held?] */
 export const TABLE = [
   ['take', 'tap', 'point', 'any', 'all switched-on strands start / stop together'],
   ['take-while-held', 'hold', 'point', 'any', 'all switched-on strands record while held'],
@@ -31,7 +38,9 @@ export const TABLE = [
   ['strand-on-off', 'tap', 'strand', 'any', 'this strand on / off for the point'],
   ['strand-while-held', 'hold', 'strand', 'any', 'record only this strand while held'],
   ['strand-while-held', 'hold', 'live', 'any', 'record only video while held'],
-  ['transcribe', 'drag', 'strand:a>strand:x', 'any', 'record audio while held and make text of it, live'],
+  ['flow', 'drag', 'strand:a>strand:x', 'any', 'connect audio to context: Whisper lets it flow in by itself (drag again = off)'],
+  ['flow', 'drag', 'strand:v>strand:x', 'any', 'connect visual to context: suggestions from own modelling (later)'],
+  ['similar-from', 'drag', 'strand:x>similar', 'any', 'from context to Similar: find with these words'],
   ['similar-from', 'drag', 'strand>similar', 'any', 'Similar from this strand'],
   ['always-there', 'drag', 'strand>sharing-point', 'any', 'this strand always goes to that sharing point (A onto B = B gets A)'],
   ['chips-in', 'up', 'strand', 'any', 'show the chips of this strand (camera: light, exposure; audio: stereo, Whisper)'],
@@ -61,6 +70,23 @@ export const TABLE = [
   ['before', 'right', 'item', 'any', 'before'],
   ['settings', 'hold', 'sharing-point', 'any', 'settings and consent of this sharing point'],
   ['take-over', 'tap', 'similar-item', 'similar', 'take a result into the Take in the middle'],
+  // the line in its arc over the point, the chain under it (view/arc.js)
+  ['straighten', 'down', 'line-arc', 'any', 'pull the line straight (animated): one row of pictures'],
+  ['bend', 'up', 'line-arc', 'any', 'back into the arc'],
+  ['levels-open', 'down', 'level', 'any', 'pull the older lines of the chain apart: their pictures show'],
+  ['levels-close', 'up', 'level', 'any', 'push them together again'],
+  ['level-open', 'tap', 'level', 'any', 'open this older line'],
+  ['into-line', 'drag', 'similar-item>point', 'any', 'lay this result on the chain: it flies into the arc, a new line on top'],
+  ['into-line', 'drag', 'similar-item>line-arc', 'any', 'the same, dropped on the line'],
+
+  // parallel: the other finger holds a strand (its arc turns green; what it had started alone is dropped)
+  ['add-strand', 'tap', 'point', 'any', 'record only the held strand onto the last take: a new combination on top, the rest stays', 'strand'],
+  ['share-strand', 'up', 'point', 'any', 'the sharing points, sharing only the held strand of the last take', 'strand'],
+  ['remove-strand', 'down-far', 'point', 'any', 'delete only the held strand of the last take (chips as always)', 'strand'],
+  ['similar-from', 'edge-in', 'upper-right', 'any', 'Similar from the held strand', 'strand'],
+  // parallel: the other finger holds a chip
+  ['take-with-context', 'tap', 'point', 'any', 'a take with the held context; tap again = next take of the series, as long as it is held', 'chip'],
+  ['similar-context', 'edge-in', 'upper-right', 'any', 'Similar for the held context', 'chip'],
 ];
 
 /** Intent × keyword (Initial §4.2): saying it does the same as the gesture. */
@@ -69,22 +95,28 @@ export const VOICE = {
   'remove-last': 'Alle löschen', 'share-last': 'Senden', share: 'Senden', full: 'Vollbild', 'own-in': 'Einstellungen',
 };
 
-const rows = TABLE.map(([action, gesture, target, mode, what]) => ({ action, gesture, target, mode, what }));
+const rows = TABLE.map(([action, gesture, target, mode, what, held = null]) => ({ action, gesture, target, mode, what, held }));
 
-/** What does this gesture do here? → row or null. Specific mode wins over "any". */
-export function actionFor({ gesture, target, mode = 'take' }) {
-  return rows.find((r) => r.gesture === gesture && r.target === target && r.mode === mode) ??
-    rows.find((r) => r.gesture === gesture && r.target === target && r.mode === 'any') ?? null;
+const find = (gesture, target, mode, held) => rows.find((r) => r.gesture === gesture && r.target === target && r.mode === mode && r.held === held);
+
+/**
+ * What does this gesture do here? → row or null. held: 'strand' | 'chip' | null (what the other finger holds).
+ * Order: parallel row in this mode, parallel row in any mode, then the gesture alone (mode, any).
+ */
+export function actionFor({ gesture, target, mode = 'take', held = null }) {
+  const parallel = held ? find(gesture, target, mode, held) ?? find(gesture, target, 'any', held) : null;
+  return parallel ?? find(gesture, target, mode, null) ?? find(gesture, target, 'any', null) ?? null;
 }
 
-/** Problems of the table: unknown gestures or modes, two actions for one (gesture, target, mode). */
+/** Problems of the table: unknown gestures, modes or properties, two actions for one (gesture, target, mode, held). */
 export function checkTable() {
   const seen = new Map();
   const problems = [];
   for (const r of rows) {
     if (!GESTURES.includes(r.gesture)) problems.push(`unknown gesture: ${r.gesture}`);
     if (!MODES.includes(r.mode)) problems.push(`unknown mode: ${r.mode}`);
-    const k = `${r.gesture}|${r.target}|${r.mode}`;
+    if (r.held && !HELD.includes(r.held)) problems.push(`unknown property: ${r.held}`);
+    const k = `${r.gesture}|${r.target}|${r.mode}|${r.held ?? ''}`;
     if (seen.has(k)) problems.push(`two actions for ${k}: ${seen.get(k)}, ${r.action}`);
     seen.set(k, r.action);
   }
@@ -93,3 +125,6 @@ export function checkTable() {
 
 /** Help as rows for one target (the UI shows it while something is held). */
 export const helpFor = (target) => rows.filter((r) => r.target === target || r.target.startsWith(`${target}:`) || r.target.startsWith(`${target}>`));
+
+/** What the other hand can do while this property is held (help and hints while holding). */
+export const whileHeld = (held) => rows.filter((r) => r.held === held);

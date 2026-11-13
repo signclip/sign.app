@@ -40,5 +40,11 @@
   "menu.account": "whole account",
   "menu.give": "give",
   "time.today": "today",
-  "time.week": "7 days"
+  "time.week": "7 days",
+  "run.ok": "{label}: {n} new",
+  "run.waiting": "{label} is waiting",
+  "run.error": "{label}: not reached",
+  "home.restored": "{n} brought back from the backup",
+  "home.copied": "{n} brought here",
+  "home.key": "Backup: copy the paper password, then drag again"
 }

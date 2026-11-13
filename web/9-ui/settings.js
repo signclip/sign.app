@@ -22,7 +22,9 @@ export const DEFAULTS = Object.freeze({
   similarFrom: ['x', 'a'], // strands that feed the combined Similar (a via its text)
   facing: 'user', // camera: 'user' (front) or 'environment' (back)
   onboarding: true,
+  flows: [], // connections drawn between sides: 'a>x' audio → context (Whisper), 'v>x' visual → context (later)
 });
+export const FLOW_KINDS = ['a>x', 'v>x'];
 
 const clamp = (n, lo, hi, d) => (Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d);
 const subset = (list, allowed, d) => (Array.isArray(list) ? [...new Set(list.filter((k) => allowed.includes(k)))] : d);
@@ -40,6 +42,7 @@ export function normalize(input = {}) {
     similarFrom: subset(input.similarFrom, STRANDS, d.similarFrom),
     facing: ['user', 'environment'].includes(input.facing) ? input.facing : d.facing,
     onboarding: typeof input.onboarding === 'boolean' ? input.onboarding : d.onboarding,
+    flows: subset(input.flows, FLOW_KINDS, d.flows),
   };
 }
 
@@ -53,7 +56,7 @@ export const CHOICES = {
 
 /** One tap on a chip: set that value (or toggle a strand in auto / similarFrom). */
 export function choose(settings, key, value) {
-  if (key === 'auto' || key === 'similarFrom') {
+  if (key === 'auto' || key === 'similarFrom' || key === 'flows') {
     const has = settings[key].includes(value);
     return normalize({ ...settings, [key]: has ? settings[key].filter((k) => k !== value) : [...settings[key], value] });
   }

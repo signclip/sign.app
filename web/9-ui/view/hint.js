@@ -15,6 +15,7 @@ function middleOf(s) {
     return [s.cx + s.r * Math.sin(rad), s.cy - s.r * Math.cos(rad)];
   }
   if (s.type === 'thumb') return [s.x + s.s / 2, s.y + s.s / 2];
+  if (s.x1 != null) return [(s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2]; // a strand bar on the window's edge
   if (s.cx != null) return [s.cx, s.cy];
   return null;
 }

@@ -111,16 +111,22 @@ export class Index {
  */
 export async function buildIndex(stores, { keys = null } = {}, index = new Index()) {
   const dec = new TextDecoder();
+  index.skipped = []; // [{ store, path?, error }]: not part of the tables, never stops the rest (a brought-in
+  //                     sharing point may be offline or hold a file this version cannot read)
   for (const { name, store } of stores) {
-    for (const { path } of await store.list()) {
+    let files;
+    try { files = await store.list(); } catch (err) { index.skipped.push({ store: name, error: String(err.message ?? err) }); continue; }
+    for (const { path } of files) {
       index.addPath(name, path);
       if (!path.endsWith('.sign') || path.endsWith('sharing-point.sign')) continue;
-      const text = dec.decode(await store.read(path));
-      const key = index.addText(text, { store: name, path });
-      if (!keys || !key) continue;
-      const q = key.split(' ')[0];
-      const entry = index.tables.chains.get(key) ?? index.tables.strands.get(key);
-      entry.witnessed = Boolean(keys[q]) && (await checkWitness(keys[q], text));
+      try {
+        const text = dec.decode(await store.read(path));
+        const key = index.addText(text, { store: name, path });
+        if (!keys || !key) continue;
+        const q = key.split(' ')[0];
+        const entry = index.tables.chains.get(key) ?? index.tables.strands.get(key);
+        entry.witnessed = Boolean(keys[q]) && (await checkWitness(keys[q], text));
+      } catch (err) { index.skipped.push({ store: name, path, error: String(err.message ?? err) }); }
     }
   }
   return index;
