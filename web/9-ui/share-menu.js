@@ -34,7 +34,7 @@ const allOrSome = (kinds) => (kinds.length === KINDS.length ? [] : ordered(kinds
  * → [{ n, label, always, ask, kinds, shown, write, copyTo: [n], backupTo: [n], backupOwn, state, readOnly, canGive }]
  */
 export function tiles(entries, rules, open = new Map()) {
-  return entries.slice(0, 40).map((entry, i) => {
+  const list = entries.slice(0, 40).map((entry, i) => {
     const n = i + 1;
     const sp = open.get(n);
     let state = 'closed';
@@ -58,13 +58,37 @@ export function tiles(entries, rules, open = new Map()) {
       backupOwn: Boolean(ruleOf(rules, n, 'backup')), // this device backs up there
       state,
       readOnly,
+      dropOnly: Boolean(sp?.store?.dropOnly),
       canGive: sp?.spec?.kind === 'nextcloud' && !readOnly,
     };
   });
+  return groups(list, rules);
+}
+
+/**
+ * A group = a folder with two links of the same name: one to read, one to drop into ("File drop").
+ * They show as ONE tile: the read tile carries `drop` (n of the drop link) and the strands that go into
+ * the drop; the drop tile carries `under` and is not drawn. (decided 13.11.: groups live outside our
+ * Nextcloud, two links each, no accounts)
+ */
+function groups(list, rules) {
+  for (const drop of list.filter((t) => t.dropOnly)) {
+    const read = list.find((t) => t !== drop && !t.dropOnly && t.label === drop.label);
+    if (!read) continue;
+    drop.under = read.n;
+    Object.assign(read, { drop: drop.n, kinds: drop.kinds, always: drop.always, ask: drop.ask, group: true });
+  }
+  return list;
+}
+
+/** Which of the two links a gesture on a group tile means: sending goes into the drop, seeing and giving to the read link. */
+export function targetFor(tile, gesture) {
+  if (!tile?.drop) return tile?.n;
+  return ['tap', 'double-tap', 'tap-kind', 'drop-kind'].includes(gesture) ? tile.drop : tile.n;
 }
 
 /** Tiles that can take a take now. */
-export const pickable = (all) => all.filter((tile) => tile.state === 'ok' && !tile.readOnly);
+export const pickable = (all) => all.filter((tile) => tile.state === 'ok' && (!tile.readOnly || tile.drop) && !tile.under);
 
 /**
  * A gesture on sharing point n → { action } (something to do now), { edit } or { edits } (changes of

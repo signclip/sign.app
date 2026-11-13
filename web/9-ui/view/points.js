@@ -70,9 +70,14 @@ export function pointShapes(all, { own = '', focus = null, waitSecret = false, b
     return { shapes, at };
   }
 
+  // positions: this device first, then every drawn tile in order; a group's drop link sits under its read tile
+  const slot = new Map([[0, 0]]);
+  for (const t of all.filter((x) => !x.under)) slot.set(t.n, slot.size);
+  for (const t of all.filter((x) => x.under)) slot.set(t.n, slot.get(t.under));
+  const centre = (n) => grid(slot.get(n) ?? n, { w, k, y0 });
   // bridges first, so the tiles lie on top of them
-  const centre = (n) => grid(n, { w, k, y0 }); // tile n sits at position n (0 = this device)
   for (const t of all) {
+    if (t.under) continue;
     const to = centre(t.n);
     if (t.always) add('line', { ...ends(centre(0), to), cls: 'bridge own', role: `bridge:0:${t.n}` });
     if (t.backupOwn) add('line', { ...ends(centre(0), to), cls: 'bridge backup', role: `bridge:0:${t.n}` });
@@ -82,8 +87,9 @@ export function pointShapes(all, { own = '', focus = null, waitSecret = false, b
 
   tile(0, 'sp:0', 'sp own-device', own);
   for (const t of all) {
+    if (t.under) continue; // the drop link of a group: drawn as part of its read tile
     const cls = ['sp', t.state, t.shown && 'shown', t.always && 'always', focus === t.n && 'focus'].filter(Boolean).join(' ');
-    const { cx, cy } = tile(t.n, `sp:${t.n}`, cls, t.label);
+    const { cx, cy } = tile(slot.get(t.n), `sp:${t.n}`, `${cls}${t.group ? ' group' : ''}`, t.label);
     for (const kind of EDGES) {
       const look = !t.kinds.includes(kind) ? 'off' : t.always ? 'own' : 'new';
       const bar = edgeBar(kind, { cx, cy, tw, th });
@@ -91,7 +97,7 @@ export function pointShapes(all, { own = '', focus = null, waitSecret = false, b
       add('line', { ...bar, cls: 'hit', role: `sp-kind:${t.n}:${kind}` }); // a wider, unseen line to hit
     }
   }
-  let next = all.length + 1;
+  let next = slot.size;
   incoming.forEach((x, i) => tile(next++, `incoming:${i}`, 'sp incoming', x.label)); // waiting for me: tap = take in
   if (acceptThere) tile(next++, 'accept-there', 'sp incoming there', acceptThere.label); // tap = their page to accept
   tile(next, 'add:paste', `sp add${waitSecret ? ' now' : ''}`, '', { stack: false });

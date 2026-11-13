@@ -35,6 +35,16 @@ export class ReadOnlyStore {
   async move(path) { throw new ReadOnlyError(`read only: ${path}`); }
 }
 
+/** A store you can only drop into ("File drop" link): writing works, nothing can be seen or read. */
+export class DropStore {
+  constructor(store) { this.inner = store; this.dropOnly = true; }
+  async list() { return []; }
+  async read(path) { throw new ReadOnlyError(`drop only, nothing to read: ${path}`); }
+  write(path, bytes) { return this.inner.write(path, bytes); }
+  async remove(path) { throw new ReadOnlyError(`drop only: ${path}`); }
+  async move(path) { throw new ReadOnlyError(`drop only: ${path}`); }
+}
+
 /** Where a spec points to (no secrets). */
 export function pathOfSpec(spec) {
   switch (spec.kind) {
@@ -58,7 +68,8 @@ export function connect(spec, { secret = null, local = null, fetch = globalThis.
   if (spec.kind === 'local') store = local;
   else if (spec.kind === 'link') store = new WebDavStore({ base: path, user: spec.token, password: secret ?? '', fetch, name: spec.label });
   else store = new WebDavStore({ base: path, user: spec.user, password: secret, fetch, name: spec.label });
-  return { entry: { label: spec.label, path, id: spec.id, kind: spec.kind, readOnly }, store: readOnly ? new ReadOnlyStore(store) : store };
+  const wrapped = spec.drop ? new DropStore(store) : readOnly ? new ReadOnlyStore(store) : store; // drop: a "File drop" link
+  return { entry: { label: spec.label, path, id: spec.id, kind: spec.kind, readOnly, dropOnly: Boolean(spec.drop) }, store: wrapped };
 }
 
 /** "lena@uni.sciebo.de" → { owner: 'lena', remote: 'https://uni.sciebo.de' } */

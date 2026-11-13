@@ -32,11 +32,11 @@ export async function welcome({ door, helloPath, admin, signer, also = [], quota
  * make the stores. → { entries (for listText), stores: Map(id → store) }
  */
 export async function arrive({ secret, sharingPoints, keychain, fetch = globalThis.fetch }) {
-  const s = JSON.parse(secret);
-  await keychain.set(s.id, s.appPassword);
+  const s = secret ? JSON.parse(secret) : {}; // a group of links only brings no account
+  if (s.appPassword) await keychain.set(s.id, s.appPassword);
   const entries = [], stores = new Map();
   for (const sp of sharingPoints) {
-    const own = sp.id === s.id || sp.path.startsWith(`${s.server.replace(/\/$/, '')}/remote.php/dav/files/${s.user}/`);
+    const own = Boolean(s.server) && (sp.id === s.id || sp.path.startsWith(`${s.server.replace(/\/$/, '')}/remote.php/dav/files/${s.user}/`));
     if (!own) { entries.push({ ...sp, kind: sp.path.startsWith('cloud:') ? 'cloud' : 'webdav' }); continue; } // reached later with its own access; cloud: = an account the signer cleared, its shares are taken in
     const folder = decodeURIComponent(sp.path.split(`/files/${s.user}/`)[1] ?? '').replace(/\/$/, '');
     const { entry, store } = connect({ kind: 'nextcloud', label: sp.label, id: sp.id, server: s.server, user: s.user, folder }, { secret: s.appPassword, fetch });

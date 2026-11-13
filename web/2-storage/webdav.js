@@ -56,18 +56,24 @@ export class WebDavStore {
   }
 
   /**
-   * May I write here? (a public Nextcloud link with "allow upload and editing"). Asks the folder's
-   * own permissions: oc:permissions holds C (create) or nc:share-permissions has bit 4. → true | false
+   * What may I do here? (a public Nextcloud link: read only, read and write, or drop only = "File drop").
+   * Asks the folder's own permissions: oc:permissions G = read, C = create; nc:share-permissions bit 1 =
+   * read, bit 4 = create. A server that names none (plain WebDAV) counts as read. → { read, write }
    */
-  async canWrite() {
+  async rights() {
     const res = await this.request('PROPFIND', '', { headers: { Depth: '0', 'Content-Type': 'application/xml' },
       body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns"><d:prop><oc:permissions/><nc:share-permissions/></d:prop></d:propfind>' });
-    if (res.status !== 207) return false;
+    if (res.status !== 207) return { read: false, write: false };
     const xml = await res.text();
-    const perms = /<oc:permissions>([^<]*)</i.exec(xml)?.[1] ?? '';
-    const share = Number(/<nc:share-permissions>(\d+)</i.exec(xml)?.[1] ?? 0);
-    return perms.includes('C') || (share & 4) === 4;
+    const perms = /<oc:permissions>([^<]*)</i.exec(xml)?.[1];
+    const share = /<nc:share-permissions>(\d+)</i.exec(xml)?.[1];
+    if (perms == null && share == null) return { read: true, write: false };
+    const bits = Number(share ?? 0);
+    return { read: (perms ?? '').includes('G') || (bits & 1) === 1, write: (perms ?? '').includes('C') || (bits & 4) === 4 };
   }
+
+  /** May I write here? → true | false (see rights). */
+  async canWrite() { return (await this.rights()).write; }
 
   /** Folders directly inside one folder (to choose which one to bring in). → ['Kurs 3/', 'Sign/'] */
   async folders(folder = '') { return (await this.propfind(folder)).filter((e) => e.folder).map((e) => e.path); }

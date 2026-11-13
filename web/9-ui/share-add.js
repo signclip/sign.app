@@ -83,6 +83,10 @@ export async function giveOut(ctx, n, how) {
   if (how === 'address') { s.giveTo = n; return say(t('menu.paste')); }
   s.giveTo = null;
   const sp = s.open.get(n);
+  if (sp?.spec?.kind === 'link') { // a link (a group's read link): it is itself the way in
+    await copy(sp.entry.path);
+    return say(t('copied'));
+  }
   try {
     const nc = new Nextcloud({ server: sp.spec.server, user: sp.spec.user, password: await keychain.get(sp.entry.id) });
     const tileKinds = ctx.tileOf(n)?.kinds ?? [];

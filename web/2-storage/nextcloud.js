@@ -79,6 +79,15 @@ export class Nextcloud {
     return { id: String(d.id), token: d.token, url: d.url, webdav: publicWebdavUrl(this.server, d.token) };
   }
 
+  /**
+   * Drop only ("File drop"): anyone with the link can put files in, nobody sees what is there.
+   * A group's way in for takes (decided 13.11.: a group = one folder, a read link and a drop link).
+   */
+  async dropLink({ path, password = undefined, expires = null }) {
+    const d = await this.ocs('POST', 'shares', { path, shareType: 3, permissions: 4, ...(password ? { password } : {}), ...(expires ? { expireDate: expires } : {}) });
+    return { id: String(d.id), token: d.token, url: d.url, webdav: publicWebdavUrl(this.server, d.token) };
+  }
+
   /** Folders others shared with me, as they appear in my tree (internal and accepted federated). */
   async sharedWithMe() {
     const inner = (await this.ocs('GET', 'shares?shared_with_me=true')).map((s) => ({ label: s.file_target?.replace(/^\//, '') ?? s.path, folder: (s.file_target ?? s.path).replace(/^\//, ''), from: s.uid_owner }));

@@ -17,7 +17,7 @@ import { openAll, afterTake, sources, runRules, reconnect } from '../2-storage/s
 import { readPaste } from '../2-storage/spec.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
-import { tiles, gestureOn, KINDS } from './share-menu.js';
+import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { bringIn, pickFolder, giveOut, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
 import { folders } from './folders.js';
 import { bind } from './touch.js';
@@ -128,9 +128,9 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         }
         return draw();
       }
-      return apply(gestureOn(Number(a), 'tap', s.rules));
+      return apply(gestureOn(targetFor(tile, 'tap'), 'tap', s.rules));
     }
-    if (what === 'sp-kind') return apply(gestureOn(Number(a), 'tap-kind', s.rules, { kind: b }));
+    if (what === 'sp-kind') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'tap-kind'), 'tap-kind', s.rules, { kind: b }));
     if (what === 'add' && a === 'paste') return bringIn(ctx);
     if (what === 'add' && a === 'folder') return pickFolder(ctx);
     if (what === 'browse') return browseChips(ctx)[Number(a)]?.go();
@@ -160,7 +160,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   const circleOf = (r) => (r?.startsWith('sp:') ? Number(r.split(':')[1]) : null);
   function doubled(r) {
     const [what, a, b] = r.split(':');
-    if (what === 'sp' && a !== '0') return apply(gestureOn(Number(a), 'double-tap', s.rules, { selection: selection() }));
+    if (what === 'sp' && a !== '0') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'double-tap'), 'double-tap', s.rules, { selection: selection() }));
     if (what === 'bridge') return apply(gestureOn(Number(b), 'double-tap-bridge', s.rules, { from: Number(a) }));
     return null;
   }
@@ -175,7 +175,12 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     swipe: (dir) => {
       if (role === 'sheet' && (dir === 'down' || dir === 'down-far')) return show(false); // pulled down = egal, nothing changes
       const n = circleOf(role);
-      return n ? apply(gestureOn(n, dir, s.rules)) : null;
+      if (!n) return null;
+      const tile = ctx.tileOf(n);
+      if (tile?.drop && (dir === 'down' || dir === 'down-far')) { // a group goes with both its links, the higher number first
+        return apply({ edits: [Math.max(n, tile.drop), Math.min(n, tile.drop)].map((x) => ({ remove: x })) });
+      }
+      return apply(gestureOn(n, dir, s.rules));
     },
     dragEnd: (el, moved) => {
       const from = circleOf(role);
@@ -207,6 +212,6 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     },
     runRules: () => run(),
     /** A ring arc dropped on tile n (app.js): that strand always goes there. */
-    dropKind: (n, kind) => apply(gestureOn(n, 'drop-kind', s.rules, { kind })),
+    dropKind: (n, kind) => apply(gestureOn(targetFor(ctx.tileOf(n), 'drop-kind'), 'drop-kind', s.rules, { kind })),
   };
 }

@@ -48,8 +48,10 @@ export async function openAll(entries, { keychain, own, folders = null, fetch = 
       }
       const secret = spec.kind === 'local' ? null : await keychain.get(entry.id);
       let { store } = connect(spec, { secret, local: own, fetch });
-      const linkMayWrite = spec.kind === 'link' && (await store.inner.canWrite().catch(() => false));
-      if (linkMayWrite) ({ store } = connect({ ...spec, write: true }, { secret, fetch }));
+      if (spec.kind === 'link') { // a public link: read only, read and write, or drop only ("File drop")
+        const { read, write } = await store.inner.rights().catch(() => ({ read: true, write: false }));
+        if (write) ({ store } = connect({ ...spec, write: true, drop: !read }, { secret, fetch }));
+      }
       let description = null;
       try { description = readDescription(dec.decode(await store.read(SELF))); } catch { /* not described yet */ }
       open.set(i + 1, { entry, spec, store, description });
@@ -98,7 +100,7 @@ export function sources(rules, open, own) {
   const out = [{ name: 'own', store: own }];
   for (const r of rules.filter((x) => x.mark === 'show' && x.from == null)) {
     const sp = open.get(r.to);
-    if (!sp?.store) continue;
+    if (!sp?.store || sp.store.dropOnly) continue; // a drop link shows nothing
     let store;
     if (r.write && !sp.store.readOnly) store = sp.store; // brought in for writing too
     else if (r.kinds.length) store = new KindsStore(sp.store, r.kinds); // only some kinds, read only
@@ -119,6 +121,7 @@ export async function runRules(rules, open, { own, backupKey = null, skip = () =
   for (const rule of rules) {
     const from = storeOf(rule.from), to = storeOf(rule.to), kinds = kindsFor(rule, open.get(rule.to));
     try {
+      if (to?.dropOnly) continue; // a drop link cannot say what is missing: only new takes go there (afterTake)
       const waiting = (!from || !to) && [rule.from, rule.to].some((n) => open.get(n)?.waiting);
       if (waiting) report.push({ rule, waiting: true }); // disk not plugged in: no error, it runs when it is back
       else if (rule.mark === 'always') report.push({ rule, result: await copyRoute(from, to, { kinds, skip }) });
