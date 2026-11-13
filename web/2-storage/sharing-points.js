@@ -39,7 +39,7 @@ export async function openAll(entries, { keychain, own, folders = null, fetch = 
   const open = new Map();
   for (const [i, entry] of entries.entries()) {
     const spec = specOf(entry);
-    if (!spec) continue;
+    if (!spec || spec.kind === 'cloud') continue; // devices and expected accounts have no store here
     try {
       if (spec.kind === 'folder') {
         const store = await folders?.open(entry.id);

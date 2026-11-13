@@ -3,6 +3,8 @@
 // Purpose:   one notation for every kind (SCHEMA.md B8):
 //              local:                                  this device (OPFS / app folder)
 //              folder:Name                             a picked folder or disk (9-ui/folders.js)
+//              cloud:name@uni-koeln.de@uni-koeln.sciebo.de   an account (Sciebo, Nextcloud) whose shares to
+//                                                      me are taken in by themselves; no store of its own
 //              https://host/remote.php/dav/files/<user>/<folder>/   Nextcloud, Sciebo
 //              https://host/public.php/dav/files/<token>/           a read-only link
 //              any other https                         WebDAV, user in the address (https://lena@dav.example/…)
@@ -18,6 +20,7 @@ export function specOf({ label, id, path, key }) {
   if (!path) return key ? null : { kind: 'local', label, id };
   if (path === 'local:') return { kind: 'local', label, id };
   if (path.startsWith('folder:')) return { kind: 'folder', label, id }; // a picked folder or disk (9-ui/folders.js)
+  if (path.startsWith('cloud:')) return { kind: 'cloud', label, id, cloudId: path.slice(6) }; // an account whose shares to me are taken in
   const u = new URL(path);
   const where = u.origin + u.pathname;
   let m = /^(.*)\/public\.php\/dav\/files\/([^/]+)\/?$/.exec(where);

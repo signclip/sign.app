@@ -103,8 +103,14 @@ export async function takeIn(nc, share, { newId }) {
 /**
  * Where the other side accepts a share: the files page of its Nextcloud (its server comes from the
  * cloud id); it asks to log in first when needed, then shows the share to accept.
- * name@uni-koeln.de@uni-koeln.sciebo.de → https://uni-koeln.sciebo.de/index.php/apps/files/
+ * name@uni-koeln.de@uni-koeln.sciebo.de → https://uni-koeln.sciebo.de/index.php/apps/files/pendingshares
  */
 export function acceptPage(cloudId) {
-  return `${cloudIdParts(cloudId).remote}/index.php/apps/files/`;
+  return pendingPage(cloudIdParts(cloudId).remote);
 }
+
+/** The page of a server that lists shares waiting to be accepted (Nextcloud 28+; older ones open Files). */
+export const pendingPage = (server) => `${server.replace(/\/$/, '')}/index.php/apps/files/pendingshares`;
+
+/** My cloud id on a Nextcloud: user@host, what another cloud shares to. */
+export const myCloudId = (server, user) => `${user}@${new URL(server).host}`;

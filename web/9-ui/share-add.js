@@ -18,8 +18,7 @@ import { readPaste } from '../2-storage/spec.js';
 import { startLogin, waitLogin } from '../2-storage/login-flow.js';
 import { Nextcloud, webdavUrl } from '../2-storage/nextcloud.js';
 import { giveStrands, giveAll } from '../2-storage/routes.js';
-import { connect, takeIn, acceptPage } from '../2-storage/connect.js';
-import { newSource as newQ } from '../1-model/ids.js';
+import { connect, takeIn, acceptPage, pendingPage, myCloudId, cloudIdParts } from '../2-storage/connect.js';
 import { newSource } from '../1-model/ids.js';
 import { folders, canPick } from './folders.js';
 import { copy } from './system-share.js';
@@ -43,9 +42,9 @@ export async function bringIn(ctx) {
   if (s.giveTo) return giveOut(ctx, s.giveTo, text.trim());
   const what = readPaste(text);
   if (!what) return say(t('menu.paste'));
-  if (what.kind === 'cloud') { // a cloud id: give my Nextcloud folder to it
-    const mine = ctx.tileOf(s.focus) ?? ctx.all().find((x) => x.canGive);
-    return mine ? giveOut(ctx, mine.n, what.cloudId) : say(t('notReachable'));
+  if (what.kind === 'cloud') { // a cloud id brought in: its shares to me are taken in by themselves
+    const host = what.cloudId.slice(what.cloudId.lastIndexOf('@') + 1);
+    return edit({ add: { label: host, path: `cloud:${what.cloudId}`, id: newSource() } });
   }
   const id = newSource();
   if (what.kind === 'login') {
@@ -149,11 +148,28 @@ export async function acceptWaiting(ctx, { n, share }) {
   const secret = await keychain.get(sp.entry.id);
   const nc = new Nextcloud({ server: sp.spec.server, user: sp.spec.user, password: secret });
   try {
-    const entry = await takeIn(nc, share, { newId: newQ });
+    const entry = await takeIn(nc, share, { newId: newSource });
     await keychain.set(entry.id, secret); // reached with the same login as my own Nextcloud
     await edit({ add: entry, marks: ['show'] });
     return say(`${t('share')} ← ${share.owner}`);
   } catch {
-    return openPage(`${sp.spec.server}/index.php/apps/files/`); // accept it there; it then shows as a folder in my account
+    return openPage(pendingPage(sp.spec.server)); // accept it there; it then shows as a folder in my account
   }
+}
+
+/**
+ * Tap on an expected account (cloud:…): my own Nextcloud's cloud id goes onto the clipboard and its
+ * server opens, where the folder is shared to that id; my app then takes it in by itself.
+ */
+export async function askAccount(ctx, n) {
+  const entry = ctx.s.entries[n - 1];
+  const mine = [...ctx.s.open.values()].find((sp) => sp.spec?.kind === 'nextcloud' && !sp.store?.readOnly);
+  if (mine) await copy(myCloudId(mine.spec.server, mine.spec.user));
+  return openPage(`${cloudIdParts(entry.path.slice(6)).remote}/index.php/apps/files/`);
+}
+
+/** Waiting shares from accounts I brought in (cloud:…) → taken in without a tap (native app). */
+export function expectedOf(ctx, waiting) {
+  const expected = ctx.s.entries.filter((e) => e.path?.startsWith('cloud:')).map((e) => cloudIdParts(e.path.slice(6)));
+  return waiting.filter(({ share }) => expected.some((x) => share.owner === x.owner && String(share.remote).replace(/\/$/, '').startsWith(x.remote)));
 }

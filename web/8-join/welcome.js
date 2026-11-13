@@ -37,9 +37,10 @@ export async function arrive({ secret, sharingPoints, keychain, fetch = globalTh
   const entries = [], stores = new Map();
   for (const sp of sharingPoints) {
     const own = sp.id === s.id || sp.path.startsWith(`${s.server.replace(/\/$/, '')}/remote.php/dav/files/${s.user}/`);
-    if (!own) { entries.push({ ...sp, kind: 'webdav' }); continue; } // reached later with its own access
+    if (!own) { entries.push({ ...sp, kind: sp.path.startsWith('cloud:') ? 'cloud' : 'webdav' }); continue; } // reached later with its own access; cloud: = an account the signer cleared, its shares are taken in
     const folder = decodeURIComponent(sp.path.split(`/files/${s.user}/`)[1] ?? '').replace(/\/$/, '');
     const { entry, store } = connect({ kind: 'nextcloud', label: sp.label, id: sp.id, server: s.server, user: s.user, folder }, { secret: s.appPassword, fetch });
+    if (sp.id !== s.id) await keychain.set(sp.id, s.appPassword); // each folder of the own account opens with the same login
     entries.push(entry); stores.set(sp.id, store);
   }
   return { entries, stores };

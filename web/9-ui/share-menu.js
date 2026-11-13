@@ -39,6 +39,7 @@ export function tiles(entries, rules, open = new Map()) {
     const sp = open.get(n);
     let state = 'closed';
     if (!entry.path && entry.key) state = 'device'; // reached another way (LocalSend later)
+    else if (entry.path?.startsWith('cloud:')) state = 'cloud'; // an account whose shares to me are taken in
     else if (sp?.error) state = 'error';
     else if (sp?.waiting) state = 'waiting'; // a disk not plugged in
     else if (sp?.store) state = 'ok';

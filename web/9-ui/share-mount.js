@@ -18,7 +18,7 @@ import { readPaste } from '../2-storage/spec.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
 import { tiles, gestureOn, KINDS } from './share-menu.js';
-import { bringIn, pickFolder, giveOut, browseChips, waitingShares, acceptWaiting, openPage } from './share-add.js';
+import { bringIn, pickFolder, giveOut, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
 import { folders } from './folders.js';
 import { bind } from './touch.js';
 import { pointShapes } from './view/points.js';
@@ -74,7 +74,12 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     s.rules = text ? rulesOf(text) : [];
     s.open = await openAll(s.entries, { keychain, own, folders });
     onSources(sources(s.rules, s.open, own));
-    waitingShares(ctx).then((list) => { s.incoming = list; if (!panel.hidden) draw(); }); // asks in the background
+    waitingShares(ctx).then(async (list) => { // asks in the background
+      const expected = expectedOf(ctx, list); // from accounts I brought in: taken in without a tap
+      for (const item of expected) await acceptWaiting(ctx, item).catch(() => {});
+      s.incoming = list.filter((x) => !expected.includes(x));
+      if (!panel.hidden) draw();
+    });
   }
   async function edit(change) {
     await changeList(own, change, meta());
@@ -113,6 +118,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'sp' && a === '0') return null; // this device: its gestures are drags
     if (what === 'sp') {
       const tile = ctx.tileOf(Number(a));
+      if (tile?.state === 'cloud') return askAccount(ctx, tile.n); // my cloud id copied, their server opens
       if (tile?.state === 'waiting') { // permission needs a tap; then its rules catch up
         const back = await reconnect(s.open, folders, { ask: true, only: tile.n });
         if (back.length) {
