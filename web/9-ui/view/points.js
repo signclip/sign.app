@@ -46,7 +46,7 @@ function edgeBar(kind, { cx, cy, tw, th }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
+export function pointShapes(all, { own = '', focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const tw = 86 * k; // a tile: a rounded rectangle, two layers behind it = much lies inside
   const th = 64 * k;
   const y0 = top + 72 * k; // first row, under the handle
@@ -90,6 +90,11 @@ export function pointShapes(all, { own = '', focus = null, waitSecret = false, b
     if (t.under) continue; // the drop link of a group: drawn as part of its read tile
     const cls = ['sp', t.state, t.shown && 'shown', t.always && 'always', focus === t.n && 'focus'].filter(Boolean).join(' ');
     const { cx, cy } = tile(slot.get(t.n), `sp:${t.n}`, `${cls}${t.group ? ' group' : ''}`, t.label);
+    const joined = joinStates.get(t.label); // the sharing icon growing: one circle = hello sent, two = joined
+    if (joined) {
+      add('circle', { cx: cx + tw / 2 - 4 * k, cy: cy - th / 2 + 4 * k, r: 7 * k, cls: 'badge' });
+      if (joined === 'join') add('circle', { cx: cx + tw / 2 + 6 * k, cy: cy - th / 2 + 4 * k, r: 7 * k, cls: 'badge joined' });
+    }
     for (const kind of EDGES) {
       const look = !t.kinds.includes(kind) ? 'off' : t.always ? 'own' : 'new';
       const bar = edgeBar(kind, { cx, cy, tw, th });
@@ -98,6 +103,13 @@ export function pointShapes(all, { own = '', focus = null, waitSecret = false, b
     }
   }
   let next = slot.size;
+  hellos.forEach((x, i) => { // signer: someone said hello (circles, as the sharing icon); tap = welcome
+    const { cx, cy } = grid(next++, { w, k, y0 });
+    at.set(`hello:${i}`, { cx, cy, r: 26 * k });
+    add('circle', { cx, cy, r: 26 * k, cls: 'hello', role: `hello:${i}` });
+    add('circle', { cx: cx + 10 * k, cy: cy - 10 * k, r: 8 * k, cls: 'hello-dot' });
+    add('label', { x: cx, y: cy + 44 * k, text: x.label, cls: 'label' });
+  });
   incoming.forEach((x, i) => tile(next++, `incoming:${i}`, 'sp incoming', x.label)); // waiting for me: tap = take in
   if (acceptThere) tile(next++, 'accept-there', 'sp incoming there', acceptThere.label); // tap = their page to accept
   tile(next, 'add:paste', `sp add${waitSecret ? ' now' : ''}`, '', { stack: false });

@@ -88,6 +88,12 @@ export class Nextcloud {
     return { id: String(d.id), token: d.token, url: d.url, webdav: publicWebdavUrl(this.server, d.token) };
   }
 
+  /** The public links of one folder (to stop them when a group renews its links). → [{ id, token }] */
+  async linksOf(path) {
+    const list = await this.ocs('GET', `shares?path=${encodeURIComponent(`/${path.replace(/^\//, '')}`)}`);
+    return list.filter((s) => Number(s.share_type) === 3).map((s) => ({ id: String(s.id), token: s.token }));
+  }
+
   /** Folders others shared with me, as they appear in my tree (internal and accepted federated). */
   async sharedWithMe() {
     const inner = (await this.ocs('GET', 'shares?shared_with_me=true')).map((s) => ({ label: s.file_target?.replace(/^\//, '') ?? s.path, folder: (s.file_target ?? s.path).replace(/^\//, ''), from: s.uid_owner }));

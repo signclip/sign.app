@@ -22,6 +22,7 @@ import { connect, takeIn, acceptPage, pendingPage, myCloudId, cloudIdParts } fro
 import { newSource } from '../1-model/ids.js';
 import { folders, canPick } from './folders.js';
 import { copy } from './system-share.js';
+import { bringInvitation } from './share-group.js';
 
 async function clipboard() {
   const cap = globalThis.Capacitor?.Plugins?.Clipboard;
@@ -33,6 +34,7 @@ export async function bringIn(ctx) {
   const { s, keychain, edit, say, t } = ctx;
   let text = '';
   try { text = await clipboard(); } catch { return say(t('notReachable')); }
+  if (text.includes('\n') && await bringInvitation(ctx, text)) return say(t('share')); // a group invitation: name, read link, drop link
   if (s.waitSecret) { // the password a sharing point asked for: straight into the keychain, never shown
     await keychain.set(s.waitSecret, text.trim());
     s.waitSecret = null;

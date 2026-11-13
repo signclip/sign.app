@@ -11,7 +11,7 @@
 // Test:      tests/join.test.mjs
 // Limits:    two shares per group on the owner's server; renewing = 2 + n requests (n members).
 
-import { helloBack } from './join.js';
+import { helloBack, answerFor } from './join.js';
 
 /**
  * Make the two links of a group folder. nc: the owner's Nextcloud · folder: path in the owner's tree ·
@@ -36,13 +36,28 @@ export function welcomeToGroup({ store, helloPath, group, signer, now = Date.now
 
 /**
  * Renew both links (a link was passed on, someone has to go): new links, the old ones stopped, and a
- * new sealed join for every member still in. members: hello paths of those who stay.
+ * new sealed join for every member still in. members: hello paths of those who stay. old: the links
+ * made before ({ read: { id }, drop: { id } }), or null = stop every public link the folder has.
  * → { group (the new links), joins: [path] }
  */
-export async function renewGroup(nc, { folder, label, old, store, members, signer, password = undefined, now = Date.now() }) {
+export async function renewGroup(nc, { folder, label, old = null, store, members, signer, password = undefined, now = Date.now() }) {
+  const before = old ? [old.read?.id, old.drop?.id].filter(Boolean) : (await nc.linksOf(folder)).map((l) => l.id); // no ids kept: every public link of the folder
   const group = await makeGroup(nc, { folder, label, password });
-  for (const id of [old.read?.id, old.drop?.id].filter(Boolean)) await nc.stopShare(id);
+  for (const id of before) await nc.stopShare(id);
   const joins = [];
   for (const helloPath of members) joins.push(await welcomeToGroup({ store, helloPath, group, signer, now }));
   return { group, joins };
+}
+
+/** The invitation a signer hands out (one paste brings the whole group in): name, read link, drop link. */
+export const invitation = (label, group) => [label, group.read.webdav, group.drop.webdav].join('\n');
+
+/**
+ * Hellos in the group folder still without an answer in join/. store: the folder as the signer reaches
+ * it. → [helloPath]
+ */
+export async function waitingHellos(store) {
+  const paths = (await store.list()).map((f) => f.path);
+  const hellos = paths.filter((p) => p.startsWith('hello/') && /\(hello /.test(p));
+  return hellos.filter((h) => !answerFor(paths, h));
 }

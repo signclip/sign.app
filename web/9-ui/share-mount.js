@@ -19,6 +19,7 @@ import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { bringIn, pickFolder, giveOut, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
+import { makeOrRenew, hellosToWelcome, welcome, followJoins } from './share-group.js';
 import { folders } from './folders.js';
 import { bind } from './touch.js';
 import { pointShapes } from './view/points.js';
@@ -52,6 +53,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     browse: null, // after a login: choosing the folder
     incoming: [], // shares waiting for me in my own Nextcloud
     acceptThere: null, // after giving to a cloud id: { url, label } of the other side's page
+    hellos: [], // signer: hellos waiting in my group folders
+    joinStates: new Map(), // member: label → 'hello' | 'join'
     note: '', // one short line under the circles
   };
   const svg = document.createElement('div');
@@ -80,6 +83,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       s.incoming = list.filter((x) => !expected.includes(x));
       if (!panel.hidden) draw();
     });
+    hellosToWelcome(ctx).then((list) => { s.hellos = list; if (!panel.hidden) draw(); }); // signer: who said hello
+    followJoins(ctx).then((states) => { s.joinStates = states; if (!panel.hidden) draw(); }); // member: my joins
   }
   async function edit(change) {
     await changeList(own, change, meta());
@@ -87,7 +92,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     draw();
   }
   const say = (text) => { s.note = text; draw(); };
-  const ctx = { s, keychain, edit, load, say, t, all, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
+  const ctx = { s, keychain, edit, load, say, t, all, device, person, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
 
   // ---------- doing what a gesture says ----------
   async function shareTo(n) {
@@ -104,9 +109,11 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   async function apply(result) {
     if (!result) return null;
     if (result.action === 'share') return shareTo(result.n);
-    if (result.action === 'give') { // a cloud id on the clipboard = to it, else the WebDAV address onto the clipboard
+    if (result.action === 'give') { // a cloud id on the clipboard = to it; my own Nextcloud folder = becomes a group
       const pasted = readPaste(await clipboardText());
-      return giveOut(ctx, result.n, pasted?.kind === 'cloud' ? pasted.cloudId : 'link');
+      if (pasted?.kind === 'cloud') return giveOut(ctx, result.n, pasted.cloudId);
+      if (ctx.tileOf(result.n)?.canGive) return makeOrRenew(ctx, result.n);
+      return giveOut(ctx, result.n, 'link');
     }
     for (const change of result.edits ?? [result.edit]) await edit(change);
     return null;
@@ -135,6 +142,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'add' && a === 'folder') return pickFolder(ctx);
     if (what === 'browse') return browseChips(ctx)[Number(a)]?.go();
     if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
+    if (what === 'hello') return welcome(ctx, s.hellos[Number(a)]).then(load).then(draw);
     if (what === 'accept-there') {
       const { url } = s.acceptThere;
       s.acceptThere = null;
@@ -149,7 +157,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const { width: w, height: h } = panel.getBoundingClientRect();
     const browse = s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
-    const view = pointShapes(all(), { own: person.label, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere }, { w, h });
+    const hellos = s.hellos.map((x) => ({ label: x.name }));
+    const view = pointShapes(all(), { own: person.label, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     note.textContent = s.note;
   }
