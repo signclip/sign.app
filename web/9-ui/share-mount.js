@@ -1,53 +1,69 @@
-// share-mount.js — draws the share menu (share-menu.js) and carries out what is tapped.
+// share-mount.js — puts the sharing points on the screen after ↑ on the point and carries out the gestures.
 //
-// Purpose:   keeps the list in force, its rules and the opened sharing points together; after
-//            every change of the list it reopens them and hands Similar its sources (show rules).
-//            ↑ on the point = pick: only tiles that can take the last take, tap = share there.
-//            A folder or disk that comes back (checked every 30 s) gets its rules run at once:
-//            backup and copies catch up by themselves, nothing to press.
+// Purpose:   keeps the list in force, its rules and the opened sharing points together; after every change
+//            of the list it reopens them and hands Similar its sources (show rules). What a gesture means
+//            is in share-menu.js, how it looks in view/points.js; this file only listens and calls.
+//            A folder or disk that comes back (checked every 30 s) gets its rules run at once: backup and
+//            copies catch up by themselves.
 // Depends:   browser; 2-storage (list, sharing-point, sharing-points), 4-save/share-take,
-//            9-ui (share-menu, share-add, folders, touch, system-share)
+//            9-ui (share-menu, share-add, folders, touch, view/points, view/ring)
 // Test:      needs a browser; the parts are tested in tests/list.test.mjs and tests/ui.test.mjs.
-// Limits:    one list per device store; 30 s until a plugged-in disk is noticed (browser: only while
-//            the app is open, and after one tap on its tile per session for permission).
+// Limits:    one list per device store; 30 s until a plugged-in disk is noticed (browser: only while the
+//            app is open, and after one tap on its circle per session for permission).
 
 import { findList, changeList, rulesOf } from '../2-storage/list.js';
 import { readList } from '../2-storage/sharing-point.js';
 import { openAll, afterTake, sources, runRules, reconnect } from '../2-storage/sharing-points.js';
+import { readPaste } from '../2-storage/spec.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
-import { tiles, tileChips, chipEdit, tileNote, pickable, giveChips, pickGive, MENU_KINDS } from './share-menu.js';
+import { tiles, gestureOn, KINDS } from './share-menu.js';
 import { bringIn, pickFolder, giveOut, browseChips } from './share-add.js';
-import { folders, canPick } from './folders.js';
+import { folders } from './folders.js';
 import { bind } from './touch.js';
-import { send } from './system-share.js';
+import { pointShapes } from './view/points.js';
+import { toSvg } from './view/ring.js';
 
 const dec = new TextDecoder();
-const el = (tag, cls, text = '') => Object.assign(document.createElement(tag), { className: cls, textContent: text });
+
+async function clipboardText() {
+  try {
+    const cap = globalThis.Capacitor?.Plugins?.Clipboard;
+    return cap ? (await cap.read()).value : await navigator.clipboard.readText();
+  } catch {
+    return '';
+  }
+}
 
 /**
- * own: the device store · keychain: { get, set } · person: { id, label } · device: q_ · t: translator ·
- * lastChain(): path of the newest take chain · onSources(list): new sources for Similar.
- * → { show(on), pick(), afterTake(paths), runRules() }
+ * panel: element over the screen · own: the device store · keychain: { get, set } · person: { id, label } ·
+ * device: q_ · t: translator · lastChain(): newest take chain · selection(): kinds on in the ring ·
+ * onSources(list): new sources for Similar.
+ * → { show(on), afterTake(paths), runRules(), dropKind(n, kind) }
  */
-export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, onSources = () => {} }) {
+export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, onSources = () => {} }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
     open: new Map(), // n → opened sharing point (sharing-points.js openAll)
-    hold: null, // the tile whose chips are open
-    focus: null, // the tile shared to last (↑ goes there again)
-    pick: false, // ↑ on the point: choose where to
+    focus: null, // the circle shared to last
     waitSecret: null, // q_ of a sharing point that waits for a pasted password
-    giveTo: null, // n of the tile that waits for a pasted cloud id
-    givePick: [], // kinds chosen for giving ([] = whole)
+    giveTo: null, // n that waits for a pasted cloud id
     browse: null, // after a login: choosing the folder
-    note: '', // one short line under the menu
+    note: '', // one short line under the circles
   };
+  const svg = document.createElement('div');
+  svg.className = 'points';
+  const note = document.createElement('div');
+  note.className = 'note';
+  panel.append(svg, note);
+
   const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()) });
   const all = () => tiles(s.entries, s.rules, s.open);
-  const run = async (only = null) => runRules(only ? s.rules.filter((r) => r.to === only || r.from === only) : s.rules,
-    s.open, { own, backupKey: await keychain.get('backup') }); // the backup key, opened once by backup-key.js
+  const run = async (only = null) => {
+    const rules = only == null ? s.rules : s.rules.filter((r) => r.to === only || r.from === only);
+    return runRules(rules, s.open, { own, backupKey: await keychain.get('backup') }); // the key, opened once by backup-key.js
+  };
 
   async function load() {
     const at = await findList(own);
@@ -57,86 +73,121 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     s.open = await openAll(s.entries, { keychain, own, folders });
     onSources(sources(s.rules, s.open, own));
   }
-  async function edit(change) { await changeList(own, change, meta()); await load(); draw(); }
+  async function edit(change) {
+    await changeList(own, change, meta());
+    await load();
+    draw();
+  }
   const say = (text) => { s.note = text; draw(); };
-  const ctx = { s, keychain, edit, load, say, t, tileOf: (n) => all().find((x) => x.n === n), all, draw: () => draw() };
+  const ctx = { s, keychain, edit, load, say, t, all, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
 
-  async function tap(tile) {
-    if (tile.state === 'waiting') { // permission needs a tap; then its rules catch up
-      const back = await reconnect(s.open, folders, { ask: true, only: tile.n });
-      if (back.length) {
-        onSources(sources(s.rules, s.open, own));
-        await run(tile.n);
-      }
-      return draw();
-    }
-    const sp = s.open.get(tile.n), chainPath = await lastChain();
+  // ---------- doing what a gesture says ----------
+  async function shareTo(n) {
+    const sp = s.open.get(n);
+    const chainPath = await lastChain();
     if (!sp?.store || !chainPath) return say(t('notReachable'));
-    s.focus = tile.n; s.pick = false;
-    const rule = s.rules.find((r) => r.to === tile.n && r.from == null && (r.mark === 'always' || r.mark === 'ask'));
-    const kinds = rule?.kinds?.length ? rule.kinds : MENU_KINDS;
-    const target = { entry: { ...sp.entry, always: kinds }, description: sp.description ?? { kinds: MENU_KINDS }, store: sp.store };
-    await shareTake({ own, chainPath, device: { id: device, label: device }, person, now: Date.now(), targets: [target] });
-    say(`${t('share')} → ${sp.entry.label}`);
+    s.focus = n;
+    const tile = ctx.tileOf(n);
+    const target = { entry: { ...sp.entry, always: tile.kinds.length ? tile.kinds : KINDS }, description: sp.description ?? { kinds: KINDS }, store: sp.store };
+    await shareTake({ own, chainPath, device, person, now: Date.now(), targets: [target] });
+    return say(`${t('share')} → ${sp.entry.label}`);
   }
 
+  async function apply(result) {
+    if (!result) return null;
+    if (result.action === 'share') return shareTo(result.n);
+    if (result.action === 'give') { // a cloud id on the clipboard = to it, else the WebDAV address onto the clipboard
+      const pasted = readPaste(await clipboardText());
+      return giveOut(ctx, result.n, pasted?.kind === 'cloud' ? pasted.cloudId : 'link');
+    }
+    for (const change of result.edits ?? [result.edit]) await edit(change);
+    return null;
+  }
+
+  async function tapped(role) {
+    if (!role) return show(false); // a tap beside the circles = back
+    const [what, a, b] = role.split(':');
+    if (what === 'sp' && a === '0') return null; // this device: its gestures are drags
+    if (what === 'sp') {
+      const tile = ctx.tileOf(Number(a));
+      if (tile?.state === 'waiting') { // permission needs a tap; then its rules catch up
+        const back = await reconnect(s.open, folders, { ask: true, only: tile.n });
+        if (back.length) {
+          onSources(sources(s.rules, s.open, own));
+          await run(tile.n);
+        }
+        return draw();
+      }
+      return apply(gestureOn(Number(a), 'tap', s.rules));
+    }
+    if (what === 'sp-kind') return apply(gestureOn(Number(a), 'tap-kind', s.rules, { kind: b }));
+    if (what === 'add' && a === 'paste') return bringIn(ctx);
+    if (what === 'add' && a === 'folder') return pickFolder(ctx);
+    if (what === 'browse') return browseChips(ctx)[Number(a)]?.go();
+    return null;
+  }
+
+  // ---------- drawing ----------
   function draw() {
-    const row = (cls) => panel.appendChild(el('div', `row ${cls}`));
-    panel.replaceChildren();
-    if (s.pick) row('note').textContent = t('menu.pick');
-    else row('system').appendChild(el('span', 'chip', t('share'))).onclick = () => send({ text: person.label });
-    const list = row('points');
-    for (const tile of s.pick ? pickable(all()) : all()) {
-      const box = list.appendChild(el('div', `tile ${tile.state}${s.focus === tile.n ? ' focus' : ''}`));
-      box.append(el('b', '', tile.label), el('small', '', tileNote(tile, t)));
-      bind(box, { tap: () => tap(tile), hold: () => { s.hold = s.hold === tile.n ? null : tile.n; draw(); },
-        swipe: (d) => (d === 'down' ? edit({ remove: tile.n }) : d === 'up' ? tap(tile) : null) });
-      if (s.hold !== tile.n || s.pick) continue;
-      const chips = list.appendChild(el('div', 'tile-chips'));
-      const chip = (c, go) => { chips.appendChild(el('span', `chip${c.on ? ' on' : ''}`, c.label)).onclick = go; };
-      for (const c of tileChips(tile, t)) {
-        chip(c, () => {
-          const change = chipEdit(tile.n, c, s.rules);
-          if (change) edit(change);
-        });
-      }
-      if (tile.canGive) chips.appendChild(el('div', 'note', t('menu.give')));
-      for (const c of tile.canGive ? giveChips(s.givePick, t) : []) {
-        chip(c, () => {
-          if (c.key === 'give') return giveOut(ctx, tile.n, c.value);
-          s.givePick = pickGive(s.givePick, c.value);
-          draw();
-        });
-      }
-    }
-    if (s.pick) return;
-    if (s.browse) {
-      const browse = row('browse');
-      for (const c of browseChips(ctx)) browse.appendChild(el('span', 'chip', c.label)).onclick = c.go;
-    }
-    const add = row('add');
-    const pasteLabel = `← ${t(s.waitSecret ? 'menu.secret' : 'menu.paste')}`;
-    add.appendChild(el('span', 'chip', pasteLabel)).onclick = () => bringIn(ctx);
-    if (canPick()) add.appendChild(el('span', 'chip', t('menu.folder'))).onclick = () => pickFolder(ctx);
-    if (s.note) row('note').textContent = s.note;
+    const { width: w, height: h } = panel.getBoundingClientRect();
+    const browse = s.browse ? browseChips(ctx) : null;
+    const view = pointShapes(all(), { own: person.label, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse }, { w });
+    svg.innerHTML = toSvg(view, { w, h });
+    note.textContent = s.note;
   }
 
-  bind(panel, { swipe: (d) => (d === 'left' && !s.pick ? bringIn(ctx) : null) });
+  // ---------- touch: the role is read when the finger goes down ----------
+  let role = null;
+  const roleOf = (el) => el?.closest?.('[data-role]')?.dataset.role ?? null;
+  const circleOf = (r) => (r?.startsWith('sp:') ? Number(r.split(':')[1]) : null);
+  function doubled(r) {
+    const [what, a, b] = r.split(':');
+    if (what === 'sp' && a !== '0') return apply(gestureOn(Number(a), 'double-tap', s.rules, { selection: selection() }));
+    if (what === 'bridge') return apply(gestureOn(Number(b), 'double-tap-bridge', s.rules, { from: Number(a) }));
+    return null;
+  }
+  const handlers = {
+    down: (e) => {
+      role = roleOf(e.target);
+      const doubles = role?.startsWith('sp:') || role?.startsWith('bridge:');
+      handlers.doubleTap = doubles ? () => doubled(role) : undefined; // only circles and bridges wait for a second tap
+    },
+    tap: () => tapped(role),
+
+    swipe: (dir) => {
+      const n = circleOf(role);
+      return n ? apply(gestureOn(n, dir, s.rules)) : null;
+    },
+    dragEnd: (el, moved) => {
+      const from = circleOf(role);
+      if (!moved) return from ? apply(gestureOn(from, 'hold', s.rules)) : null; // held still: bring in / out
+      const onto = circleOf(roleOf(el));
+      return from != null && onto ? apply(gestureOn(onto, 'drop-point', s.rules, { from })) : null; // carried onto another: copy
+    },
+  };
+  bind(panel, handlers);
+
   await load();
   setInterval(async () => { // a disk plugged in again → its rules run (backup, copies)
     for (const n of await reconnect(s.open, folders)) {
       onSources(sources(s.rules, s.open, own));
       await run(n).catch(() => {});
-      draw();
+      if (!panel.hidden) draw();
     }
   }, 30e3);
+
+  function show(on) {
+    panel.hidden = !on;
+    if (on) draw();
+  }
   return {
-    show(on) { panel.hidden = !on; if (!on) s.pick = false; else draw(); },
-    pick() { s.pick = true; panel.hidden = false; draw(); },
+    show,
     async afterTake(paths) {
       const files = await Promise.all(paths.map(async (path) => ({ path, bytes: await own.read(path) })));
       return afterTake(s.rules, s.open, files);
     },
     runRules: () => run(),
+    /** A ring arc dropped on circle n (app.js): that strand always goes there. */
+    dropKind: (n, kind) => apply(gestureOn(n, 'drop-kind', s.rules, { kind })),
   };
 }

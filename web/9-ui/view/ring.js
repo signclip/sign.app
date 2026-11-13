@@ -96,6 +96,7 @@ function strandArcs({ st, data, cx, cy, R, add }) {
     const looks = look(st, kind);
     const live = st.screen === 'record' && looks === 'new';
     add('arc', { cx, cy, r: R, from: SIDES[kind][0], to: SIDES[kind][1], cls: `strand ${live ? 'own' : looks}`, role: `strand:${kind}` });
+    add('arc', { cx, cy, r: R, from: SIDES[kind][0], to: SIDES[kind][1], cls: 'hit', role: `strand:${kind}` }); // a wider, unseen line to hit
   }
 }
 
@@ -178,10 +179,11 @@ function arcPath({ cx, cy, r, from, to }) {
 
 const SVG = {
   bubble: (s) => `<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="${s.h / 2}" class="${s.cls}"${roleOf(s)}/>`,
-  circle: (s) => `<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" class="${s.cls}"/>`,
+  circle: (s) => `<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" class="${s.cls}"${roleOf(s)}/>`,
   arc: (s) => `<path d="${arcPath(s)}" class="${s.cls}"${roleOf(s)}/>`,
   line: (s) => `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" class="${s.cls}"${roleOf(s)}/>`,
-  path: (s) => `<path d="${s.d}" class="${s.cls}"/>`,
+  path: (s) => `<path d="${s.d}" class="${s.cls}"${roleOf(s)}/>`,
+  label: (s) => `<text x="${s.x}" y="${s.y}" text-anchor="middle" class="${s.cls}">${esc(s.text)}</text>`,
   video: (s) => `<circle cx="${s.cx}" cy="${s.cy}" r="${s.d / 2}" class="${s.cls}"${roleOf(s)}/>`,
   thumb: (s) => `<rect x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" rx="${s.round ? s.s / 2 : 12}" class="${s.cls}"${roleOf(s)}/>`,
   chip: (s) => `<g class="${s.cls}"${roleOf(s)}>`

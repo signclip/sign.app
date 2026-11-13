@@ -77,7 +77,7 @@ async function writeOnce(store, path, bytes) {
 /**
  * own: store with the Take · chainPath: its chain file · targets: [{ entry, description, store }]
  * entry: { label, id, always } from the person's list · description: from sharing-point.sign
- * once: kinds for this share only, or null · device, person: { id, label } · now: ms
+ * once: kinds for this share only, or null · device: q_ of this device · person: { id, label } · now: ms
  */
 export async function shareTake({ own, chainPath, targets, once = null, device, person, now = Date.now(), deviceKey = null }) {
   const oldBytes = await own.read(chainPath);

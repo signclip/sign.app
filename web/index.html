@@ -43,11 +43,24 @@
     #chips { position: absolute; top: 72px; left: 12px; right: 12px; text-align: center; }
     #similar { position: absolute; top: 72px; right: 0; width: 42%; bottom: 140px; background: #E6F1FBdd; border-radius: 16px 0 0 16px; padding: 12px; overflow: auto; }
     #own { position: absolute; top: 72px; left: 0; width: 46%; bottom: 140px; background: #FAECE7ee; border-radius: 0 16px 16px 0; padding: 12px; overflow: auto; }
-    #share { position: absolute; top: 25%; right: 0; width: 64%; max-height: 50%; background: #E1F5EEee; border-radius: 16px 0 0 16px; padding: 12px; overflow: auto; }
-    #share .row { margin: 6px 0; } #share .points { display: flex; flex-wrap: wrap; gap: 8px; }
-    #share .tile { width: 96px; min-height: 64px; padding: 8px; border-radius: 12px; background: var(--card); border: 1.5px solid #1D9E75; display: flex; flex-direction: column; }
-    #share .tile small { color: #0F6E56; } #share .tile.error, #share .tile.closed, #share .tile.waiting { opacity: 0.5; border-style: dashed; } #share .tile.focus { background: #9FE1CB; }
-    #share .tile-chips { flex-basis: 100%; } #share .note { color: #0F6E56; font-size: 0.9em; }
+    /* sharing points after ↑ on the point (view/points.js): a layer over the screen, only the shapes take touches */
+    #share { position: absolute; inset: 0; pointer-events: none; }
+    #share .points, #share svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #share [data-role] { pointer-events: auto; cursor: pointer; }
+    #share .note { position: absolute; left: 0; right: 0; top: 48%; text-align: center; color: var(--mut); font-size: 0.9em; }
+    .sp { fill: var(--card); stroke: var(--mut); stroke-width: 1.5; }
+    .sp.own-device { fill: var(--rc); stroke: var(--rc-stroke); }
+    .sp.always { stroke: var(--rc-stroke); stroke-width: 2.5; }
+    .sp.shown { fill: var(--sc); }
+    .sp.focus { stroke: var(--hold); stroke-width: 4; }
+    .sp.waiting, .sp.error, .sp.closed, .sp.device { stroke-dasharray: 5 4; opacity: .55; }
+    .sp.add { fill: none; stroke-dasharray: 5 4; } .sp.add.now { stroke: var(--rc-stroke); stroke-width: 2.5; }
+    .sp.folder { fill: var(--sc); }
+    .glyph { fill: none; stroke: var(--mut); stroke-width: 1.5; pointer-events: none; }
+    .strand.mini { stroke-width: 4; }
+    .hit { fill: none; stroke: transparent; stroke-width: 22; }
+    .bridge { stroke: var(--rc-stroke); stroke-width: 6; opacity: .35; } .bridge.backup { stroke-dasharray: 3 3; opacity: .6; }
+    .label { font: 500 12px Inter, system-ui, sans-serif; fill: var(--fg); pointer-events: none; }
     .chip.on { outline: 2px solid var(--rc-stroke); }
     #own .chip { background: var(--card); color: #712B13; border: 1px solid var(--rc-stroke); }
     span.chip { display: inline-block; margin: 4px; padding: 6px 12px; border-radius: 16px; background: var(--sc-stroke); color: #fff; }

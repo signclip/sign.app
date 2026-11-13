@@ -36,7 +36,7 @@ export function edgeZone(x, y, w, h) {
 
 /**
  * bind(el, handlers) → detach(). handlers: down(event) (first touch, before anything is known), tap(x, y),
- * doubleTap(), hold(), holdEnd(), swipe(dir), pinch(factor), dragEnd(targetElement). x, y are 0–1 inside el.
+ * doubleTap(), hold(), holdEnd(), swipe(dir), pinch(factor), dragEnd(targetElement, moved). x, y are 0–1 inside el.
  */
 export function bind(el, h) {
   const fingers = new Map(); // pointerId → { x, y }
@@ -89,8 +89,9 @@ export function bind(el, h) {
       return;
     }
     if (held) {
+      const moved = Math.hypot(e.clientX - touch.x, e.clientY - touch.y) > 30; // held and carried = a drag
       h.holdEnd?.();
-      h.dragEnd?.(document.elementFromPoint(e.clientX, e.clientY));
+      h.dragEnd?.(document.elementFromPoint(e.clientX, e.clientY), moved);
       touch = null;
       return;
     }

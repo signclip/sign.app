@@ -4,7 +4,7 @@
 //                  choose: ganzes Konto or one folder, step by step into subfolders), a password
 //                  when one was asked for (straight into the keychain, never shown) ·
 //                  Ordner wählen: a folder or a disk (folders.js), read and write.
-//            out: a Nextcloud folder of mine, ganz or only chosen kinds (take/x, echo/x …), read-only:
+//            out: a Nextcloud folder of mine, whole or only the strands that go there (its mini arcs), read-only:
 //                  WebDAV-Adresse kopieren (to bring it in elsewhere; one per folder) · an Adresse (paste a
 //                  cloud id: Sciebo, another Nextcloud; in the PWA too, via WebAppPassword). iCloud, Google Drive, OneDrive have no
 //                  read-only share an app can make: there the way is a backup into their folder.
@@ -83,7 +83,8 @@ export async function giveOut(ctx, n, how) {
   const sp = s.open.get(n);
   try {
     const nc = new Nextcloud({ server: sp.spec.server, user: sp.spec.user, password: await keychain.get(sp.entry.id) });
-    const kinds = s.givePick ?? [];
+    const tileKinds = ctx.tileOf(n)?.kinds ?? [];
+    const kinds = tileKinds.length && tileKinds.length < 4 ? tileKinds : []; // the strands that go there, else the whole folder
     const to = how === 'link' ? 'link' : readPaste(how)?.cloudId;
     if (!to) return say(t('menu.paste'));
     const root = sp.spec.folder;

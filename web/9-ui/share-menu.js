@@ -1,105 +1,122 @@
-// share-menu.js — the share menu as in the initial version: tiles, chips on hold, ← to bring one in.
+// share-menu.js — the sharing points after ↑ on the point: what each gesture on them means. No chips.
 //
-// Purpose:   slides in from the middle-right edge, or picks a target after ↑ on the point (pick:
-//            only tiles that can take the take, tap = share there). Three rows, chips only:
-//              teilen          the system share (send / copy) of the last take
-//              sharing points  one tile per sharing point of the list; marks under the name
-//              einfügen        ← or tap: take the clipboard (a link, an address, a cloud id)
-//            tile: tap = share the last take there now · hold = its chips · ↓ = out of the list
-//            chips of a tile: immer · fragen · zeigen · schreiben · backup, then the kinds it gets
-//            (the kinds belong to its "immer" rule, else to its "fragen" rule); on a Nextcloud folder
-//            also geben: ganz or some kinds, then WebDAV-Adresse kopieren · an Adresse. Every mark chip = one
-//            change of the list (list.js editList → a new chain version), nothing else is stored.
-// Depends:   2-storage/list.js (rules), sharing-points.js (offers)
-// Test:      tests/ui.test.mjs (model and chips); drawing in share-mount.js needs a browser.
-// Limits:    up to 40 tiles; kinds v a x l.
+// Purpose:   ↑ on the point shows every sharing point of the list as a small circle in the upper half
+//            (view/points.js). Settings sit on the circle itself and are set with the gestures that mean
+//            the same everywhere (UI doc, section 3):
+//              tap               share the last take there now (once)
+//              double-tap        mode: from now on ALWAYS · the strands that are on in the ring go there
+//              tap a mini arc    this strand goes there always, or not (left visual, right audio,
+//                                bottom context, top landmarks)
+//              drag a ring arc   onto a circle = that strand always goes there (A onto B = B gets A)
+//              hold              bring it in: it shows in Similar (show; writing too when it allows it)
+//              ↑                 give it out read-only (WebDAV address on the clipboard, or to the
+//                                cloud id that is on the clipboard)
+//              ↓                 out of the list
+//              drag circle → circle   copy what is missing, again and again; double-tap the bridge =
+//                                encrypted backup instead of a copy. The first circle (0) is this
+//                                device: 0 → n is the same as "always" (every take goes there)
+//            Two dashed circles at the end bring new ones in: clipboard (link, address, server) · folder.
+//            Every change = one edit of the list (list.js editList → a new chain version).
+// Depends:   nothing (rules come from 2-storage/list.js)
+// Test:      tests/ui.test.mjs
+// Limits:    up to 40 sharing points; kinds v a x l.
 
-export const MENU_MARKS = ['always', 'ask', 'show', 'write', 'backup'];
-export const MENU_KINDS = ['v', 'a', 'x', 'l'];
+export const KINDS = ['v', 'a', 'x', 'l'];
 
-const ruleOf = (rules, n, mark) => rules.find((r) => r.from == null && r.to === n && r.mark === mark) ?? null;
+const ruleOf = (rules, n, mark, from = null) => rules.find((r) => (r.from ?? null) === from && r.to === n && r.mark === mark) ?? null;
 const sendRule = (rules, n) => ruleOf(rules, n, 'always') ?? ruleOf(rules, n, 'ask');
+const kindsOf = (rule) => (rule ? (rule.kinds.length ? rule.kinds : KINDS) : []);
+const ordered = (kinds) => KINDS.filter((k) => kinds.includes(k));
+const allOrSome = (kinds) => (kinds.length === KINDS.length ? [] : ordered(kinds)); // [] = everything
 
 /**
  * Tiles of the list. entries: readList · rules: rulesOf · open: openAll (or an empty Map).
- * → [{ n, label, marks, kinds, state: 'ok' | 'error' | 'waiting' | 'device' | 'closed', readOnly, canGive }]
+ * → [{ n, label, always, ask, kinds, shown, write, copyTo: [n], backupTo: [n], backupOwn, state, readOnly, canGive }]
  */
 export function tiles(entries, rules, open = new Map()) {
   return entries.slice(0, 40).map((entry, i) => {
-    const n = i + 1, sp = open.get(n);
-    const marks = MENU_MARKS.filter((m) => (m === 'write' ? ruleOf(rules, n, 'show')?.write : ruleOf(rules, n, m)));
-    const send = sendRule(rules, n);
-    const kinds = send ? (send.kinds.length ? send.kinds : MENU_KINDS) : [];
+    const n = i + 1;
+    const sp = open.get(n);
     let state = 'closed';
     if (!entry.path && entry.key) state = 'device'; // reached another way (LocalSend later)
     else if (sp?.error) state = 'error';
     else if (sp?.waiting) state = 'waiting'; // a disk not plugged in
     else if (sp?.store) state = 'ok';
     const readOnly = Boolean(sp?.store?.readOnly);
-    return { n, label: entry.label, marks, kinds, state, readOnly, canGive: sp?.spec?.kind === 'nextcloud' && !readOnly };
+    const show = ruleOf(rules, n, 'show');
+    return {
+      n,
+      label: entry.label,
+      always: Boolean(ruleOf(rules, n, 'always')),
+      ask: Boolean(ruleOf(rules, n, 'ask')),
+      kinds: kindsOf(sendRule(rules, n)),
+      shown: Boolean(show),
+      write: Boolean(show?.write) && !readOnly,
+      copyTo: rules.filter((r) => r.from === n && r.mark === 'always').map((r) => r.to),
+      backupTo: rules.filter((r) => r.from === n && r.mark === 'backup').map((r) => r.to),
+      backupOwn: Boolean(ruleOf(rules, n, 'backup')), // this device backs up there
+      state,
+      readOnly,
+      canGive: sp?.spec?.kind === 'nextcloud' && !readOnly,
+    };
   });
 }
 
-/** Chips of one tile (hold): [{ key: 'mark' | 'kind', value, label, on }]. */
-export function tileChips(tile, t) {
-  return [
-    ...MENU_MARKS
-      .filter((m) => !(m === 'write' && tile.readOnly)) // a read-only link cannot take writing
-      .map((m) => ({ key: 'mark', value: m, label: t(`mark.${m}`), on: tile.marks.includes(m) })),
-    ...MENU_KINDS.map((k) => ({ key: 'kind', value: k, label: t(`kind.${k}`), on: tile.kinds.includes(k) })),
-  ];
-}
-
-/** A chip tapped on tile n → the edit for editList, or null. */
-export function chipEdit(n, chip, rules) {
-  const has = (mark) => Boolean(ruleOf(rules, n, mark));
-  if (chip.key === 'mark' && chip.value === 'write') {
-    const show = ruleOf(rules, n, 'show');
-    return { rule: { to: n, mark: 'show', kinds: show?.kinds ?? [], write: !show?.write }, on: true }; // writing brings it in too
-  }
-  if (chip.key === 'mark') {
-    const kinds = chip.value === 'always' || chip.value === 'ask' ? sendRule(rules, n)?.kinds ?? [] : [];
-    return { rule: { to: n, mark: chip.value, kinds }, on: !has(chip.value) };
-  }
-  if (chip.key === 'kind') {
-    const send = sendRule(rules, n);
-    const now = send ? (send.kinds.length ? send.kinds : MENU_KINDS) : [];
-    const kinds = now.includes(chip.value) ? now.filter((k) => k !== chip.value) : [...now, chip.value];
-    const mark = send?.mark ?? 'ask';
-    if (!kinds.length) return { rule: { to: n, mark }, on: false }; // the last kind off ends the rule
-    return { rule: { to: n, mark, kinds: MENU_KINDS.filter((k) => kinds.includes(k)) }, on: true };
-  }
-  return null;
-}
-
-/** What a tile says under its name: marks as short words, "nicht zugänglich" when it cannot open. */
-export function tileNote(tile, t) {
-  if (tile.state === 'error') return t('notReachable');
-  if (tile.state === 'waiting') return t('menu.waiting');
-  const words = tile.marks.map((m) => t(`mark.${m}`));
-  const someKinds = tile.kinds.length && tile.kinds.length < MENU_KINDS.length; // all kinds need no word
-  if (someKinds) words.push(tile.kinds.map((k) => t(`kind.${k}`)).join(' '));
-  return words.join(' · ');
-}
-
-/** Pick mode (↑ on the point): only tiles that can take a take now. */
+/** Tiles that can take a take now. */
 export const pickable = (all) => all.filter((tile) => tile.state === 'ok' && !tile.readOnly);
 
 /**
- * geben (a Nextcloud folder of mine, read-only elsewhere): what — ganz or chosen kinds (only for this
- * moment, nothing stored) — then how: WebDAV-Adresse kopieren · an Adresse (Sciebo, other Nextcloud).
- * picked: [] = ganz · ['x', 'l'] = only these strand folders. → chips [{ key: 'give-what' | 'give', value, label, on }]
+ * A gesture on sharing point n → { action } (something to do now), { edit } or { edits } (changes of
+ * the list), or null. gesture: 'tap' | 'double-tap' | 'hold' | 'up' | 'down' | 'tap-kind' | 'drop-kind' |
+ * 'drop-point' | 'double-tap-bridge'. extra: { kind, selection (kinds on in the ring), from (another n) }.
  */
-export function giveChips(picked, t) {
-  return [
-    { key: 'give-what', value: 'all', label: t('give.all'), on: !picked.length },
-    ...MENU_KINDS.map((k) => ({ key: 'give-what', value: k, label: t(`kind.${k}`), on: picked.includes(k) })),
-    ...['link', 'address'].map((v) => ({ key: 'give', value: v, label: t(`give.${v}`), on: false })),
-  ];
-}
+export function gestureOn(n, gesture, rules, extra = {}) {
+  const send = sendRule(rules, n);
+  switch (gesture) {
+    case 'tap': return { action: 'share', n };
+    case 'up': return { action: 'give', n };
+    case 'down': return { edit: { remove: n } };
 
-/** A give-what chip tapped → the new choice. */
-export function pickGive(picked, value) {
-  if (value === 'all') return [];
-  return picked.includes(value) ? picked.filter((k) => k !== value) : [...picked, value];
+    case 'double-tap': { // always on / off; on = the strands that are on in the ring
+      if (ruleOf(rules, n, 'always')) return { edit: { rule: { to: n, mark: 'always' }, on: false } };
+      const kinds = extra.selection?.length ? extra.selection : kindsOf(send);
+      return { edit: { rule: { to: n, mark: 'always', kinds: allOrSome(kinds.length ? kinds : KINDS) }, on: true } };
+    }
+
+    case 'tap-kind': case 'drop-kind': {
+      const now = kindsOf(send);
+      const has = now.includes(extra.kind);
+      if (gesture === 'drop-kind' && has) return null; // goes there already
+      const kinds = has ? now.filter((k) => k !== extra.kind) : [...now, extra.kind];
+      const mark = send?.mark ?? 'always'; // a strand put on a sharing point means "always"
+      if (!kinds.length) return { edit: { rule: { to: n, mark }, on: false } }; // the last strand off ends it
+      return { edit: { rule: { to: n, mark, kinds: allOrSome(kinds) }, on: true } };
+    }
+
+    case 'hold': { // bring in (show) or take out again
+      const shown = ruleOf(rules, n, 'show');
+      return { edit: { rule: { to: n, mark: 'show', kinds: [], write: true }, on: !shown } };
+    }
+
+    case 'drop-point': { // circle `from` dropped on circle n: copy from → n, again and again
+      if (extra.from == null || extra.from === n) return null;
+      const from = extra.from === 0 ? null : extra.from; // 0 = this device
+      const there = ruleOf(rules, n, 'always', from) ?? ruleOf(rules, n, 'backup', from);
+      if (there) return { edit: { rule: { from, to: n, mark: there.mark }, on: false } }; // dropped again = undone
+      return { edit: { rule: { from, to: n, mark: 'always', kinds: [] }, on: true } };
+    }
+
+    case 'double-tap-bridge': { // copy ↔ encrypted backup
+      const from = extra.from === 0 ? null : extra.from;
+      const copy = ruleOf(rules, n, 'always', from);
+      const backup = ruleOf(rules, n, 'backup', from);
+      if (!copy && !backup) return null;
+      return { edits: [
+        { rule: { from, to: n, mark: copy ? 'always' : 'backup' }, on: false },
+        { rule: { from, to: n, mark: copy ? 'backup' : 'always', kinds: [] }, on: true },
+      ] };
+    }
+
+    default: return null;
+  }
 }

@@ -73,6 +73,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const menu = await mountShareMenu({
     panel: $('#share'), own: store, keychain, person, device, t,
     lastChain: async () => take.lastChain,
+    selection: () => toRecord(st), // double-tap on a sharing point = these strands always go there
     onSources: async (list) => { sources = list; index = await buildIndex(sources); },
   });
   menu.runRules().catch(() => {}); // copies and backups of the list, quietly in the background
@@ -236,9 +237,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         await keepSimilar();
         step('similar-out');
         return showSimilar(false);
-      case 'share-last': step('share-last'); return menu.pick(); // ↑ on the point: choose where the last take goes
-      case 'share-menu': step('share-menu'); return menu.show(true);
-      case 'share-menu-out': step('share-menu-out'); return menu.show(false);
+      case 'share-last': step('share-last'); return menu.show(true); // ↑ on the point: the sharing points as circles
+      case 'always-there': return menu.dropKind(hit.n, hit.kind);
       case 'full':
         step('full');
         return document.documentElement.requestFullscreen?.().catch(() => {});
@@ -256,7 +256,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       role = screen.roleAt(e);
       handlers.doubleTap = role === 'point' ? () => act('double-tap', 'point') : undefined; // only the point waits for a second tap
     },
-    tap: (x, y) => act('tap', role, { x, y }),
+    tap: (x, y) => { if (!$('#share').hidden && role !== 'point') return menu.show(false); return act('tap', role, { x, y }); }, // a tap beside the circles closes them
     hold: () => act('hold', role),
     holdEnd: () => { if (st.held) end(); else if (st.sub === 'scrub') step('release'); },
     swipe: (dir) => act(dir, role),
@@ -266,6 +266,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       const onto = el?.closest?.('[data-role]')?.dataset.role;
       if (from.target === 'strand' && onto?.startsWith('strand:')) return act('drag', role, { drag: `${role}>${onto}` });
       if (from.target === 'strand' && el?.closest?.('#similar')) return act('drag', role, { drag: 'strand>similar' });
+      if (from.target === 'strand' && onto?.startsWith('sp:')) return act('drag', role, { drag: 'strand>sharing-point', n: Number(onto.split(':')[1]) });
       if (from.target === 'item' && onto === 'point') return act('drag', role, { drag: 'item>point' });
       if (from.target === 'item') return act('drag', role, { drag: 'item>beside-point' });
       return null;
