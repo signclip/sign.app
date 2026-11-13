@@ -1,21 +1,21 @@
-// share-menu.js — the sharing points after ↑ on the point: what each gesture on them means. No chips.
+// share-menu.js — the sharing menu after ↑ on the point: what each gesture on a sharing point means. No chips.
 //
-// Purpose:   ↑ on the point shows every sharing point of the list as a small circle in the upper half
-//            (view/points.js). Settings sit on the circle itself and are set with the gestures that mean
+// Purpose:   ↑ on the point shows every sharing point of the list as a small tile in the upper half
+//            (view/points.js). Settings sit on the tile itself and are set with the gestures that mean
 //            the same everywhere (UI doc, section 3):
 //              tap               share the last take there now (once)
 //              double-tap        mode: from now on ALWAYS · the strands that are on in the ring go there
-//              tap a mini arc    this strand goes there always, or not (left visual, right audio,
+//              tap an edge bar   this strand goes there always, or not (left visual, right audio,
 //                                bottom context, top landmarks)
-//              drag a ring arc   onto a circle = that strand always goes there (A onto B = B gets A)
+//              drag a ring arc   onto a tile = that strand always goes there (A onto B = B gets A)
 //              hold              bring it in: it shows in Similar (show; writing too when it allows it)
 //              ↑                 give it out read-only (WebDAV address on the clipboard, or to the
 //                                cloud id that is on the clipboard)
 //              ↓                 out of the list
-//              drag circle → circle   copy what is missing, again and again; double-tap the bridge =
-//                                encrypted backup instead of a copy. The first circle (0) is this
+//              drag tile → tile   copy what is missing, again and again; double-tap the bridge =
+//                                encrypted backup instead of a copy. The first tile (0) is this
 //                                device: 0 → n is the same as "always" (every take goes there)
-//            Two dashed circles at the end bring new ones in: clipboard (link, address, server) · folder.
+//            Two dashed tiles at the end bring new ones in: clipboard (link, address, server) · folder.
 //            Every change = one edit of the list (list.js editList → a new chain version).
 // Depends:   nothing (rules come from 2-storage/list.js)
 // Test:      tests/ui.test.mjs

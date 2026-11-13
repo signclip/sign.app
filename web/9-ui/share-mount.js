@@ -9,7 +9,7 @@
 //            9-ui (share-menu, share-add, folders, touch, view/points, view/ring)
 // Test:      needs a browser; the parts are tested in tests/list.test.mjs and tests/ui.test.mjs.
 // Limits:    one list per device store; 30 s until a plugged-in disk is noticed (browser: only while the
-//            app is open, and after one tap on its circle per session for permission).
+//            app is open, and after one tap on its tile per session for permission).
 
 import { findList, changeList, rulesOf } from '../2-storage/list.js';
 import { readList } from '../2-storage/sharing-point.js';
@@ -206,7 +206,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       return afterTake(s.rules, s.open, files);
     },
     runRules: () => run(),
-    /** A ring arc dropped on circle n (app.js): that strand always goes there. */
+    /** A ring arc dropped on tile n (app.js): that strand always goes there. */
     dropKind: (n, kind) => apply(gestureOn(n, 'drop-kind', s.rules, { kind })),
   };
 }

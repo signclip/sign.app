@@ -123,7 +123,7 @@ export async function openPage(url) {
 
 /**
  * Shares waiting for me in my own Nextcloud (sent from another Nextcloud or Sciebo).
- * → [{ n (my Nextcloud circle), share }] · empty when nothing waits or the browser is blocked (CORS).
+ * → [{ n (my Nextcloud tile), share }] · empty when nothing waits or the browser is blocked (CORS).
  */
 export async function waitingShares(ctx) {
   const { s, keychain } = ctx;
