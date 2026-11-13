@@ -6,7 +6,6 @@
 // Limits:    a panel shows at most 40 chips; Similar shows the 20 best.
 
 import { CHOICES } from './settings.js';
-import { combinedSimilar } from '../7-similar/combine.js';
 
 /** Chips of the own settings: [{ key, value, label, on }]. */
 export function ownChips(settings, t) {
@@ -21,11 +20,6 @@ export function ownChips(settings, t) {
 export function strandChips(kind, state) {
   if (kind === 'v') return [{ key: 'torch', value: !state.torch, label: '☀', on: state.torch }];
   return [];
-}
-
-/** Similar from the words of the newest takes: [{ label }]. */
-export function similarChips(index, words) {
-  return combinedSimilar(index, [{ kind: 'x', words }]).map((h) => ({ label: h.strand?.head?.['@'] ?? '·', key: h.key }));
 }
 
 /** Draw chips into a panel element; onChip(chip) on tap. */

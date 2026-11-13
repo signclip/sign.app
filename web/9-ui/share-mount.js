@@ -31,7 +31,19 @@ const el = (tag, cls, text = '') => Object.assign(document.createElement(tag), {
  * → { show(on), pick(), afterTake(paths), runRules() }
  */
 export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, onSources = () => {} }) {
-  const s = { entries: [], rules: [], open: new Map(), hold: null, focus: null, pick: false, waitSecret: null, giveTo: null, givePick: [], browse: null, note: '' };
+  const s = {
+    entries: [], // the sharing points of the list in force
+    rules: [], // its rules (list.js rulesOf)
+    open: new Map(), // n → opened sharing point (sharing-points.js openAll)
+    hold: null, // the tile whose chips are open
+    focus: null, // the tile shared to last (↑ goes there again)
+    pick: false, // ↑ on the point: choose where to
+    waitSecret: null, // q_ of a sharing point that waits for a pasted password
+    giveTo: null, // n of the tile that waits for a pasted cloud id
+    givePick: [], // kinds chosen for giving ([] = whole)
+    browse: null, // after a login: choosing the folder
+    note: '', // one short line under the menu
+  };
   const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()) });
   const all = () => tiles(s.entries, s.rules, s.open);
   const run = async (only = null) => runRules(only ? s.rules.filter((r) => r.to === only || r.from === only) : s.rules,
@@ -51,15 +63,20 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
 
   async function tap(tile) {
     if (tile.state === 'waiting') { // permission needs a tap; then its rules catch up
-      if ((await reconnect(s.open, folders, { ask: true, only: tile.n })).length) { onSources(sources(s.rules, s.open, own)); await run(tile.n); }
+      const back = await reconnect(s.open, folders, { ask: true, only: tile.n });
+      if (back.length) {
+        onSources(sources(s.rules, s.open, own));
+        await run(tile.n);
+      }
       return draw();
     }
     const sp = s.open.get(tile.n), chainPath = await lastChain();
     if (!sp?.store || !chainPath) return say(t('notReachable'));
     s.focus = tile.n; s.pick = false;
     const rule = s.rules.find((r) => r.to === tile.n && r.from == null && (r.mark === 'always' || r.mark === 'ask'));
-    await shareTake({ own, chainPath, device: { id: device, label: device }, person, now: Date.now(),
-      targets: [{ entry: { ...sp.entry, always: rule?.kinds?.length ? rule.kinds : MENU_KINDS }, description: sp.description ?? { kinds: MENU_KINDS }, store: sp.store }] });
+    const kinds = rule?.kinds?.length ? rule.kinds : MENU_KINDS;
+    const target = { entry: { ...sp.entry, always: kinds }, description: sp.description ?? { kinds: MENU_KINDS }, store: sp.store };
+    await shareTake({ own, chainPath, device: { id: device, label: device }, person, now: Date.now(), targets: [target] });
     say(`${t('share')} → ${sp.entry.label}`);
   }
 
@@ -77,16 +94,29 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (s.hold !== tile.n || s.pick) continue;
       const chips = list.appendChild(el('div', 'tile-chips'));
       const chip = (c, go) => { chips.appendChild(el('span', `chip${c.on ? ' on' : ''}`, c.label)).onclick = go; };
-      for (const c of tileChips(tile, t)) chip(c, () => { const change = chipEdit(tile.n, c, s.rules); if (change) edit(change); });
+      for (const c of tileChips(tile, t)) {
+        chip(c, () => {
+          const change = chipEdit(tile.n, c, s.rules);
+          if (change) edit(change);
+        });
+      }
       if (tile.canGive) chips.appendChild(el('div', 'note', t('menu.give')));
       for (const c of tile.canGive ? giveChips(s.givePick, t) : []) {
-        chip(c, () => (c.key === 'give' ? giveOut(ctx, tile.n, c.value) : (s.givePick = pickGive(s.givePick, c.value), draw())));
+        chip(c, () => {
+          if (c.key === 'give') return giveOut(ctx, tile.n, c.value);
+          s.givePick = pickGive(s.givePick, c.value);
+          draw();
+        });
       }
     }
     if (s.pick) return;
-    if (s.browse) { const b = row('browse'); for (const c of browseChips(ctx)) b.appendChild(el('span', 'chip', c.label)).onclick = c.go; }
+    if (s.browse) {
+      const browse = row('browse');
+      for (const c of browseChips(ctx)) browse.appendChild(el('span', 'chip', c.label)).onclick = c.go;
+    }
     const add = row('add');
-    add.appendChild(el('span', 'chip', `← ${t(s.waitSecret ? 'menu.secret' : 'menu.paste')}`)).onclick = () => bringIn(ctx);
+    const pasteLabel = `← ${t(s.waitSecret ? 'menu.secret' : 'menu.paste')}`;
+    add.appendChild(el('span', 'chip', pasteLabel)).onclick = () => bringIn(ctx);
     if (canPick()) add.appendChild(el('span', 'chip', t('menu.folder'))).onclick = () => pickFolder(ctx);
     if (s.note) row('note').textContent = s.note;
   }
@@ -94,7 +124,11 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   bind(panel, { swipe: (d) => (d === 'left' && !s.pick ? bringIn(ctx) : null) });
   await load();
   setInterval(async () => { // a disk plugged in again → its rules run (backup, copies)
-    for (const n of await reconnect(s.open, folders)) { onSources(sources(s.rules, s.open, own)); await run(n).catch(() => {}); draw(); }
+    for (const n of await reconnect(s.open, folders)) {
+      onSources(sources(s.rules, s.open, own));
+      await run(n).catch(() => {});
+      draw();
+    }
   }, 30e3);
   return {
     show(on) { panel.hidden = !on; if (!on) s.pick = false; else draw(); },

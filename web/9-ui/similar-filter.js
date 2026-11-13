@@ -29,12 +29,20 @@ export function timeOf(key, now = new Date()) {
 export function filterChips(index, chosen = EMPTY, t = (k) => k, now = new Date()) {
   const f = facets(index);
   const month = day(now).slice(0, 7);
+  const persons = f.persons.slice(0, 8);
+  const times = ['today', 'week', month, ...f.months.filter((m) => m !== month).slice(0, 2)];
+  const isOn = (key, value) => (key === 'time' ? chosen.time === value : chosen[key].includes(value));
+  const chip = (row, key, value, label) => ({ row, key, value, label, on: isOn(key, value) });
   return [
-    ...f.persons.slice(0, 8).map((p) => ({ row: 'wer', key: 'persons', value: p.n, label: `@${p.label ?? '?'}`, on: chosen.persons.includes(p.n) })),
-    ...f.persons.slice(0, 8).map((p) => ({ row: 'wo', key: 'at', value: p.n, label: `@${p.label ?? '?'}`, on: chosen.at.includes(p.n) })),
-    ...f.sharingPoints.slice(0, 12).map((s) => ({ row: 'wo', key: 'sharingPoints', value: s.name, label: s.name, on: chosen.sharingPoints.includes(s.name) })),
-    ...['today', 'week', month, ...f.months.filter((m) => m !== month).slice(0, 2)].map((k) => ({ row: 'wann', key: 'time', value: k, label: k.includes('.') ? k : t(`time.${k}`), on: chosen.time === k })),
-    ...['v', 'a', 'x', 'l'].map((k) => ({ row: 'was', key: 'kinds', value: k, label: t(`kind.${k}`), on: chosen.kinds.includes(k) })),
+    // wer: files by her
+    ...persons.map((p) => chip('wer', 'persons', p.n, `@${p.label ?? '?'}`)),
+    // wo: @Anna = all her sharing points, then each sharing point
+    ...persons.map((p) => chip('wo', 'at', p.n, `@${p.label ?? '?'}`)),
+    ...f.sharingPoints.slice(0, 12).map((sp) => chip('wo', 'sharingPoints', sp.name, sp.name)),
+    // wann: today, 7 days, this month, the last months with files
+    ...times.map((k) => chip('wann', 'time', k, k.includes('.') ? k : t(`time.${k}`))),
+    // was: kinds
+    ...['v', 'a', 'x', 'l'].map((k) => chip('was', 'kinds', k, t(`kind.${k}`))),
   ];
 }
 

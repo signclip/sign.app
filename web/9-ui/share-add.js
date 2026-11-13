@@ -31,11 +31,19 @@ export async function bringIn(ctx) {
   const { s, keychain, edit, say, t } = ctx;
   let text = '';
   try { text = await clipboard(); } catch { return say(t('notReachable')); }
-  if (s.waitSecret) { await keychain.set(s.waitSecret, text.trim()); s.waitSecret = null; await ctx.load(); return say(t('copied')); }
+  if (s.waitSecret) { // the password a sharing point asked for: straight into the keychain, never shown
+    await keychain.set(s.waitSecret, text.trim());
+    s.waitSecret = null;
+    await ctx.load();
+    return say(t('copied'));
+  }
   if (s.giveTo) return giveOut(ctx, s.giveTo, text.trim());
   const what = readPaste(text);
   if (!what) return say(t('menu.paste'));
-  if (what.kind === 'cloud') { const own = ctx.tileOf(s.focus) ?? ctx.all().find((x) => x.canGive); return own ? giveOut(ctx, own.n, what.cloudId) : say(t('notReachable')); }
+  if (what.kind === 'cloud') { // a cloud id: give my Nextcloud folder to it
+    const mine = ctx.tileOf(s.focus) ?? ctx.all().find((x) => x.canGive);
+    return mine ? giveOut(ctx, mine.n, what.cloudId) : say(t('notReachable'));
+  }
   const id = newSource();
   if (what.kind === 'login') {
     try {
@@ -43,7 +51,8 @@ export async function bringIn(ctx) {
       globalThis.open?.(login, '_blank');
       const got = await waitLogin(poll);
       await keychain.set(id, got.appPassword);
-      const { store } = connect({ kind: 'nextcloud', server: got.server, user: got.user, folder: '' }, { secret: got.appPassword });
+      const account = { kind: 'nextcloud', server: got.server, user: got.user, folder: '' };
+      const { store } = connect(account, { secret: got.appPassword });
       s.browse = { id, server: got.server, user: got.user, store, at: '', inside: await store.folders('') };
       return say(t('menu.account'));
     } catch { return say(t('menu.native')); } // the browser is blocked (CORS); the app is not
@@ -77,7 +86,8 @@ export async function giveOut(ctx, n, how) {
     const kinds = s.givePick ?? [];
     const to = how === 'link' ? 'link' : readPaste(how)?.cloudId;
     if (!to) return say(t('menu.paste'));
-    const given = kinds.length ? await giveStrands(nc, { root: sp.spec.folder, kinds, to }) : await giveAll(nc, { root: sp.spec.folder, to });
+    const root = sp.spec.folder;
+    const given = kinds.length ? await giveStrands(nc, { root, kinds, to }) : await giveAll(nc, { root, to });
     if (to === 'link') await copy(given.map((g) => g.webdav).join('\n')); // WebDAV addresses, read-only, no account
     say(t(to === 'link' ? 'copied' : 'share'));
   } catch { say(t('notReachable')); } // WebAppPassword missing or the address not entered there
@@ -86,11 +96,16 @@ export async function giveOut(ctx, n, how) {
 /** After a login: chips to choose what to bring in. → [{ label, go }] · ganzes Konto / diesen Ordner, then subfolders. */
 export function browseChips(ctx) {
   const { s, edit, t } = ctx, b = s.browse;
-  const take = (at) => { s.browse = null; return edit({ add: { label: at ? at.replace(/\/$/, '').split('/').pop() : b.user, path: webdavUrl(b.server, b.user, at.replace(/\/$/, '')), id: b.id }, marks: ['show', 'write'] }); };
+  const nameOf = (folder) => folder.replace(/\/$/, '').split('/').pop();
+  const take = (at) => {
+    s.browse = null;
+    const folder = at.replace(/\/$/, '');
+    return edit({ add: { label: at ? nameOf(at) : b.user, path: webdavUrl(b.server, b.user, folder), id: b.id }, marks: ['show', 'write'] });
+  };
   const into = async (at) => { b.at = at; b.inside = await b.store.folders(at); ctx.draw(); };
   return [
     { label: t(b.at ? 'menu.here' : 'menu.account'), go: () => take(b.at) },
     ...(b.at ? [{ label: '↑', go: () => into(b.at.replace(/[^/]+\/$/, '')) }] : []),
-    ...b.inside.map((f) => ({ label: f.replace(/\/$/, '').split('/').pop(), go: () => into(f) })),
+    ...b.inside.map((f) => ({ label: nameOf(f), go: () => into(f) })),
   ];
 }

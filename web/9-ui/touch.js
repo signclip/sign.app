@@ -8,13 +8,19 @@
 
 export const HOLD_MS = 350, DOUBLE_MS = 300, SWIPE_PX = 50, EDGE_IN = [12, 72];
 
-/** A finished one-finger touch → 'tap' | 'up' | 'down' | 'left' | 'right' | null (held touches end elsewhere). */
-/** far: a swipe down longer than FAR_PX (all the way ↓ = delete instead of set aside). */
+/** A swipe down longer than this = all the way down (delete instead of set aside). */
 export const FAR_PX = 220;
+
+/**
+ * A finished one-finger touch → 'tap' | 'up' | 'down' | 'down-far' | 'left' | 'right' | null
+ * (held touches end elsewhere).
+ */
 export function classify({ dx, dy, ms }) {
   if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return ms < HOLD_MS ? 'tap' : null;
   if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_PX) return null;
-  return Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : dy > FAR_PX ? 'down-far' : 'down');
+  if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'left' : 'right';
+  if (dy < 0) return 'up';
+  return dy > FAR_PX ? 'down-far' : 'down';
 }
 
 /** Where a touch starts → edge zone or null. w, h = screen size. */
@@ -29,39 +35,87 @@ export function edgeZone(x, y, w, h) {
 }
 
 /**
- * bind(el, handlers) → detach(). handlers: tap(x, y), doubleTap(), hold(), holdEnd(), swipe(dir),
- * pinch(factor), dragEnd(targetElement). x, y are 0–1 inside el.
+ * bind(el, handlers) → detach(). handlers: down(event) (first touch, before anything is known), tap(x, y),
+ * doubleTap(), hold(), holdEnd(), swipe(dir), pinch(factor), dragEnd(targetElement). x, y are 0–1 inside el.
  */
 export function bind(el, h) {
-  const pts = new Map();
-  let s = null, timer = null, held = false, lastTap = 0, spread = null;
-  const dist = () => { const [p, q] = [...pts.values()]; return Math.hypot(p.x - q.x, p.y - q.y); };
+  const fingers = new Map(); // pointerId → { x, y }
+  let touch = null; // the one-finger touch in progress: { x, y, at }
+  let timer = null;
+  let held = false;
+  let lastTap = 0;
+  let spread = null; // distance between two fingers while pinching
+
+  const distance = () => {
+    const [p, q] = [...fingers.values()];
+    return Math.hypot(p.x - q.x, p.y - q.y);
+  };
+
   const down = (e) => {
-    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pts.size === 2) { clearTimeout(timer); spread = dist(); s = null; return; }
-    s = { x: e.clientX, y: e.clientY, at: performance.now() }; held = false;
-    timer = setTimeout(() => { held = true; h.hold?.(); }, HOLD_MS);
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (fingers.size === 2) { // a second finger: pinch, not a touch
+      clearTimeout(timer);
+      spread = distance();
+      touch = null;
+      return;
+    }
+    h.down?.(e);
+    touch = { x: e.clientX, y: e.clientY, at: performance.now() };
+    held = false;
+    timer = setTimeout(() => {
+      held = true;
+      h.hold?.();
+    }, HOLD_MS);
   };
+
   const move = (e) => {
-    if (!pts.has(e.pointerId)) return;
-    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (spread && pts.size === 2) { const d = dist(); h.pinch?.(d / spread); spread = d; return; }
-    if (s && !held && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 10) clearTimeout(timer);
+    if (!fingers.has(e.pointerId)) return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (spread && fingers.size === 2) {
+      const d = distance();
+      h.pinch?.(d / spread);
+      spread = d;
+      return;
+    }
+    const moved = touch && Math.hypot(e.clientX - touch.x, e.clientY - touch.y) > 10;
+    if (moved && !held) clearTimeout(timer); // a swipe, not a hold
   };
+
   const up = (e) => {
-    pts.delete(e.pointerId); clearTimeout(timer);
-    if (!s) { if (!pts.size) spread = null; return; }
-    if (held) { h.holdEnd?.(); h.dragEnd?.(document.elementFromPoint(e.clientX, e.clientY)); s = null; return; }
-    const g = classify({ dx: e.clientX - s.x, dy: e.clientY - s.y, ms: performance.now() - s.at });
-    const r = el.getBoundingClientRect();
-    if (g === 'tap') {
-      const now = performance.now();
-      if (h.doubleTap && now - lastTap < DOUBLE_MS) { lastTap = 0; h.doubleTap(); }
-      else { lastTap = now; const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height; setTimeout(() => { if (lastTap === now || !h.doubleTap) h.tap?.(x, y); }, h.doubleTap ? DOUBLE_MS : 0); }
-    } else if (g) h.swipe?.(g);
-    s = null;
+    fingers.delete(e.pointerId);
+    clearTimeout(timer);
+    if (!touch) {
+      if (!fingers.size) spread = null;
+      return;
+    }
+    if (held) {
+      h.holdEnd?.();
+      h.dragEnd?.(document.elementFromPoint(e.clientX, e.clientY));
+      touch = null;
+      return;
+    }
+    const gesture = classify({ dx: e.clientX - touch.x, dy: e.clientY - touch.y, ms: performance.now() - touch.at });
+    if (gesture === 'tap') tapped(e);
+    else if (gesture) h.swipe?.(gesture);
+    touch = null;
   };
-  el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move);
-  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
-  return () => { for (const [n, f] of [['pointerdown', down], ['pointermove', move], ['pointerup', up], ['pointercancel', up]]) el.removeEventListener(n, f); };
+
+  // a tap waits DOUBLE_MS when a double-tap is possible
+  const tapped = (e) => {
+    const now = performance.now();
+    if (h.doubleTap && now - lastTap < DOUBLE_MS) {
+      lastTap = 0;
+      h.doubleTap();
+      return;
+    }
+    lastTap = now;
+    const r = el.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    const y = (e.clientY - r.top) / r.height;
+    setTimeout(() => { if (lastTap === now || !h.doubleTap) h.tap?.(x, y); }, h.doubleTap ? DOUBLE_MS : 0);
+  };
+
+  const events = [['pointerdown', down], ['pointermove', move], ['pointerup', up], ['pointercancel', up]];
+  for (const [name, fn] of events) el.addEventListener(name, fn);
+  return () => { for (const [name, fn] of events) el.removeEventListener(name, fn); };
 }

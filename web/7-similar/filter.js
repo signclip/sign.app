@@ -40,8 +40,16 @@ export function facets(index) {
   const persons = new Map(), points = new Map(), months = new Set();
   for (const e of entries(index)) {
     const p = personOf(e), where = e.from?.store;
-    if (p.n) { const x = persons.get(p.n) ?? persons.set(p.n, { n: p.n, label: p.label, count: 0 }).get(p.n); x.count += 1; }
-    if (where) { const x = points.get(where) ?? points.set(where, { name: where, persons: new Set(), count: 0 }).get(where); x.count += 1; if (p.n) x.persons.add(p.n); }
+    if (p.n) {
+      if (!persons.has(p.n)) persons.set(p.n, { n: p.n, label: p.label, count: 0 });
+      persons.get(p.n).count += 1;
+    }
+    if (where) {
+      if (!points.has(where)) points.set(where, { name: where, persons: new Set(), count: 0 });
+      const point = points.get(where);
+      point.count += 1;
+      if (p.n) point.persons.add(p.n);
+    }
     if (e.head[TIME]) months.add(e.head[TIME].slice(0, 7));
   }
   return {
@@ -77,7 +85,9 @@ export function passes(e, { persons = [], sharingPoints = [], time = null, kinds
 export function similar(index, { words = [], sources = null, filters = {}, limit = 40 } = {}) {
   if (words.length || sources) {
     return combinedSimilar(index, sources ?? [{ kind: 'x', words }], { limit: 10 * limit })
-      .filter((h) => passes(h.strand, filters)).slice(0, limit).map((h) => ({ key: h.key, score: h.score, entry: h.strand }));
+      .filter((h) => passes(h.strand, filters))
+      .slice(0, limit)
+      .map((h) => ({ key: h.key, score: h.score, entry: h.strand }));
   }
   return entries(index).filter((e) => passes(e, filters))
     .sort((a, b) => String(b.head[TIME] ?? '').localeCompare(String(a.head[TIME] ?? '')))

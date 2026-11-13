@@ -12,41 +12,96 @@
 // Test:      tests/view.test.mjs
 // Limits:    ~40 chips per row before it only scrolls; width ≈ 26 + 8.4 px per letter.
 
+/** Width of a chip for a word (an empty chip = a dashed waiting chip). */
 export const chipW = (text, k = 1) => Math.round((text ? 26 + text.length * 8.4 : 56) * k);
+
+const GAP = 8; // between gestures
+const INNER = 4; // between words inside a gesture
+const PAD = 4; // bubble around the words
+const ROW = 40; // from row to row
+
+/** Is this word now, past or coming? Stable chips hold for the whole take. */
+function toneOf(chip, stable, timeMs) {
+  if (chip.wait) return 'wait';
+  if (stable || timeMs == null || !chip.t) return 'own';
+  if (timeMs >= chip.t[0] && timeMs < chip.t[1]) return 'now';
+  return timeMs >= chip.t[1] ? 'own' : 'later';
+}
+
+/** A gesture → its chips in order; the prefix (head) first. */
+function chipsOf(gesture) {
+  if (!gesture.items) return [gesture];
+  return [...(gesture.head ? [{ text: gesture.head, head: true }] : []), ...gesture.items];
+}
+
+/** The space before chip i of a gesture: none before the first, none after the glued prefix. */
+function spaceBefore(chips, i, k) {
+  if (i === 0 || chips[i - 1].head) return 0;
+  return INNER * k;
+}
 
 /**
  * groups = gestures: [{ text, t, stable } | { items: [{ text, t }], head?, stable }] · timeMs · cx, y (lowest
  * row), k (scale), w (screen width). → shapes [{ type: 'bubble' | 'chip', … }]
  */
 export function chipShapes(groups = [], { timeMs = null, cx, y, k = 1, w = 390 }) {
-  const rows = [groups.filter((g) => !g.stable), groups.filter((g) => g.stable)].filter((r) => r.length);
-  if (!rows.length) rows.push([{ text: '', wait: true }]);
-  const gap = 8 * k, inner = 4 * k, pad = 4 * k, out = [];
-  const space = (u, i) => (i === 0 ? 0 : u[i - 1].head ? 0 : inner); // the prefix is glued
-  const tone = (c, stable) => (c.wait ? 'wait' : stable || timeMs == null || !c.t ? 'own'
-    : timeMs >= c.t[0] && timeMs < c.t[1] ? 'now' : timeMs >= c.t[1] ? 'own' : 'later');
-  rows.slice(-2).forEach((row, r) => {
-    const units = row.map((g) => (g.items ? [...(g.head ? [{ text: g.head, head: true }] : []), ...g.items] : [g]).map((c) => ({ ...c, w: chipW(c.text, k) })));
-    const unitW = units.map((u) => u.reduce((a, c, i) => a + c.w + space(u, i), 0) + (u.length > 1 ? 2 * pad : 0));
-    const total = unitW.reduce((a, b) => a + b, 0) + gap * (units.length - 1);
-    let x = cx - total / 2;
-    if (total > w - 24 * k) { // scroll: the chip at the time above the point
-      let pos = 0, found = null;
-      units.forEach((u, i) => { let ux = pos + (u.length > 1 ? pad : 0); u.forEach((c, j) => { ux += space(u, j); if (found == null && tone(c, row[i].stable) === 'now') found = ux + c.w / 2; ux += c.w; }); pos += unitW[i] + gap; });
-      x = cx - (found ?? total / 2);
-    }
-    const cy = y + (r - (Math.min(rows.length, 2) - 1)) * 40 * k;
-    units.forEach((u, i) => {
-      const stable = row[i].stable;
-      if (u.length > 1) out.push({ type: 'bubble', x, y: cy - 20 * k, w: unitW[i], h: 40 * k, cls: `bubble${stable ? ' stable' : ''}${u.some((c) => tone(c, stable) === 'now') ? ' now' : ''}`, role: `gesture:${u.map((c) => c.text).join(' ')}` });
-      let cxp = x + (u.length > 1 ? pad : 0);
-      u.forEach((c, j) => {
-        cxp += space(u, j);
-        out.push({ type: 'chip', x: cxp, y: cy, w: c.w, h: 32 * k, text: c.text, cls: `chip ${c.head ? 'own head' : tone(c, stable)}`, role: c.wait ? null : `chip:${c.text}` });
-        cxp += c.w;
-      });
-      x += unitW[i] + gap;
-    });
+  const rows = [groups.filter((g) => !g.stable), groups.filter((g) => g.stable)].filter((row) => row.length);
+  if (!rows.length) rows.push([{ text: '', wait: true }]); // nothing yet: one dashed chip
+  const shown = rows.slice(-2);
+  const out = [];
+  shown.forEach((row, r) => {
+    const rowY = y + (r - (shown.length - 1)) * ROW * k; // the stable row is the lowest
+    out.push(...rowShapes(row, { timeMs, cx, y: rowY, k, w }));
   });
   return out;
+}
+
+/** One row of gestures: centred, or scrolled so the chip at the time stands above the point (x = cx). */
+function rowShapes(row, { timeMs, cx, y, k, w }) {
+  const units = row.map((gesture) => {
+    const chips = chipsOf(gesture).map((c) => ({ ...c, w: chipW(c.text, k) }));
+    const words = chips.reduce((sum, c, i) => sum + spaceBefore(chips, i, k) + c.w, 0);
+    return { gesture, chips, width: words + (chips.length > 1 ? 2 * PAD * k : 0) };
+  });
+  const total = units.reduce((sum, u) => sum + u.width, 0) + GAP * k * (units.length - 1);
+
+  let x = cx - total / 2;
+  if (total > w - 24 * k) {
+    const now = centreOfNow(units, timeMs, k);
+    x = cx - (now ?? total / 2);
+  }
+
+  const out = [];
+  for (const { gesture, chips, width } of units) {
+    const stable = Boolean(gesture.stable);
+    if (chips.length > 1) {
+      const lit = chips.some((c) => toneOf(c, stable, timeMs) === 'now');
+      out.push({ type: 'bubble', x, y: y - 20 * k, w: width, h: 40 * k,
+        cls: `bubble${stable ? ' stable' : ''}${lit ? ' now' : ''}`, role: `gesture:${chips.map((c) => c.text).join(' ')}` });
+    }
+    let chipX = x + (chips.length > 1 ? PAD * k : 0);
+    chips.forEach((c, i) => {
+      chipX += spaceBefore(chips, i, k);
+      out.push({ type: 'chip', x: chipX, y, w: c.w, h: 32 * k, text: c.text,
+        cls: `chip ${c.head ? 'own head' : toneOf(c, stable, timeMs)}`, role: c.wait ? null : `chip:${c.text}` });
+      chipX += c.w;
+    });
+    x += width + GAP * k;
+  }
+  return out;
+}
+
+/** Where (from the row's left edge) the middle of the chip at the time is, or null. */
+function centreOfNow(units, timeMs, k) {
+  let left = 0;
+  for (const { gesture, chips, width } of units) {
+    let x = left + (chips.length > 1 ? PAD * k : 0);
+    for (const [i, c] of chips.entries()) {
+      x += spaceBefore(chips, i, k);
+      if (toneOf(c, Boolean(gesture.stable), timeMs) === 'now') return x + c.w / 2;
+      x += c.w;
+    }
+    left += width + GAP * k;
+  }
+  return null;
 }

@@ -30,7 +30,11 @@ export function tiles(entries, rules, open = new Map()) {
     const marks = MENU_MARKS.filter((m) => (m === 'write' ? ruleOf(rules, n, 'show')?.write : ruleOf(rules, n, m)));
     const send = sendRule(rules, n);
     const kinds = send ? (send.kinds.length ? send.kinds : MENU_KINDS) : [];
-    const state = !entry.path && entry.key ? 'device' : sp?.error ? 'error' : sp?.waiting ? 'waiting' : sp?.store ? 'ok' : 'closed';
+    let state = 'closed';
+    if (!entry.path && entry.key) state = 'device'; // reached another way (LocalSend later)
+    else if (sp?.error) state = 'error';
+    else if (sp?.waiting) state = 'waiting'; // a disk not plugged in
+    else if (sp?.store) state = 'ok';
     const readOnly = Boolean(sp?.store?.readOnly);
     return { n, label: entry.label, marks, kinds, state, readOnly, canGive: sp?.spec?.kind === 'nextcloud' && !readOnly };
   });
@@ -39,7 +43,9 @@ export function tiles(entries, rules, open = new Map()) {
 /** Chips of one tile (hold): [{ key: 'mark' | 'kind', value, label, on }]. */
 export function tileChips(tile, t) {
   return [
-    ...MENU_MARKS.filter((m) => !(m === 'write' && tile.readOnly)).map((m) => ({ key: 'mark', value: m, label: t(`mark.${m}`), on: tile.marks.includes(m) })),
+    ...MENU_MARKS
+      .filter((m) => !(m === 'write' && tile.readOnly)) // a read-only link cannot take writing
+      .map((m) => ({ key: 'mark', value: m, label: t(`mark.${m}`), on: tile.marks.includes(m) })),
     ...MENU_KINDS.map((k) => ({ key: 'kind', value: k, label: t(`kind.${k}`), on: tile.kinds.includes(k) })),
   ];
 }
@@ -60,7 +66,8 @@ export function chipEdit(n, chip, rules) {
     const now = send ? (send.kinds.length ? send.kinds : MENU_KINDS) : [];
     const kinds = now.includes(chip.value) ? now.filter((k) => k !== chip.value) : [...now, chip.value];
     const mark = send?.mark ?? 'ask';
-    return kinds.length ? { rule: { to: n, mark, kinds: MENU_KINDS.filter((k) => kinds.includes(k)) }, on: true } : { rule: { to: n, mark }, on: false };
+    if (!kinds.length) return { rule: { to: n, mark }, on: false }; // the last kind off ends the rule
+    return { rule: { to: n, mark, kinds: MENU_KINDS.filter((k) => kinds.includes(k)) }, on: true };
   }
   return null;
 }
@@ -69,7 +76,10 @@ export function chipEdit(n, chip, rules) {
 export function tileNote(tile, t) {
   if (tile.state === 'error') return t('notReachable');
   if (tile.state === 'waiting') return t('menu.waiting');
-  return [...tile.marks.map((m) => t(`mark.${m}`)), ...(tile.kinds.length && tile.kinds.length < MENU_KINDS.length ? [tile.kinds.map((k) => t(`kind.${k}`)).join(' ')] : [])].join(' · ');
+  const words = tile.marks.map((m) => t(`mark.${m}`));
+  const someKinds = tile.kinds.length && tile.kinds.length < MENU_KINDS.length; // all kinds need no word
+  if (someKinds) words.push(tile.kinds.map((k) => t(`kind.${k}`)).join(' '));
+  return words.join(' · ');
 }
 
 /** Pick mode (↑ on the point): only tiles that can take a take now. */
@@ -89,4 +99,7 @@ export function giveChips(picked, t) {
 }
 
 /** A give-what chip tapped → the new choice. */
-export const pickGive = (picked, value) => (value === 'all' ? [] : picked.includes(value) ? picked.filter((k) => k !== value) : [...picked, value]);
+export function pickGive(picked, value) {
+  if (value === 'all') return [];
+  return picked.includes(value) ? picked.filter((k) => k !== value) : [...picked, value];
+}

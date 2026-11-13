@@ -41,10 +41,15 @@ export async function openAll(entries, { keychain, own, folders = null, fetch = 
     const spec = specOf(entry);
     if (!spec) continue;
     try {
-      if (spec.kind === 'folder') { const store = await folders?.open(entry.id); open.set(i + 1, store ? { entry, spec, store } : { entry, spec, waiting: true }); continue; }
+      if (spec.kind === 'folder') {
+        const store = await folders?.open(entry.id);
+        open.set(i + 1, store ? { entry, spec, store } : { entry, spec, waiting: true }); // not plugged in = waiting
+        continue;
+      }
       const secret = spec.kind === 'local' ? null : await keychain.get(entry.id);
       let { store } = connect(spec, { secret, local: own, fetch });
-      if (spec.kind === 'link' && await store.inner.canWrite().catch(() => false)) ({ store } = connect({ ...spec, write: true }, { secret, fetch })); // link allows editing
+      const linkMayWrite = spec.kind === 'link' && (await store.inner.canWrite().catch(() => false));
+      if (linkMayWrite) ({ store } = connect({ ...spec, write: true }, { secret, fetch }));
       let description = null;
       try { description = readDescription(dec.decode(await store.read(SELF))); } catch { /* not described yet */ }
       open.set(i + 1, { entry, spec, store, description });
@@ -66,7 +71,11 @@ export async function afterTake(rules, open, files) {
     const target = open.get(rule.to);
     const kinds = kindsFor(rule, target);
     for (const { path, bytes } of files.filter((f) => wants(kinds, f.path))) {
-      try { if (!target?.store) throw new Error(target?.error ?? 'not open'); await target.store.write(path, bytes); result.saved.push([rule.to, path]); }
+      try {
+        if (!target?.store) throw new Error(target?.error ?? 'not open');
+        await target.store.write(path, bytes);
+        result.saved.push([rule.to, path]);
+      }
       catch (err) { (err instanceof ExistsError ? result.saved : result.failed).push([rule.to, path]); }
     }
   }
@@ -74,7 +83,9 @@ export async function afterTake(rules, open, files) {
 }
 
 /** Tiles offered on a tap: (ask) targets → [{ n, kinds }]. */
-export const offers = (rules) => rules.filter((r) => r.mark === 'ask' && r.from == null).map((r) => ({ n: r.to, kinds: r.kinds }));
+export const offers = (rules) => rules
+  .filter((r) => r.mark === 'ask' && r.from == null)
+  .map((r) => ({ n: r.to, kinds: r.kinds }));
 
 /** A store that only shows some kinds (a show rule with kinds). */
 class KindsStore extends ReadOnlyStore {
@@ -88,7 +99,10 @@ export function sources(rules, open, own) {
   for (const r of rules.filter((x) => x.mark === 'show' && x.from == null)) {
     const sp = open.get(r.to);
     if (!sp?.store) continue;
-    const store = r.write && !sp.store.readOnly ? sp.store : r.kinds.length ? new KindsStore(sp.store, r.kinds) : new ReadOnlyStore(sp.store);
+    let store;
+    if (r.write && !sp.store.readOnly) store = sp.store; // brought in for writing too
+    else if (r.kinds.length) store = new KindsStore(sp.store, r.kinds); // only some kinds, read only
+    else store = new ReadOnlyStore(sp.store);
     out.push({ name: sp.entry.label, store });
   }
   return out;
@@ -105,12 +119,16 @@ export async function runRules(rules, open, { own, backupKey = null, skip = () =
   for (const rule of rules) {
     const from = storeOf(rule.from), to = storeOf(rule.to), kinds = kindsFor(rule, open.get(rule.to));
     try {
-      if ((!from || !to) && [rule.from, rule.to].some((n) => open.get(n)?.waiting)) report.push({ rule, waiting: true }); // disk not plugged in
+      const waiting = (!from || !to) && [rule.from, rule.to].some((n) => open.get(n)?.waiting);
+      if (waiting) report.push({ rule, waiting: true }); // disk not plugged in: no error, it runs when it is back
       else if (rule.mark === 'always') report.push({ rule, result: await copyRoute(from, to, { kinds, skip }) });
       else if (rule.mark === 'backup') {
         if (!backupKey) throw new Error('no backup key on this device');
-        report.push({ rule, result: await backup(from, to, backupKey, { filter: (p) => wants(rule.kinds, p) && !skip(p) }) });
-      } else if (rule.mark === 'show' && rule.from != null && give) report.push({ rule, result: await give(rule, open.get(rule.from), open.get(rule.to)) });
+        const filter = (p) => wants(rule.kinds, p) && !skip(p);
+        report.push({ rule, result: await backup(from, to, backupKey, { filter }) });
+      } else if (rule.mark === 'show' && rule.from != null && give) {
+        report.push({ rule, result: await give(rule, open.get(rule.from), open.get(rule.to)) });
+      }
     } catch (err) { report.push({ rule, error: String(err.message ?? err) }); }
   }
   return report;

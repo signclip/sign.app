@@ -18,39 +18,85 @@ import { chipW } from './chips.js';
 export const ZOOM = { play: 0.12, spread: 0.3, scrub: 0.8 };
 
 /**
- * items: [{ ms, own: true|false, levels: [0–1 per 100 ms], words: [{ text, t: [from, to], g: gesture n }] }] (t inside the
- * element) · timeMs: "now" on the whole line · sub: play | spread | scrub · cx, y (picture thread), k, w.
- * → shapes
+ * items: [{ ms, own: true|false, levels: [0–1 per 100 ms], words: [{ text, t: [from, to], g: gesture n }] }]
+ * (t inside the element) · timeMs: "now" on the whole line · sub: play | spread | scrub · cx, y (picture
+ * thread), k, w. → shapes
  */
 export function timelineShapes(items = [], { timeMs = 0, sub = 'play', cx, y, k = 1, w = 390 }) {
-  const px = (ZOOM[sub] ?? ZOOM.play) * k, out = [];
-  const X = (ms) => cx + (ms - timeMs) * px;
-  const seen = (x, width = 0) => x + width >= 0 && x <= w;
-  let start = 0;
-  for (const [i, it] of items.entries()) {
-    const x0 = X(start), x1 = X(start + it.ms), tone = it.own === false ? 'other' : 'own';
-    if (seen(x0, x1 - x0)) {
-      out.push({ type: 'line', x1: x0 + 2 * k, y1: y, x2: x1 - 2 * k, y2: y, cls: `thread ${tone}`, role: `line:${i}` });
-      for (let ms = 0; ms < it.ms; ms += 500) { const x = X(start + ms); if (seen(x, 24 * k)) out.push({ type: 'thumb', x, y: y - 14 * k, s: Math.min(28 * k, (500 * px) - 4 * k), cls: `thumb ${tone}` }); }
-      (it.levels ?? []).forEach((v, j) => { const x = X(start + j * 100); if (seen(x)) out.push({ type: 'line', x1: x, y1: y + 44 * k - (4 + 18 * v) * k / 2, x2: x, y2: y + 44 * k + (4 + 18 * v) * k / 2, cls: `bar ${tone}` }); });
-      const gestures = new Map(); // one bubble per gesture: from its first word to its last, ends at the next
-      for (const word of it.words ?? []) if (word.g != null) gestures.set(word.g, [...(gestures.get(word.g) ?? []), word]);
-      for (const ws of gestures.values()) {
-        if (ws.length < 2) continue;
-        const bx = X(start + ws[0].t[0]) - 4 * k, last = ws.at(-1), bw = X(start + last.t[0]) + chipW(last.text, k) + 4 * k - bx;
-        const now = timeMs >= start + ws[0].t[0] && timeMs < start + last.t[1];
-        if (seen(bx, bw)) out.push({ type: 'bubble', x: bx, y: y + 70 * k, w: bw, h: 36 * k, cls: `bubble${now ? ' now' : ''}` });
-      }
-      for (const word of it.words ?? []) {
-        const x = X(start + word.t[0]), now = timeMs >= start + word.t[0] && timeMs < start + word.t[1];
-        if (seen(x, chipW(word.text, k))) out.push({ type: 'chip', x, y: y + 88 * k, w: chipW(word.text, k), h: 28 * k, text: word.text, cls: `chip ${now ? 'now' : timeMs >= start + word.t[1] ? tone : 'later'}`, role: `chip:${word.text}` });
-      }
+  const t = {
+    k, y, w, timeMs,
+    px: (ZOOM[sub] ?? ZOOM.play) * k, // pixels per millisecond
+    X: (ms) => cx + (ms - timeMs) * t.px, // where a moment of the line is on the screen
+    seen: (x, width = 0) => x + width >= 0 && x <= w, // draw only what is on the screen
+    out: [],
+  };
+  let start = 0; // where the element begins on the whole line
+  for (const [i, item] of items.entries()) {
+    const tone = item.own === false ? 'other' : 'own';
+    const x0 = t.X(start);
+    const x1 = t.X(start + item.ms);
+    if (t.seen(x0, x1 - x0)) {
+      t.out.push({ type: 'line', x1: x0 + 2 * k, y1: y, x2: x1 - 2 * k, y2: y, cls: `thread ${tone}`, role: `line:${i}` });
+      frames(t, item, start, tone);
+      bars(t, item, start, tone);
+      gestureBubbles(t, item, start);
+      words(t, item, start, tone);
     }
-    start += it.ms;
+    start += item.ms;
   }
-  out.push({ type: 'line', x1: cx, y1: y - 24 * k, x2: cx, y2: y + 108 * k, cls: 'now-mark' });
-  return out;
+  t.out.push({ type: 'line', x1: cx, y1: y - 24 * k, x2: cx, y2: y + 108 * k, cls: 'now-mark' });
+  return t.out;
+}
+
+/** Picture: one frame per 500 ms along the thread. */
+function frames(t, item, start, tone) {
+  const size = Math.min(28 * t.k, 500 * t.px - 4 * t.k);
+  for (let ms = 0; ms < item.ms; ms += 500) {
+    const x = t.X(start + ms);
+    if (t.seen(x, size)) t.out.push({ type: 'thumb', x, y: t.y - 14 * t.k, s: size, cls: `thumb ${tone}` });
+  }
+}
+
+/** Sound: one bar per 100 ms under the picture. */
+function bars(t, item, start, tone) {
+  const mid = t.y + 44 * t.k;
+  (item.levels ?? []).forEach((level, j) => {
+    const x = t.X(start + j * 100);
+    const half = ((4 + 18 * level) * t.k) / 2;
+    if (t.seen(x)) t.out.push({ type: 'line', x1: x, y1: mid - half, x2: x, y2: mid + half, cls: `bar ${tone}` });
+  });
+}
+
+/** Text: words of one gesture (g) in one bubble from its first to its last word, it ends at the next gesture. */
+function gestureBubbles(t, item, start) {
+  const byGesture = new Map();
+  for (const word of item.words ?? []) {
+    if (word.g == null) continue;
+    byGesture.set(word.g, [...(byGesture.get(word.g) ?? []), word]);
+  }
+  for (const list of byGesture.values()) {
+    if (list.length < 2) continue;
+    const first = list[0];
+    const last = list.at(-1);
+    const x = t.X(start + first.t[0]) - 4 * t.k;
+    const width = t.X(start + last.t[0]) + chipW(last.text, t.k) + 4 * t.k - x;
+    const lit = t.timeMs >= start + first.t[0] && t.timeMs < start + last.t[1];
+    if (t.seen(x, width)) t.out.push({ type: 'bubble', x, y: t.y + 70 * t.k, w: width, h: 36 * t.k, cls: `bubble${lit ? ' now' : ''}` });
+  }
+}
+
+/** Text: each word at its 't( ); the one at "now" in --hl, past full, coming pale. */
+function words(t, item, start, tone) {
+  for (const word of item.words ?? []) {
+    const x = t.X(start + word.t[0]);
+    const width = chipW(word.text, t.k);
+    if (!t.seen(x, width)) continue;
+    const from = start + word.t[0];
+    const to = start + word.t[1];
+    const state = t.timeMs >= from && t.timeMs < to ? 'now' : t.timeMs >= to ? tone : 'later';
+    t.out.push({ type: 'chip', x, y: t.y + 88 * t.k, w: width, h: 28 * t.k, text: word.text, cls: `chip ${state}`, role: `chip:${word.text}` });
+  }
 }
 
 /** The whole length of a line in ms (for "past the end = live again"). */
-export const lengthOf = (items) => items.reduce((a, it) => a + it.ms, 0);
+export const lengthOf = (items) => items.reduce((sum, item) => sum + item.ms, 0);

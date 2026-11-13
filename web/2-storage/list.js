@@ -35,7 +35,8 @@ export function rulesOf(text) {
     const pair = `${r.from ?? 0}>${r.to}:`;
     if (r.marks.includes('quiet')) { for (const k of [...rules.keys()]) if (k.startsWith(pair)) rules.delete(k); continue; }
     const mark = r.marks.find((m) => RULE_MARKS.includes(m));
-    if (mark) rules.set(pair + mark, { from: r.from, to: r.to, mark, kinds: r.what ?? [], write: r.marks.includes('write'), time: r.time });
+    if (!mark) continue;
+    rules.set(pair + mark, { from: r.from, to: r.to, mark, kinds: r.what ?? [], write: r.marks.includes('write'), time: r.time });
   }
   return [...rules.values()];
 }
@@ -62,12 +63,16 @@ export async function editList(oldText, edit, { device, person, now = Date.now()
   if (edit.add) {
     entries = [...entries, { ...edit.add, label: edit.add.label ?? labelOf(edit.add.path) }];
     const n = entries.length, write = (edit.marks ?? []).includes('write');
-    for (const mark of (edit.marks ?? []).filter((m) => RULE_MARKS.includes(m))) rules.push({ from: null, to: n, mark, kinds: [], write: mark === 'show' && write, time });
+    for (const mark of (edit.marks ?? []).filter((m) => RULE_MARKS.includes(m))) {
+      rules.push({ from: null, to: n, mark, kinds: [], write: mark === 'show' && write, time });
+    }
   }
   if (edit.remove) {
     const at = (k) => (k == null || k < edit.remove ? k : k - 1);
     entries = entries.filter((_, i) => i + 1 !== edit.remove);
-    rules = rules.filter((r) => r.to !== edit.remove && r.from !== edit.remove).map((r) => ({ ...r, from: at(r.from), to: at(r.to) }));
+    rules = rules
+      .filter((r) => r.to !== edit.remove && r.from !== edit.remove) // its rules go with it
+      .map((r) => ({ ...r, from: at(r.from), to: at(r.to) })); // the rest move up one number
   }
   if (edit.rule) {
     rules = rules.filter((r) => !same(r, edit.rule));
@@ -78,10 +83,16 @@ export async function editList(oldText, edit, { device, person, now = Date.now()
   const old = readFile(oldText);
   const id = newId({ q: device, n: person.id, now });
   const text = fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": time }), [
-    ...entries.map((sp, i) => defLine(`sharing-point.${i + 1}`, { hint: sp.label, path: sp.path, id: sp.key ? `${sp.id} z_${sp.key}` : sp.id })),
+    ...entries.map((sp, i) => {
+      const id = sp.key ? `${sp.id} z_${sp.key}` : sp.id; // a device carries its check key
+      return defLine(`sharing-point.${i + 1}`, { hint: sp.label, path: sp.path, id });
+    }),
     ...(old.head.id ? [defLine('chain.1', { id: writeId(old.head.id, await hashBytes(enc.encode(oldText))) })] : []),
   ], [
-    ...rules.map((r) => relationLine({ what: r.kinds, from: r.from, to: r.to, marks: [r.mark, ...(r.write ? ['write'] : [])], time: r.time })),
+    ...rules.map((r) => {
+      const marks = r.write ? [r.mark, 'write'] : [r.mark];
+      return relationLine({ what: r.kinds, from: r.from, to: r.to, marks, time: r.time });
+    }),
     ...(old.head.id ? ['{:chain.1}'] : []),
   ]);
   return { text, id, entries, rules };
@@ -104,7 +115,9 @@ export async function findList(store) {
 /** Read, change, write: the list in force → the next version in chain/. → { path, text, entries, rules } */
 export async function changeList(store, edit, meta) {
   const at = await findList(store);
-  const oldText = at ? new TextDecoder().decode(await store.read(at)) : fileText(headLine('chain', { '@': meta.person.label }));
+  const oldText = at
+    ? new TextDecoder().decode(await store.read(at))
+    : fileText(headLine('chain', { '@': meta.person.label })); // the very first list
   const next = await editList(oldText, edit, meta);
   const path = listPath({ id: next.id, person: meta.person.label, time: meta.time });
   await store.write(path, enc.encode(next.text));
