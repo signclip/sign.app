@@ -113,7 +113,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   }
 
   async function tapped(role) {
-    if (!role) return show(false); // a tap beside the circles = back
+    if (!role) return show(false); // a tap beside the sheet = back
+    if (role === 'sheet') return null; // the sheet itself
     const [what, a, b] = role.split(':');
     if (what === 'sp' && a === '0') return null; // this device: its gestures are drags
     if (what === 'sp') {
@@ -148,7 +149,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const { width: w, height: h } = panel.getBoundingClientRect();
     const browse = s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
-    const view = pointShapes(all(), { own: person.label, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere }, { w });
+    const view = pointShapes(all(), { own: person.label, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     note.textContent = s.note;
   }
@@ -172,6 +173,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     tap: () => tapped(role),
 
     swipe: (dir) => {
+      if (role === 'sheet' && (dir === 'down' || dir === 'down-far')) return show(false); // pulled down = egal, nothing changes
       const n = circleOf(role);
       return n ? apply(gestureOn(n, dir, s.rules)) : null;
     },

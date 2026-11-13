@@ -1,4 +1,7 @@
-// view/points.js — the sharing points as circles in the upper half, after ↑ on the point.
+// view/points.js — the sharing points as circles in a sheet that rises from the point after ↑.
+//
+// Sheet:     a rectangle with rounded corners from the lower edge up (decided 13.11.); pulled down = away
+//            ("egal", nothing changes); inside, each sharing point can be chosen on its own.
 //
 // Purpose:   no chips, everything is seen on the circle (share-menu.js says what the gestures do):
 //              circle      one sharing point; the first one (0) is this device
@@ -31,11 +34,14 @@ function grid(i, { w, k, y0 }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null }, { w = 390, k = w / 390, y0 = 90 * k } = {}) {
+export function pointShapes(all, { own = '', focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const r = 28 * k;
+  const y0 = top + 64 * k; // first row of circles, under the handle
   const shapes = [];
   const at = new Map();
   const add = (type, o) => shapes.push({ type, ...o });
+  add('sheet', { x: 0, y: top, w, h: h - top + 24 * k, r: 24 * k, cls: 'sheet', role: 'sheet' });
+  add('line', { x1: w / 2 - 20 * k, y1: top + 12 * k, x2: w / 2 + 20 * k, y2: top + 12 * k, cls: 'handle', role: 'sheet' }); // pull down = away
   const circle = (i, role, cls, label) => {
     const { cx, cy } = grid(i, { w, k, y0 });
     at.set(role, { cx, cy, r });

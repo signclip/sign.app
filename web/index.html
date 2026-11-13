@@ -47,7 +47,11 @@
     #share { position: absolute; inset: 0; pointer-events: none; }
     #share .points, #share svg { position: absolute; inset: 0; width: 100%; height: 100%; }
     #share [data-role] { pointer-events: auto; cursor: pointer; }
-    #share .note { position: absolute; left: 0; right: 0; top: 48%; text-align: center; color: var(--mut); font-size: 0.9em; }
+    #share .note { position: absolute; left: 0; right: 0; bottom: 24px; text-align: center; color: var(--mut); font-size: 0.9em; }
+    #share:not([hidden]) .points { animation: sheet-up .22s ease-out; }
+    @keyframes sheet-up { from { transform: translateY(30%); opacity: 0; } to { transform: none; opacity: 1; } }
+    .sheet { fill: var(--card); stroke: var(--line); filter: drop-shadow(0 -2px 8px rgba(0,0,0,.08)); }
+    .handle { stroke: var(--mut); stroke-width: 4; stroke-linecap: round; }
     .sp { fill: var(--card); stroke: var(--mut); stroke-width: 1.5; }
     .sp.own-device { fill: var(--rc); stroke: var(--rc-stroke); }
     .sp.always { stroke: var(--rc-stroke); stroke-width: 2.5; }
