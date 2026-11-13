@@ -9,7 +9,7 @@
 /** Meta symbols in the order they are written: ^ which sharing point (its name), = its full path, ! id, ~ came from, @ whose (person), ° where it was, 't time, ' part. */
 export const META = ['^', '=', '!', '~', '@', '°', "'t", "'"];
 
-/** Symbols that wrap or filter: without, must contain (reserved), search (Similar), gap (Take). */
+/** Symbols that wrap or filter: without, must contain (reserved), similar ?( ), gap (Take). */
 export const WRAP = ['-', '+', '?', '_'];
 
 /** Parser order: longest first, so 't wins over '. */
@@ -32,7 +32,7 @@ export const KINDS = {
   'sharing-point': { ext: 'sign', folder: '', what: 'a sharing point describes itself; a device is one with a key z_' },
 };
 
-/** Kinds that may stand in a definition besides file kinds: search (Similar) and take (waits for a Take). */
+/** Kinds that may stand in a definition besides file kinds: similar (?) and take (waits for a Take). */
 export const DEF_KINDS = ['?', '_'];
 
 /** Folders inside every sharing point. Secrets never live here (they live in the keychain). */

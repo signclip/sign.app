@@ -1,7 +1,7 @@
 // share-mount.js — draws the share menu (share-menu.js) and carries out what is tapped.
 //
 // Purpose:   keeps the list in force, its rules and the opened sharing points together; after
-//            every change of the list it reopens them and hands the search its sources (show rules).
+//            every change of the list it reopens them and hands Similar its sources (show rules).
 //            ↑ on the point = pick: only tiles that can take the last take, tap = share there.
 //            A folder or disk that comes back (checked every 30 s) gets its rules run at once:
 //            backup and copies catch up by themselves, nothing to press.
@@ -27,7 +27,7 @@ const el = (tag, cls, text = '') => Object.assign(document.createElement(tag), {
 
 /**
  * own: the device store · keychain: { get, set } · person: { id, label } · device: q_ · t: translator ·
- * lastChain(): path of the newest take chain · onSources(list): new sources for the search.
+ * lastChain(): path of the newest take chain · onSources(list): new sources for Similar.
  * → { show(on), pick(), afterTake(paths), runRules() }
  */
 export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, onSources = () => {} }) {

@@ -5,7 +5,7 @@
 //              wo    @Anna = every sharing point of Anna, then each sharing point on its own
 //              wann  heute · 7 Tage · this month · the last months with files
 //              was   v a x l
-//            The chosen chips are the meta of the search: ?(… {:v :x} {:sharing-point.2})@(Anna)'t(…)
+//            The chosen chips are the meta of the similar: ?(… {:v :x} {:sharing-point.2})@(Anna)'t(…)
 //            (7-similar/filter.js); without words Similar lists everything that fits, newest first.
 // Depends:   7-similar/filter.js
 // Test:      tests/similar.test.mjs
@@ -45,7 +45,7 @@ export function toggle(chosen, chip) {
   return { ...chosen, [chip.key]: list.includes(chip.value) ? list.filter((v) => v !== chip.value) : [...list, chip.value] };
 }
 
-/** The choice → filters for search(): @Anna in wo = all her sharing points, joined with the single ones. */
+/** The choice → filters for similar(): @Anna in wo = all her sharing points, joined with the single ones. */
 export function filtersOf(index, chosen, { owners = {}, now = new Date() } = {}) {
   const points = new Set(chosen.sharingPoints);
   for (const n of chosen.at) for (const name of sharingPointsOf(index, n, { owners })) points.add(name);

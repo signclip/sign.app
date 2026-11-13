@@ -3,7 +3,7 @@
 // Purpose:   the list says what goes where (list.js rulesOf); this file does it:
 //              (always) no from    after a take: write the new files there        afterTake
 //              (ask)               offered as a tile, sent only on a tap            offers
-//              (show) [(write)]    brought into search, read only [writing too]    sources
+//              (show) [(write)]    brought into Similar, read only [writing too]    sources
 //                                  (a public link writes only when it allows editing)
 //              (always) [from →] to  copy what is missing, again and again (catches up
 //                                  what a take could not write, e.g. disk unplugged)  runRules
@@ -82,7 +82,7 @@ class KindsStore extends ReadOnlyStore {
   async list(prefix) { return (await this.inner.list(prefix)).filter((f) => wants(this.kinds, f.path)); }
 }
 
-/** What search reads: the own store and every (show) without from. → [{ name, store }] for buildIndex. */
+/** What Similar reads: the own store and every (show) without from. → [{ name, store }] for buildIndex. */
 export function sources(rules, open, own) {
   const out = [{ name: 'own', store: own }];
   for (const r of rules.filter((x) => x.mark === 'show' && x.from == null)) {

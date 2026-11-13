@@ -1,4 +1,4 @@
-// notation.js — read and write the one bracket grammar of context, line, search and file heads.
+// notation.js — read and write the one bracket grammar of context, line, similar and file heads.
 //
 // Purpose:   text ⇄ tree, losslessly (SCHEMA.md §3–4). Meaning is added by context.js and
 //            file.js; this file only knows the shape of the text.

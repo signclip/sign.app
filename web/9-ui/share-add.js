@@ -53,7 +53,7 @@ export async function bringIn(ctx) {
   try { await sp.store.list('chain/'); } catch { s.waitSecret = id; say(t('menu.secret')); }
 }
 
-/** Ordner wählen: a folder or disk, read and write, brought into search. */
+/** Ordner wählen: a folder or disk, read and write, brought into Similar. */
 export async function pickFolder(ctx) {
   if (!canPick()) return ctx.say(ctx.t('menu.native'));
   const id = newSource();

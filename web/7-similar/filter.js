@@ -1,10 +1,10 @@
 // filter.js — narrow Similar like any other strand: by person, by sharing point, by time, by kind.
 //
-// Purpose:   Similar is the one search (DESIGN: Take = search). Next to words and pictures it takes
+// Purpose:   Similar is the one way to find (DESIGN: a Take is a similar). Next to words and pictures it takes
 //            filters, each one more chip: wer (@ person) · wo (sharing points; of a person = where her
 //            files lie or that are hers) · wann ('t range, prefix or from_to) · was (kinds).
 //            Without words it lists everything that fits, newest first ("all of Anna from 1.–14.11.").
-//            Notation (proposal, SCHEMA after approve): meta on the search, G5/G7:
+//            Notation (proposal, SCHEMA after approve): meta on the similar, G5/G7:
 //              ?((Kaffee) {:v :x} {:sharing-point.2 :sharing-point.5})@(Anna)'t(2026.11.01_2026.11.14)
 // Depends:   3-index (tables), combine.js
 // Test:      tests/similar.test.mjs
@@ -71,10 +71,10 @@ export function passes(e, { persons = [], sharingPoints = [], time = null, kinds
 }
 
 /**
- * Similar with filters. words: [] → everything that passes, newest first; with words → ranked hits
+ * similar with filters. words: [] → everything that passes, newest first; with words → ranked hits
  * that pass. → [{ key, score, entry }]
  */
-export function search(index, { words = [], sources = null, filters = {}, limit = 40 } = {}) {
+export function similar(index, { words = [], sources = null, filters = {}, limit = 40 } = {}) {
   if (words.length || sources) {
     return combinedSimilar(index, sources ?? [{ kind: 'x', words }], { limit: 10 * limit })
       .filter((h) => passes(h.strand, filters)).slice(0, limit).map((h) => ({ key: h.key, score: h.score, entry: h.strand }));

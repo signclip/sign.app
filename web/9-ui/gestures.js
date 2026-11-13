@@ -13,7 +13,7 @@
 // Limits:    a lookup is a scan of ~20 rows (< 1 µs); each (gesture, target, mode) means one action.
 
 export const GESTURES = ['tap', 'double-tap', 'hold', 'hold-slow', 'up', 'down', 'down-far', 'left', 'right', 'edge-in', 'edge-out', 'drag', 'pinch'];
-export const MODES = ['take', 'search', 'line', 'any'];
+export const MODES = ['take', 'similar', 'line', 'any'];
 
 /** [action, gesture, target, mode, what it does] */
 export const TABLE = [
@@ -22,7 +22,7 @@ export const TABLE = [
   ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait'],
   ['share-last', 'up', 'point', 'any', 'show the sharing points that can take it; tap one = share the last take there'],
   ['aside-last', 'down', 'point', 'any', 'set the last take aside (it stays, dashed)'],
-  ['remove-last', 'down-far', 'point', 'any', 'delete: chips take · strand · part, then share-first · out of search · out of training'],
+  ['remove-last', 'down-far', 'point', 'any', 'delete: chips take · strand · part, then share-first · out of similar · out of training'],
   ['scrub', 'hold-slow', 'point', 'line', 'find the moment: the strip spreads, the chips follow the time'],
   ['next', 'left', 'point', 'line', 'next element of the line'],
   ['before', 'right', 'point', 'line', 'element before'],
@@ -32,7 +32,7 @@ export const TABLE = [
   ['strand-while-held', 'hold', 'strand', 'any', 'record only this strand while held'],
   ['strand-while-held', 'hold', 'live', 'any', 'record only video while held'],
   ['transcribe', 'drag', 'strand:a>strand:x', 'any', 'record audio while held and make text of it, live'],
-  ['search-from', 'drag', 'strand>similar', 'any', 'search Similar from this strand'],
+  ['similar-from', 'drag', 'strand>similar', 'any', 'Similar from this strand'],
   ['chips-in', 'up', 'strand', 'any', 'show the chips of this strand (camera: light, exposure; audio: stereo, Whisper)'],
   ['chips-out', 'down', 'strand', 'any', 'hide the chips of this strand'],
   ['hide-strand', 'left', 'strand', 'any', 'hide this field (it still records when on)'],
@@ -54,17 +54,17 @@ export const TABLE = [
   ['unfull', 'down', 'top-middle', 'any', 'show everything again'],
   ['share', 'up', 'item', 'any', 'share to the sharing point in focus (no question)'],
   ['aside', 'down', 'item', 'any', 'set aside'],
-  ['remove', 'down-far', 'item', 'any', 'delete: chips share-first · out of search and shares · out of training'],
+  ['remove', 'down-far', 'item', 'any', 'delete: chips share-first · out of similar and shares · out of training'],
   ['after', 'drag', 'item>beside-point', 'any', 'one after another: a new line on top'],
   ['together', 'drag', 'item>point', 'any', 'at the same time: a new line on top'],
-  ['chip-on-off', 'tap', 'chip', 'any', 'this context on / off for search'],
+  ['chip-on-off', 'tap', 'chip', 'any', 'this context on / off for similar'],
   ['context-out', 'down', 'chip', 'any', 'take this context away: a new line on top'],
   ['add-to', 'hold', 'chip', 'any', 'record more strands to this: kept ones solid, new ones dashed → a new combination'],
   ['add-to', 'hold', 'item', 'any', 'record more strands to this element (missing picture, a new version …)'],
   ['next', 'left', 'item', 'any', 'next / another; on hello: go on to join'],
   ['before', 'right', 'item', 'any', 'before'],
   ['settings', 'hold', 'sharing-point', 'any', 'settings and consent of this sharing point'],
-  ['take-over', 'tap', 'similar-item', 'search', 'take a result into the Take in the middle'],
+  ['take-over', 'tap', 'similar-item', 'similar', 'take a result into the Take in the middle'],
 ];
 
 /** Intent × keyword (Initial §4.2): saying it does the same as the gesture. */

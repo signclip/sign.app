@@ -40,7 +40,7 @@ const metaOf = (node) => Object.fromEntries([...node.meta].reverse().map((x) => 
 
 const valueOf = (sym) => (sym ? (sym.value ?? write(sym.body ?? [])) : null);
 
-/** A definition node → { name, kind, n, label, hint, id, echo, part, body }; null if it is no definition. */
+/** A definition node → { name, kind, n, label, hint, id, echo, part, time, body }; null if it is no definition. */
 function readDef(node) {
   let ref = null;
   let holder = node;
@@ -58,7 +58,7 @@ function readDef(node) {
     label: body?.t === 'value' ? body.text : null,
     body: body && body.t !== 'value' ? body : null,
     hint: valueOf(m['^']), path: valueOf(m['=']), id: m['!'] ? readId(valueOf(m['!'])) : null,
-    echo: valueOf(m['~']), person: valueOf(m['@']), where: valueOf(m['°']), part: valueOf(m["'"]) ?? valueOf(m["'t"]), node,
+    echo: valueOf(m['~']), person: valueOf(m['@']), where: valueOf(m['°']), part: valueOf(m["'"]) ?? valueOf(m["'t"]), time: valueOf(m["'t"]), node,
   };
 }
 

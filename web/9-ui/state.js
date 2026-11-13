@@ -4,7 +4,7 @@
 //            threads/layers/glasses). Events are the actions of gestures.js plus what the device
 //            reports (motion, still, saved, stream …). The same events come from touch, keywords
 //            (VOICE) or later glasses, so this file never changes for a new device.
-//              screen   rest · wait · record · toText · search · line · pick · share · delete · add · stream
+//              screen   rest · wait · record · toText · similar · line · pick · share · delete · add · stream
 //              line     play · spread · nextPrev · scrub        share   hello · join · own
 //              stream   live · seg · people                     overlays: full, similar (both any time)
 //            fields: v a x l each 'on' | 'off', ONE selection for everything (decided 08.11.): the point,
@@ -36,7 +36,7 @@ export function next(s, e) {
     case 'full': return { ...s, full: true };
     case 'unfull': return { ...s, full: false };
     case 'similar-in': return { ...s, similar: true };
-    case 'similar-out': return { ...s, similar: false, mode: s.screen === 'search' ? 'take' : s.mode, ...(s.screen === 'search' ? { screen: 'rest' } : {}) };
+    case 'similar-out': return { ...s, similar: false, mode: s.screen === 'similar' ? 'take' : s.mode, ...(s.screen === 'similar' ? { screen: 'rest' } : {}) };
     case 'strand-on-off': return { ...s, fields: { ...s.fields, [e.kind]: s.fields[e.kind] === 'on' ? 'off' : 'on' } };
   }
   if (s.screen === 'record') {
@@ -51,7 +51,7 @@ export function next(s, e) {
     case 'ready': return s.ready ? go(s, 'rest', { ready: false }) : go(s, 'wait', { ready: true });
     case 'motion': return s.screen === 'wait' ? go(s, 'record') : s;
     case 'transcribe': return go(s, 'toText');
-    case 'search-from': return go(s, 'search', { mode: 'search', similar: true, fields: Object.fromEntries(KINDS.map((k) => [k, (e.kinds ?? KINDS).includes(k) ? 'on' : 'off'])) });
+    case 'similar-from': return go(s, 'similar', { mode: 'similar', similar: true, fields: Object.fromEntries(KINDS.map((k) => [k, (e.kinds ?? KINDS).includes(k) ? 'on' : 'off'])) });
     case 'share-last': return go(s, 'pick');
     case 'share-to': return go(s, 'rest');
     case 'share-menu': return go(s, 'share', { sub: 'own' });
@@ -87,7 +87,7 @@ export const look = (s, k) => (s.fields[k] === 'on' ? 'new' : s.has.includes(k) 
 /** The canvas name of a state (Design · Geste Overview), to compare drawing and design one to one. */
 export function canvasStep(s) {
   if (s.full && s.screen === 'rest') return 'full';
-  const map = { rest: 'rest', wait: 'wait', record: 'retry', toText: 'toText', search: 'search', pick: 'own', delete: 'delete', add: 'retry' };
+  const map = { rest: 'rest', wait: 'wait', record: 'retry', toText: 'toText', similar: 'search' /* the canvas calls it so */, pick: 'own', delete: 'delete', add: 'retry' };
   if (s.screen === 'line') return { play: 'playlist', spread: 'spread', nextPrev: 'nextPrev', scrub: 'scrub' }[s.sub] ?? 'playlist';
   if (s.screen === 'share') return s.sub ?? 'own';
   if (s.screen === 'stream') return { live: 'stream', seg: 'streamSeg', people: 'streamPeople' }[s.sub] ?? 'stream';

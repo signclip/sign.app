@@ -1,4 +1,4 @@
-// filename.js — file names as a search view: readable, findable by any file search.
+// filename.js — file names as a view: readable, findable by any file manager.
 //
 // Purpose:   ^(to)(context words)~(echo)@(person)°(where)'t(date time 0_length)!(u_ 12 chars).kind.ext
 //            The name is never read to decide meaning; the content is the truth (SCHEMA.md B4).

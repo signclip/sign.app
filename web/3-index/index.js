@@ -7,7 +7,7 @@
 //              context        word (NFC, lower case) → :x strands that contain it
 //              weave          id → files that point to it (define it, came from it, build on it)
 //              takes          chains whose top line waits for a Take ({:_.1})
-//              similar        chains whose top line holds a live search ({:?.1} or ?( ))
+//              similar        chains whose top line holds a similar ({:?.1} or ?( )), live or kept: the log of similars
 //            Video, audio and Parquet are never opened: chains define them, names locate them.
 // Depends:   1-model (file, ids, filename)
 // Test:      tests/storage.test.mjs, tests/share.test.mjs

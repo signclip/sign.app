@@ -1,11 +1,11 @@
-// select.js — choose from a search result: the n-th, a range, or at random.
+// select.js — choose from a similar: the n-th, a range, or at random.
 //
 // Purpose:   :?.1.3 (third) · :?.1.1_3 (first to third) · :?.1~(random 3) (decision 07.11.).
 //            A random draw is kept: the chosen files become definitions of the next chain,
 //            so the same draw comes back when the chain is opened again.
 // Depends:   1-model (crypto, ids, file)
 // Test:      tests/share.test.mjs
-// Limits:    results are ordered by the search (similarity, else time) · random uses the
+// Limits:    results are ordered by the similar (similarity, else time) · random uses the
 //            platform's secure randomness, never Math.random.
 
 import { draw } from '../1-model/crypto.js';
@@ -27,7 +27,7 @@ export function drawFrom(results, n) {
 /**
  * Keep a choice as definitions plus one line, e.g. for the next chain:
  * :v.1!(… hash)~(:?.1)  :v.2!(…)~(:?.1)   {:v.1} {:v.2}
- * chosen: [{ kind, id }] (id with hash) · source: the search it came from, e.g. "?.1".
+ * chosen: [{ kind, id }] (id with hash) · source: the similar it came from, e.g. "?.1".
  */
 export function keepChoice(chosen, source) {
   const count = {};

@@ -1,7 +1,7 @@
 // settings.js — what a person can switch, without extra buttons (held strand field or sharing point).
 //
 // Purpose:   ready (always ready) on/off · which strands record by themselves · wait times for quick
-//            automatic takes · which strands feed the combined Similar search · camera front/back ·
+//            automatic takes · which strands feed the combined Similar · camera front/back ·
 //            onboarding shown or not. Shown as chips from the upper left edge (own sharing point).
 //            Settings live on the device only; they are no data and never shared.
 // Depends:   1-model/symbols (KINDS)
@@ -19,7 +19,7 @@ export const DEFAULTS = Object.freeze({
   waitStartMs: 300, // how long motion or sound must last before a take starts
   waitStopMs: 1500, // how long it must be quiet before the take stops
   preRollMs: 1000, // kept from before the start, so the beginning of a sign is not lost
-  similarFrom: ['x', 'a'], // strands that feed the combined Similar search (a via its text)
+  similarFrom: ['x', 'a'], // strands that feed the combined Similar (a via its text)
   facing: 'user', // camera: 'user' (front) or 'environment' (back)
   onboarding: true,
 });

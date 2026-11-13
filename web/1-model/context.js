@@ -57,7 +57,7 @@ function chip(text, metaNodes = []) {
 
 function metaOf(m) { return { sym: m.sym, value: m.value ?? null }; }
 
-/** Plain chip texts per gesture, e.g. for search and file names. */
+/** Plain chip texts per gesture, e.g. for Similar and file names. */
 export function chipTexts(text) {
   return readContext(text).gestures.map((g) => g.chips.map((c) => c.text));
 }

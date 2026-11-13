@@ -23,7 +23,8 @@ import { flip, zoomBy, focusAt, torch } from './camera.js';
 import { bind, edgeZone } from './touch.js';
 import { ownChips, strandChips, draw } from './panels.js';
 import { filterChips, toggle, filtersOf, EMPTY } from './similar-filter.js';
-import { search } from '../7-similar/filter.js';
+import { similar } from '../7-similar/filter.js';
+import { saveSimilar } from '../4-save/save-similar.js';
 import { mountShareMenu } from './share-mount.js';
 import { keychain } from './keychain.js';
 
@@ -86,12 +87,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const panel = (id, on, chips, onChip) => { $(id).hidden = !on; if (on) draw($(id), chips, onChip); };
   const showOwn = (on) => panel('#own', on, ownChips(settings, t), (c) => { settings = choose(settings, c.key, c.value); state.on = new Set(settings.auto); save(); paint(); showOwn(true); });
   const showSimilar = (on) => { // filter chips (wer · wo · wann · was) above the hits, Similar narrowed like a strand
-    const hits = search(state.index, { filters: filtersOf(state.index, state.filter) }).map((h) => ({ label: h.entry.head?.['@'] ?? '·', key: h.key }));
+    const hits = similar(state.index, { filters: filtersOf(state.index, state.filter) }).map((h) => ({ label: h.entry.head?.['@'] ?? '·', key: h.key }));
     panel('#similar', on, [...filterChips(state.index, state.filter, t), ...hits], (c) => { if (c.row) { state.filter = toggle(state.filter, c); showSimilar(true); } });
   };
 
   async function act(gesture, target, x = {}) {
-    const row = actionFor({ gesture, target: target === 'strand' && gesture === 'drag' ? x.drag : target, mode: state.recording ? 'take' : 'search' });
+    const row = actionFor({ gesture, target: target === 'strand' && gesture === 'drag' ? x.drag : target, mode: state.recording ? 'take' : 'similar' });
     switch (row?.action) {
       case 'take': return state.recording ? end() : begin();
       case 'take-while-held': return begin();
@@ -110,7 +111,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'own-in': return showOwn(true);
       case 'own-out': return showOwn(false);
       case 'similar-in': return showSimilar(true);
-      case 'similar-out': return showSimilar(false);
+      case 'similar-out': { // every similar shows in the log, live or kept: one chain on closing
+        const f = filtersOf(state.index, state.filter);
+        if (state.filter !== EMPTY) await saveSimilar(store, { kinds: f.kinds, persons: f.persons, time: f.time ? [...new Set(f.time)].join('_') : null, sharingPoints: f.sharingPoints.map((label) => ({ label })) }, { device, person });
+        return showSimilar(false);
+      }
       case 'share-last': return menu.pick(); // ↑ on the point: choose where the last take goes
       case 'share-menu': return menu.show(true);
       case 'share-menu-out': return menu.show(false);

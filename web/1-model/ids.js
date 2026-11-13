@@ -74,7 +74,7 @@ export function writeId(id, hash = null) {
   return [...ID_PARTS.map((k) => id[k]).filter(Boolean), id.z, id.y, hash].filter(Boolean).join(' ');
 }
 
-/** Read "q_… n_… e_… t_… u_… [y_…] [hash]" back. Parts may be missing (search); order is checked. */
+/** Read "q_… n_… e_… t_… u_… [y_…] [hash]" back. Parts may be missing (in a similar); order is checked. */
 export function readId(text) {
   const id = { q: null, n: null, e: null, t: null, u: null, z: null, y: null, hash: null };
   let last = -1;
