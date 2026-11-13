@@ -9,6 +9,8 @@
 //              bridges     lines between circles: copy (solid) or encrypted backup (double line);
 //                          0 → n = every take goes there
 //              dashed +    bring a new one in: clipboard · folder
+//              dashed blue a share waiting for me (tap = take in), or the other side's page to accept
+//                          what I just gave (tap = open it, log in there if asked)
 //              browse      after a login: the folders of the account as circles, ↑ = one level up
 //            Names under the circles are the only words (a sharing point has no other face).
 // Depends:   nothing (shapes are drawn by view/ring.js toSvg)
@@ -25,10 +27,11 @@ function grid(i, { w, k, y0 }) {
 
 /**
  * all: tiles (share-menu.js) · own: label of this device · focus: n shared to last · waitSecret: true
- * when a pasted password is awaited · browse: [{ label }] folders after a login, or null.
+ * when a pasted password is awaited · browse: [{ label }] folders after a login, or null ·
+ * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', focus = null, waitSecret = false, browse = null }, { w = 390, k = w / 390, y0 = 90 * k } = {}) {
+export function pointShapes(all, { own = '', focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null }, { w = 390, k = w / 390, y0 = 90 * k } = {}) {
   const r = 28 * k;
   const shapes = [];
   const at = new Map();
@@ -66,7 +69,9 @@ export function pointShapes(all, { own = '', focus = null, waitSecret = false, b
       add('arc', { cx, cy, r: r + 7 * k, from, to, cls: 'hit', role: `sp-kind:${tile.n}:${kind}` }); // a wider, unseen line to hit
     }
   }
-  const next = all.length + 1;
+  let next = all.length + 1;
+  incoming.forEach((x, i) => circle(next++, `incoming:${i}`, 'sp incoming', x.label)); // waiting for me: tap = take in
+  if (acceptThere) circle(next++, 'accept-there', 'sp incoming there', acceptThere.label); // tap = their page to accept
   circle(next, 'add:paste', `sp add${waitSecret ? ' now' : ''}`, '');
   circle(next + 1, 'add:folder', 'sp add', '');
   glyphPaste(at.get('add:paste'), k, add);

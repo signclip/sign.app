@@ -10,13 +10,16 @@
 //                  read-only share an app can make: there the way is a backup into their folder.
 // Depends:   browser; 2-storage (spec, login-flow, nextcloud, routes); folders.js, system-share.js
 // Test:      needs a browser; readPaste and give are tested (list.test.mjs, connect.test.mjs).
-// Limits:    the browser blocks the one-click login (CORS) → "geht in der App"; a link per kind.
+//            waiting shares: native app = one tap accepts in the background; PWA = one tap opens the own
+//            Nextcloud to accept there. After giving to a cloud id: one tap opens the other side's page.
+// Limits:    the browser blocks the one-click login and the pending-share API (CORS); a link per kind.
 
 import { readPaste } from '../2-storage/spec.js';
 import { startLogin, waitLogin } from '../2-storage/login-flow.js';
 import { Nextcloud, webdavUrl } from '../2-storage/nextcloud.js';
 import { giveStrands, giveAll } from '../2-storage/routes.js';
-import { connect } from '../2-storage/connect.js';
+import { connect, takeIn, acceptPage } from '../2-storage/connect.js';
+import { newSource as newQ } from '../1-model/ids.js';
 import { newSource } from '../1-model/ids.js';
 import { folders, canPick } from './folders.js';
 import { copy } from './system-share.js';
@@ -90,6 +93,7 @@ export async function giveOut(ctx, n, how) {
     const root = sp.spec.folder;
     const given = kinds.length ? await giveStrands(nc, { root, kinds, to }) : await giveAll(nc, { root, to });
     if (to === 'link') await copy(given.map((g) => g.webdav).join('\n')); // WebDAV addresses, read-only, no account
+    else s.acceptThere = { url: acceptPage(to), label: new URL(acceptPage(to)).host }; // one tap → their page to accept
     say(t(to === 'link' ? 'copied' : 'share'));
   } catch { say(t('notReachable')); } // WebAppPassword missing or the address not entered there
 }
@@ -109,4 +113,47 @@ export function browseChips(ctx) {
     ...(b.at ? [{ label: '↑', go: () => into(b.at.replace(/[^/]+\/$/, '')) }] : []),
     ...b.inside.map((f) => ({ label: nameOf(f), go: () => into(f) })),
   ];
+}
+
+/** Open a page outside the app: the system browser in the native app, a new tab in the PWA. */
+export async function openPage(url) {
+  const browser = globalThis.Capacitor?.Plugins?.Browser;
+  if (browser) return browser.open({ url });
+  return globalThis.open?.(url, '_blank');
+}
+
+/**
+ * Shares waiting for me in my own Nextcloud (sent from another Nextcloud or Sciebo).
+ * → [{ n (my Nextcloud circle), share }] · empty when nothing waits or the browser is blocked (CORS).
+ */
+export async function waitingShares(ctx) {
+  const { s, keychain } = ctx;
+  const out = [];
+  for (const [n, sp] of s.open) {
+    if (sp.spec?.kind !== 'nextcloud' || sp.store?.readOnly) continue;
+    try {
+      const nc = new Nextcloud({ server: sp.spec.server, user: sp.spec.user, password: await keychain.get(sp.entry.id) });
+      for (const share of await nc.pending()) out.push({ n, share });
+    } catch { /* the PWA cannot ask (CORS); the native app can */ }
+  }
+  return out;
+}
+
+/**
+ * Tap on a waiting share: native app = accept it in the background and bring the folder in as a
+ * sharing point; PWA = open my own Nextcloud's page to accept it there.
+ */
+export async function acceptWaiting(ctx, { n, share }) {
+  const { s, keychain, edit, say, t } = ctx;
+  const sp = s.open.get(n);
+  const secret = await keychain.get(sp.entry.id);
+  const nc = new Nextcloud({ server: sp.spec.server, user: sp.spec.user, password: secret });
+  try {
+    const entry = await takeIn(nc, share, { newId: newQ });
+    await keychain.set(entry.id, secret); // reached with the same login as my own Nextcloud
+    await edit({ add: entry, marks: ['show'] });
+    return say(`${t('share')} ← ${share.owner}`);
+  } catch {
+    return openPage(`${sp.spec.server}/index.php/apps/files/`); // accept it there; it then shows as a folder in my account
+  }
 }

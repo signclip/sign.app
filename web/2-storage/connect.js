@@ -88,3 +88,23 @@ export async function acceptExpected(nc, expected) {
 export async function mountedSharingPoints(nc, { newId }) {
   return (await nc.sharedWithMe()).map((m) => ({ kind: 'nextcloud', label: m.label, id: newId(), server: nc.server, user: nc.user, folder: m.folder, from: m.from }));
 }
+
+/**
+ * Take in one waiting share the person tapped (native app: in the background). nc: own Nextcloud ·
+ * share: from nc.pending() · → a sharing point entry reached through the own account { label, path, id }.
+ * The tap is the "expected": only this share, from exactly this owner and server, is accepted.
+ */
+export async function takeIn(nc, share, { newId }) {
+  const folder = await nc.accept(share.id, { owner: share.owner, remote: String(share.remote).replace(/\/$/, '') });
+  if (!folder) throw new Error(`share ${share.id} accepted but not found in the tree`);
+  return { label: share.name, path: webdavUrl(nc.server, nc.user, folder), id: newId() };
+}
+
+/**
+ * Where the other side accepts a share: the files page of its Nextcloud (its server comes from the
+ * cloud id); it asks to log in first when needed, then shows the share to accept.
+ * name@uni-koeln.de@uni-koeln.sciebo.de → https://uni-koeln.sciebo.de/index.php/apps/files/
+ */
+export function acceptPage(cloudId) {
+  return `${cloudIdParts(cloudId).remote}/index.php/apps/files/`;
+}

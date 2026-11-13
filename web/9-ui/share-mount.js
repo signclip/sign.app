@@ -18,7 +18,7 @@ import { readPaste } from '../2-storage/spec.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
 import { tiles, gestureOn, KINDS } from './share-menu.js';
-import { bringIn, pickFolder, giveOut, browseChips } from './share-add.js';
+import { bringIn, pickFolder, giveOut, browseChips, waitingShares, acceptWaiting, openPage } from './share-add.js';
 import { folders } from './folders.js';
 import { bind } from './touch.js';
 import { pointShapes } from './view/points.js';
@@ -50,6 +50,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     waitSecret: null, // q_ of a sharing point that waits for a pasted password
     giveTo: null, // n that waits for a pasted cloud id
     browse: null, // after a login: choosing the folder
+    incoming: [], // shares waiting for me in my own Nextcloud
+    acceptThere: null, // after giving to a cloud id: { url, label } of the other side's page
     note: '', // one short line under the circles
   };
   const svg = document.createElement('div');
@@ -72,6 +74,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     s.rules = text ? rulesOf(text) : [];
     s.open = await openAll(s.entries, { keychain, own, folders });
     onSources(sources(s.rules, s.open, own));
+    waitingShares(ctx).then((list) => { s.incoming = list; if (!panel.hidden) draw(); }); // asks in the background
   }
   async function edit(change) {
     await changeList(own, change, meta());
@@ -124,6 +127,13 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'add' && a === 'paste') return bringIn(ctx);
     if (what === 'add' && a === 'folder') return pickFolder(ctx);
     if (what === 'browse') return browseChips(ctx)[Number(a)]?.go();
+    if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
+    if (what === 'accept-there') {
+      const { url } = s.acceptThere;
+      s.acceptThere = null;
+      draw();
+      return openPage(url);
+    }
     return null;
   }
 
@@ -131,7 +141,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   function draw() {
     const { width: w, height: h } = panel.getBoundingClientRect();
     const browse = s.browse ? browseChips(ctx) : null;
-    const view = pointShapes(all(), { own: person.label, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse }, { w });
+    const incoming = s.incoming.map((x) => ({ label: x.share.name }));
+    const view = pointShapes(all(), { own: person.label, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere }, { w });
     svg.innerHTML = toSvg(view, { w, h });
     note.textContent = s.note;
   }
