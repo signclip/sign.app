@@ -67,9 +67,11 @@ export function targetOf(role) {
     case 'live': return { target: 'live' };
     case 'strand': return { target: 'strand', kind: rest };
     case 'chip': case 'gesture': return { target: 'chip', text: rest };
+    case 'sticky': return { target: 'chip', sticky: true };
     case 'similar': return { target: 'similar-item', index: Number(rest) };
     case 'line': return { target: 'item', index: Number(rest) };
     case 'line-arc': return { target: 'line-arc' };
+    case 'similar-band': return { target: 'similar-band' };
     case 'level': return { target: 'level', index: Number(rest) };
     case 'template': return { target: 'item', template: true };
     case 'delete': return { target: 'delete', what: rest };

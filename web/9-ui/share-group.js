@@ -17,8 +17,9 @@
 import { Nextcloud } from '../2-storage/nextcloud.js';
 import { readDescription, signerKeys } from '../2-storage/sharing-point.js';
 import { readPaste } from '../2-storage/spec.js';
+import { connect } from '../2-storage/connect.js';
 import { SELF } from '../2-storage/layout.js';
-import { makeGroup, renewGroup, invitation, waitingHellos, welcomeToGroup } from '../8-join/group.js';
+import { makeGroup, renewGroup, invitation, waitingHellos, welcomeToGroup, doorLinks } from '../8-join/group.js';
 import { sayHello, answerFor, join } from '../8-join/join.js';
 import { newSource } from '../1-model/ids.js';
 import { deviceKeys, joins } from './device-keys.js';
@@ -92,19 +93,67 @@ export async function bringInvitation(ctx, text) {
   return true;
 }
 
-async function sayHelloTo(ctx, label) {
+/**
+ * The first group of the onboarding is the project's own Nextcloud (decided 13.11.): the app knows its door
+ * (project.json: read link + drop link), so no group text is needed. As soon as the name sign exists, the door
+ * comes into the list and the hello goes out; the sharing icon grows; with hello back the own Nextcloud folder
+ * appears. → true when it was started now.
+ */
+export async function joinProject(ctx, project, { reachable = doorAnswers, memory = joins } = {}) {
+  const doors = (project?.doors ?? [project]).filter((d) => d?.read && d?.drop);
+  if (!doors.length) return false; // no door configured: group texts as before
+  const label = project.label || 'Sign';
+  if (await memory.get(label)) return false; // the hello went out already
+  if (!(await ctx.nameSign?.())) return false; // the hello carries the name sign: it comes first
+  if (ctx.s.entries.some((e) => e.label === label)) { // the door is there, the hello not yet (its password came later)
+    if (await ctx.keychain.get(ctx.s.entries.find((e) => e.label === label).id) == null && ctx.s.waitSecret) return false;
+    await sayHelloTo(ctx, label, { door: true });
+    return true;
+  }
+  let door = null, locked = false;
+  for (const d of doors) {
+    const answer = await reachable(d); // true · 'password' · false (a door may be gone: revoked, moved)
+    if (answer) { door = d; locked = answer === 'password'; break; }
+  }
+  if (!door) return false;
+  const path = (url) => readPaste(url)?.path ?? url; // /s/<token> → its WebDAV path
+  const readId = newSource(), dropId = newSource();
+  await ctx.edit({ add: { label, path: path(door.read), id: readId }, marks: ['show'] });
+  await ctx.edit({ add: { label, path: path(door.drop), id: dropId } });
+  if (locked) { // a password given privately: paste it on +, then the hello goes out (share-add.js waitSecret)
+    ctx.s.waitSecret = readId;
+    ctx.s.waitSecretAlso = [dropId]; // both links of the door open with the same password
+    ctx.say(ctx.t('menu.secret'));
+    return false;
+  }
+  await sayHelloTo(ctx, label, { door: true });
+  return true;
+}
+
+/** Does a door answer? → true · 'password' (it asks for one: 401) · false (revoked or moved). */
+async function doorAnswers(door) {
+  try {
+    const { store } = connect(readPaste(door.read), {});
+    await store.list('');
+    return true;
+  } catch (err) { return /: 401\b/.test(String(err.message)) ? 'password' : false; }
+}
+
+async function sayHelloTo(ctx, label, { door = false } = {}) {
   const g = groupOf(ctx, label);
-  const drop = g && ctx.s.open.get(g.drop.n)?.store;
-  if (!drop) return;
+  const open = g && ctx.s.open.get(g.drop.n)?.store;
+  if (!open) return;
+  const drop = door ? doorLinks(ctx.s.open.get(g.read.n)?.store, open) : open; // a door's drop link is hello/ itself
   const keys = await deviceKeys();
   const device = { id: ctx.device, label: ctx.person.label, key: keys.device.public };
   const helloPath = await sayHello({ store: drop, device, deviceKey: keys.device, person: ctx.person, target: label, pickup: keys.pickup.public, nameSign: await ctx.nameSign?.() });
-  await joins.set(label, { helloPath, state: 'hello' });
+  await joins.set(label, { helloPath, state: 'hello', door });
 }
 
 /**
  * Member: for every group I said hello to, look for my join in join/ (through the read link); take it
- * and follow renewed links. → Map(label → 'hello' | 'join')
+ * and follow renewed links. → Map(label → 'hello' | 'join' | 'join-own' | 'within'), drawn as the growing
+ * sharing icon (view/points.js): join-own = my own sharing point came along; shown complete once, then 'within'.
  */
 export async function followJoins(ctx) {
   const states = new Map();
@@ -112,20 +161,25 @@ export async function followJoins(ctx) {
     const mine = await joins.get(t.label);
     if (!mine) continue;
     states.set(t.label, mine.state);
+    if (mine.state === 'join-own') await joins.set(t.label, { ...mine, state: 'within' }); // complete once more, then tiles
+    if (mine.state !== 'hello') continue; // only a hello still waits for its answer
     const read = ctx.s.open.get(t.n)?.store;
     const drop = ctx.s.open.get(t.drop)?.store;
     if (!read || !drop) continue;
     try {
-      const paths = (await read.list('join/')).map((f) => f.path);
+      const both = mine.door ? doorLinks(read, drop) // the door: read link = join/, drop link = hello/
+        : { read: (p) => read.read(p), write: (p, b) => drop.write(p, b), list: (p) => read.list(p) }; // read through one link, write through the other
+      const paths = (await both.list('join/')).map((f) => f.path);
       const answer = answerFor(paths, mine.helloPath);
       if (!answer || answer === mine.answer) continue;
-      const signers = signerKeys(readDescription(dec.decode(await read.read(SELF))));
+      const signers = signerKeys(readDescription(dec.decode(await both.read(mine.door ? `join/${SELF}` : SELF))));
       const keys = await deviceKeys();
-      const both = { read: (p) => read.read(p), write: (p, b) => drop.write(p, b), list: (p) => read.list(p) }; // read through one link, write through the other
       const r = await join({ store: both, joinPath: answer, pickupKey: keys.pickup.privateKey, signers, device: { id: ctx.device }, deviceKey: keys.device, person: ctx.person });
       await follow(ctx, t, r.sharingPoints);
-      await joins.set(t.label, { ...mine, answer, state: 'join' });
-      states.set(t.label, 'join');
+      const own = (r.sharingPoints ?? []).some((sp) => sp.label && sp.label !== t.label); // my own space came along
+      const state = own ? 'join-own' : 'join';
+      await joins.set(t.label, { ...mine, answer, state });
+      states.set(t.label, state);
     } catch { /* not there yet, or not sealed by a signer: wait */ }
   }
   return states;

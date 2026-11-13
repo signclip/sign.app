@@ -14,6 +14,7 @@ function middleOf(s) {
     const rad = (((s.from + s.to) / 2) * Math.PI) / 180;
     return [s.cx + s.r * Math.sin(rad), s.cy - s.r * Math.cos(rad)];
   }
+  if (s.mid) return s.mid; // an arc around the window (ring.js)
   if (s.type === 'thumb') return [s.x + s.s / 2, s.y + s.s / 2];
   if (s.x1 != null) return [(s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2]; // a strand bar on the window's edge
   if (s.cx != null) return [s.cx, s.cy];

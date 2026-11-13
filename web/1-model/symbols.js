@@ -16,7 +16,7 @@ export const WRAP = ['-', '+', '?', '_'];
 export const SYMBOLS = ["'t", ...META.filter((s) => s !== "'t"), ...WRAP];
 
 /** Parts of an identity !( ), coarse to fine: source (device or sharing point), person, H3 cell, time, random. */
-export const ID_PARTS = ['q', 'n', 'e', 't', 'u'];
+export const ID_PARTS = ['q', 'n', 'o', 't', 'u']; // o_ = Ort (H3 cell), renamed from e_ on 13.11. (no file had it)
 
 /**
  * Kinds of files. folder: where the file lies inside a sharing point (2-storage/layout.js).

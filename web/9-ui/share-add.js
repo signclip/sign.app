@@ -20,6 +20,23 @@ import { Nextcloud, webdavUrl } from '../2-storage/nextcloud.js';
 import { giveStrands, giveAll } from '../2-storage/routes.js';
 import { connect, takeIn, acceptPage, pendingPage, myCloudId, cloudIdParts } from '../2-storage/connect.js';
 import { newSource } from '../1-model/ids.js';
+import { timeLabel } from '../1-model/filename.js';
+import { describeNew } from '../2-storage/sharing-points.js';
+import { deviceKeys } from './device-keys.js';
+
+/**
+ * A folder brought in that is not a sharing point yet becomes one: its sharing-point.sign, this device as signer,
+ * sealed (the tile then shows the filled seal). Folders others described stay as they are (their seal is checked).
+ */
+export async function makeSharingPoint(ctx, id) {
+  const sp = [...ctx.s.open.values()].find((x) => x.entry.id === id);
+  if (!sp?.store || sp.description) return false;
+  const { device: deviceKey } = await deviceKeys();
+  const made = await describeNew(sp.store, { id, label: sp.entry.label, path: sp.entry.path, time: timeLabel(Date.now()),
+    signer: { device: ctx.device, label: ctx.person.label, deviceKey } }).catch(() => null);
+  if (made) { sp.description = made; ctx.draw(); }
+  return Boolean(made);
+}
 import { folders, canPick } from './folders.js';
 import { copy } from './system-share.js';
 import { bringInvitation } from './share-group.js';
@@ -29,16 +46,29 @@ async function clipboard() {
   return cap ? (await cap.read()).value : navigator.clipboard.readText();
 }
 
+/**
+ * The one + tile: whatever brings a sharing point in. A link, an address, a server, a cloud id, a group text or an
+ * awaited password on the clipboard → bringIn; nothing usable there → choose a folder or disk (pickFolder).
+ */
+export async function addNew(ctx) {
+  let text = '';
+  try { text = (await clipboard()) ?? ''; } catch { /* no permission: then a folder */ }
+  if (ctx.s.waitSecret || ctx.s.giveTo || text.includes('\n') || readPaste(text)) return bringIn(ctx);
+  if (canPick()) return pickFolder(ctx);
+  return ctx.say(ctx.t('menu.paste'));
+}
+
 /** ← paste. ctx: { s, keychain, edit, load, say, t } (share-mount.js). */
 export async function bringIn(ctx) {
   const { s, keychain, edit, say, t } = ctx;
   let text = '';
   try { text = await clipboard(); } catch { return say(t('notReachable')); }
   if (text.includes('\n') && await bringInvitation(ctx, text)) return say(t('share')); // a group invitation: name, read link, drop link
-  if (s.waitSecret) { // the password a sharing point asked for: straight into the keychain, never shown
-    await keychain.set(s.waitSecret, text.trim());
+  if (s.waitSecret) { // the password a sharing point asked for (given privately): straight into the keychain, never shown
+    for (const id of [s.waitSecret, ...(s.waitSecretAlso ?? [])]) await keychain.set(id, text.trim());
     s.waitSecret = null;
-    await ctx.load();
+    s.waitSecretAlso = null;
+    await ctx.load(); // a door waiting for its password: the hello goes out now (joinProject)
     return say(t('copied'));
   }
   if (s.giveTo) return giveOut(ctx, s.giveTo, text.trim());
@@ -63,7 +93,8 @@ export async function bringIn(ctx) {
   }
   await edit({ add: { path: what.path, id }, marks: ['show'] });
   const sp = [...s.open.values()].find((x) => x.entry.id === id);
-  try { await sp.store.list('chain/'); } catch { s.waitSecret = id; say(t('menu.secret')); }
+  try { await sp.store.list('chain/'); } catch { s.waitSecret = id; return say(t('menu.secret')); }
+  await makeSharingPoint(ctx, id); // a new, writable folder becomes a sharing point (sealed by this device)
 }
 
 /** Ordner wählen: a folder or disk, read and write, brought into Similar. */
@@ -73,6 +104,7 @@ export async function pickFolder(ctx) {
   try {
     const { name } = await folders.pick(id);
     await ctx.edit({ add: { label: name, path: `folder:${name}`, id }, marks: ['show', 'write'] });
+    await makeSharingPoint(ctx, id);
   } catch { /* the person closed the picker */ }
 }
 
@@ -167,8 +199,32 @@ export async function acceptWaiting(ctx, { n, share }) {
  * Tap on an expected account (cloud:…): my own Nextcloud's cloud id goes onto the clipboard and its
  * server opens, where the folder is shared to that id; my app then takes it in by itself.
  */
+/** A cloud id from what was pasted: an id itself, or another Nextcloud account's address (user@host). */
+export function cloudIdOf(pasted) {
+  if (pasted?.kind === 'cloud') return pasted.cloudId;
+  if (pasted?.kind === 'nextcloud' && pasted.user) return `${pasted.user}@${new URL(pasted.path).host}`;
+  return null;
+}
+
+/**
+ * My Nextcloud tile n given out read-only to an account (cloud id): it comes in as a tile (if new), a line from
+ * my tile shows the share, a tap on it opens that account's page to accept (askAccount).
+ */
+export async function giveToAccount(ctx, n, cloudId) {
+  let m = ctx.s.entries.findIndex((e) => e.path === `cloud:${cloudId}`) + 1;
+  if (!m) {
+    await ctx.edit({ add: { label: cloudId.slice(cloudId.lastIndexOf('@') + 1), path: `cloud:${cloudId}`, id: newSource() } });
+    m = ctx.s.entries.findIndex((e) => e.path === `cloud:${cloudId}`) + 1;
+  }
+  if (m) await ctx.edit({ rule: { from: n, to: m, mark: 'show', kinds: [] }, on: true });
+  await giveOut(ctx, n, cloudId);
+  ctx.s.acceptThere = null; // the account's own tile leads to its page now
+}
+
 export async function askAccount(ctx, n) {
   const entry = ctx.s.entries[n - 1];
+  const cloudId = entry.path.slice(6);
+  if (ctx.all().some((t) => t.giveTo?.includes(n))) return openPage(acceptPage(cloudId)); // I shared to it: accept there
   const mine = [...ctx.s.open.values()].find((sp) => sp.spec?.kind === 'nextcloud' && !sp.store?.readOnly);
   if (mine) await copy(myCloudId(mine.spec.server, mine.spec.user));
   return openPage(`${cloudIdParts(entry.path.slice(6)).remote}/index.php/apps/files/`);

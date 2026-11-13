@@ -23,11 +23,12 @@ import { partsOf } from '../2-storage/layout.js';
 import { quietIds } from '../4-save/remove.js';
 import { deviceKeys } from './device-keys.js';
 import { readPaste } from '../2-storage/spec.js';
+import { copyRoute } from '../2-storage/routes.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
-import { bringIn, pickFolder, giveOut, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
-import { makeOrRenew, hellosToWelcome, welcome, followJoins } from './share-group.js';
+import { addNew, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
+import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject } from './share-group.js';
 import { folders } from './folders.js';
 import { bind } from './touch.js';
 import { pointShapes } from './view/points.js';
@@ -52,10 +53,11 @@ async function clipboardText() {
  * panel: element over the screen · own: the device store · keychain: { get, set } · person: { id, label } ·
  * device: q_ · t: translator · lastChain(): newest take chain · selection(): kinds on in the ring ·
  * once(): kinds for this share only (a strand held on the screen while ↑ on the point) or null ·
- * onSources(list): new sources for Similar · nameSign(): bytes of the name sign video or null (goes with each hello).
+ * onSources(list): new sources for Similar · nameSign(): bytes of the name sign video or null (goes with each hello) ·
+ * project: { label, read, drop } the project's door (project.json): the first join, without a group text.
  * → { show(on), afterTake(paths), runRules(), dropKind(n, kind) }
  */
-export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null }) {
+export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, project = null }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
@@ -133,6 +135,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     });
     hellosToWelcome(ctx).then((list) => { s.hellos = list; if (!panel.hidden) draw(); }); // signer: who said hello
     followJoins(ctx).then((states) => { s.joinStates = states; if (!panel.hidden) draw(); }); // member: my joins
+    joinProject(ctx, project).catch(() => {}); // the first group: the project's door (also after its password came)
   }
   async function edit(change) {
     await changeList(own, change, meta());
@@ -157,11 +160,24 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
 
   async function apply(result) {
     if (!result) return null;
+    if (result.once) { // a copy: the connection, and everything so far once, now
+      for (const change of result.edits ?? [result.edit]) await edit(change);
+      const from = result.once.from == null ? own : s.open.get(result.once.from)?.store;
+      const to = s.open.get(result.once.n)?.store;
+      if (!from || !to) return say(t('notReachable'));
+      const r = await copyRoute(from, to, { kinds: ['v', 'a', 'x', 'l', 'm'], skip: await skip() }).catch(() => null);
+      return say(r ? t('run.ok', { label: ctx.tileOf(result.once.n)?.label ?? '', n: r.copied.length }) : t('notReachable'));
+    }
     if (result.action === 'share') return shareTo(result.n);
-    if (result.action === 'give') { // a cloud id on the clipboard = to it; my own Nextcloud folder = becomes a group
-      const pasted = readPaste(await clipboardText());
-      if (pasted?.kind === 'cloud') return giveOut(ctx, result.n, pasted.cloudId);
-      if (ctx.tileOf(result.n)?.canGive) return makeOrRenew(ctx, result.n);
+    if (result.give) { // my Nextcloud dropped on another account: the line, and the share now
+      for (const change of result.edits ?? [result.edit]) await edit(change);
+      const entry = s.entries[result.give.n - 1];
+      const cloudId = entry?.path?.startsWith('cloud:') ? entry.path.slice(6) : cloudIdOf(readPaste(entry?.path ?? ''));
+      return cloudId ? giveOut(ctx, result.give.from, cloudId) : say(t('notReachable'));
+    }
+    if (result.action === 'give') { // ↑: an account on the clipboard = shared to it (it comes in as a tile); else my WebDAV address
+      const cloudId = cloudIdOf(readPaste(await clipboardText()));
+      if (cloudId && ctx.tileOf(result.n)?.canGive) return giveToAccount(ctx, result.n, cloudId);
       return giveOut(ctx, result.n, 'link');
     }
     for (const change of result.edits ?? [result.edit]) await edit(change);
@@ -192,8 +208,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       return apply(gestureOn(targetFor(tile, 'tap'), 'tap', s.rules));
     }
     if (what === 'sp-kind') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'tap-kind'), 'tap-kind', s.rules, { kind: b }));
-    if (what === 'add' && a === 'paste') return bringIn(ctx);
-    if (what === 'add' && a === 'folder') return pickFolder(ctx);
+    if (what === 'add') return addNew(ctx); // the one + tile
     if (what === 'browse') return browseChips(ctx)[Number(a)]?.go();
     if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
     if (what === 'hello') return welcome(ctx, s.hellos[Number(a)]).then(load).then(draw);
@@ -211,7 +226,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const { width: w, height: h } = panel.getBoundingClientRect();
     const browse = s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
-    const hellos = s.hellos.map((x) => ({ label: x.name }));
+    const hellos = s.hellos.map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to
     const view = pointShapes(all(), { own: person.label, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     note.textContent = s.note;
@@ -221,22 +236,18 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   let role = null;
   const roleOf = (el) => el?.closest?.('[data-role]')?.dataset.role ?? null;
   const circleOf = (r) => (r?.startsWith('sp:') ? Number(r.split(':')[1]) : null);
-  function doubled(r) {
-    const [what, a, b] = r.split(':');
-    if (what === 'sp' && a !== '0') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'double-tap'), 'double-tap', s.rules, { selection: selection() }));
-    if (what === 'bridge') return apply(gestureOn(Number(b), 'double-tap-bridge', s.rules, { from: Number(a) }));
-    return null;
-  }
   const handlers = {
     down: (e) => {
-      role = roleOf(e.target);
-      const doubles = role?.startsWith('sp:') || role?.startsWith('bridge:');
-      handlers.doubleTap = doubles ? () => doubled(role) : undefined; // only circles and bridges wait for a second tap
+      role = roleOf(e.target); // double-tap is free here (13.11.: encryption is no gesture), so a tap never waits
     },
     tap: () => tapped(role),
 
     swipe: (dir) => {
       if (role === 'sheet' && (dir === 'down' || dir === 'down-far')) return show(false); // pulled down = egal, nothing changes
+      if (role?.startsWith('bridge:') && (dir === 'down' || dir === 'down-far')) { // ↓ on a line = cut it
+        const [, a, b] = role.split(':');
+        return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
+      }
       const n = circleOf(role);
       if (!n) return null;
       const tile = ctx.tileOf(n);
@@ -247,10 +258,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     },
     dragEnd: (el, moved) => {
       const from = circleOf(role);
-      if (!moved) return from ? apply(gestureOn(from, 'hold', s.rules)) : null; // held still: bring in / out
+      if (!moved) return from ? apply(gestureOn(targetFor(ctx.tileOf(from), 'hold'), 'hold', s.rules, { selection: selection(), private: ctx.tileOf(from)?.private })) : null; // held still: new goes there
       const onto = circleOf(roleOf(el));
       if (from && onto === 0) return home(from); // onto this device: bring its files here (a backup is restored)
-      return from != null && onto ? apply(gestureOn(onto, 'drop-point', s.rules, { from })) : null; // carried onto another: copy
+      if (from && ctx.tileOf(from)?.canGive && roleOf(el) === 'add:new') return makeOrRenew(ctx, from); // my Nextcloud onto + = a group (read + drop link)
+      const target = onto ? ctx.tileOf(onto) : null;
+      const give = Boolean(from && ctx.tileOf(from)?.canGive && target && (target.state === 'cloud' || s.open.get(onto)?.spec?.kind === 'nextcloud')); // my Nextcloud onto another account
+      if (give) return apply(gestureOn(onto, 'drop-point', s.rules, { from, give: true }));
+      return from != null && onto ? apply(gestureOn(onto, 'drop-point', s.rules, { from, private: ctx.tileOf(onto)?.private })) : null; // carried onto another: copy (encrypted when only I read it)
     },
   };
   bind(panel, handlers);
@@ -294,6 +309,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       return result;
     },
     runRules: () => run(), // what is due (all new rules at the first start)
+    /** The name sign was just taken: the hello to the project's door goes out now. */
+    joinProject: () => joinProject(ctx, project).then((started) => (started ? load().then(draw) : null)),
     /** A ring arc dropped on tile n (app.js): that strand always goes there. */
     dropKind: (n, kind) => apply(gestureOn(targetFor(ctx.tileOf(n), 'drop-kind'), 'drop-kind', s.rules, { kind })),
   };

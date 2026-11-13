@@ -22,6 +22,7 @@ export const DEFAULTS = Object.freeze({
   similarFrom: ['x', 'a'], // strands that feed the combined Similar (a via its text)
   facing: 'user', // camera: 'user' (front) or 'environment' (back)
   onboarding: true,
+  shape: 'circle', // the window: 'circle' (as large as fits) · 'ellipse' · 'rounded' (view/shape.js)
   flows: [], // connections drawn between sides: 'a>x' audio → context (Whisper), 'v>x' visual → context (later)
 });
 export const FLOW_KINDS = ['a>x', 'v>x'];
@@ -43,6 +44,7 @@ export function normalize(input = {}) {
     facing: ['user', 'environment'].includes(input.facing) ? input.facing : d.facing,
     onboarding: typeof input.onboarding === 'boolean' ? input.onboarding : d.onboarding,
     flows: subset(input.flows, FLOW_KINDS, d.flows),
+    shape: ['circle', 'ellipse', 'rounded'].includes(input.shape) ? input.shape : d.shape,
   };
 }
 
@@ -52,6 +54,7 @@ export const CHOICES = {
   waitStopMs: [1000, 1500, 3000, 5000],
   preRollMs: [0, 1000, 2000],
   facing: ['user', 'environment'],
+  shape: ['circle', 'ellipse', 'rounded'],
 };
 
 /** One tap on a chip: set that value (or toggle a strand in auto / similarFrom). */

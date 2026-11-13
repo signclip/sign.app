@@ -13,6 +13,7 @@ export function ownChips(settings, t) {
     ...CHOICES.waitStartMs.map((v) => ({ key: 'waitStartMs', value: v, label: `▶ ${v / 1000} s`, on: settings.waitStartMs === v })),
     ...CHOICES.waitStopMs.map((v) => ({ key: 'waitStopMs', value: v, label: `■ ${v / 1000} s`, on: settings.waitStopMs === v })),
     ...['v', 'a', 'x', 'l'].map((k) => ({ key: 'auto', value: k, label: t(`kind.${k}`), on: settings.auto.includes(k) })),
+    ...[['circle', '○'], ['ellipse', '⬯'], ['rounded', '▢']].map(([v, label]) => ({ key: 'shape', value: v, label, on: settings.shape === v })), // the window
     { key: 'onboarding', value: !settings.onboarding, label: '◉', on: settings.onboarding }, // the first steps again (onboarding.js)
   ];
 }

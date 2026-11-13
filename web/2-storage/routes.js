@@ -23,13 +23,14 @@ const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
  * copy: kinds e.g. ['x', 'l'] ('chain' comes along so the strands keep their order); skip(path) for
  * removed ones (remove.quietIds). → { copied, kept, failed }
  */
-export async function copyRoute(from, to, { kinds, chains = true, skip = () => false } = {}) {
+export async function copyRoute(from, to, { kinds, chains = true, skip = () => false, since = null } = {}) {
   const want = new Set([...kinds, ...(chains ? ['chain'] : [])]);
   const have = new Set((await to.list()).map((f) => f.path));
   const result = { copied: [], kept: [], failed: [] };
   for (const { path } of await from.list()) {
     const kind = kindOf(path);
     if (!want.has(kind) || skip(path)) continue;
+    if (since && (readName(path.slice(path.lastIndexOf('/') + 1))?.time ?? '') < since) continue; // new only: made before the connection = not here
     if (have.has(path)) { result.kept.push(path); continue; }
     try {
       const bytes = await from.read(path);

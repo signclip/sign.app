@@ -5,8 +5,12 @@
 //          ↑ share (choose where) · ↓ set aside · all the way ↓ delete · ← → replay, in a line next/before
 //   strand arc: tap = on/off (stays until changed) · hold = only this strand while held · ↑ its chips · ← hide
 //   chip: hold = record more strands to it (kept solid, new dashed) · ↓ take this context away
+//         · double-tap = sticky on/off: in front, one bubble, a prefix (G4) for every take of the series
 //   live picture: tap = focus · hold = video while held · ← → front/back camera · pinch = zoom
-//   edges: upper left own · middle left strands · upper right Similar · middle right share · top full
+//   edges: upper left own · middle left strands · upper right Similar · middle right share · top: ↑ full, ↓ Similar
+//   window: a circle as large as fits, or ellipse / rounded rectangle (own settings); arcs by degrees: line −60…60 ·
+//          audio 60…140 · context 140…220 · visual 220…300 · Similar as tiles at the top: one onto the line or the
+//          point, or ↓ on them = all onto the chain · line double-tap = full screen · context ↓ = open and write
 //   line (an arc of pictures over the point, view/arc.js): ↓ on it = straight, ↑ = arc again · older lines of the
 //          chain under it: ↓ = apart, ↑ = together, tap = open · a Similar result dragged onto point or line =
 //          onto the chain (it flies in, a new line slides in on top) · a saved take slides in the same way
@@ -17,7 +21,7 @@
 //          chip held + tap point = a take with this context (a series while held) · + upper right = Similar for it
 // Depends:   browser; 0-i18n, 1-model, 2-storage/local, 3-index, 4-save, 5-take, 7-similar, 9-ui
 // Test:      needs a browser; every part is tested on its own (tests/ui, state, view, list, similar).
-// Limits:    no Whisper yet (no chips from speech, no keywords); one take records at a time; one property
+// Limits:    Whisper only after a take (live and keywords: EXTEND(S2, live)); one take records at a time; one property
 //            held at a time. Every row of the gesture table has a case below, wired or EXTEND (tests/ui).
 
 import { translator } from '../0-i18n/t.js';
@@ -27,9 +31,15 @@ import { saveTake } from '../4-save/save-take.js';
 import { removeStrands } from '../4-save/remove.js';
 import { saveSimilar } from '../4-save/save-similar.js';
 import { openDevices, startTake, browserTap } from '../5-take/recorder.js';
+import { loadWhisper } from '../5-take/whisper-engine.js';
+import { transcribe, contextOf as wordsRow } from '../5-take/whisper.js';
+import { toMono, resample } from '../5-take/resample.js';
+import { addEcho } from '../4-save/add-echo.js';
 import { similar } from '../7-similar/filter.js';
 import { newPerson, newSource } from '../1-model/ids.js';
 import { readFile } from '../1-model/file.js';
+import { withSticky, afterTake as nextOfSeries, readContext } from '../1-model/context.js';
+import { write as writeNotation, parse as parseNotation } from '../1-model/notation.js';
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse } from './state.js';
 import { mountScreen, targetOf } from './screen.js';
@@ -86,10 +96,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // ---------- what is going on ----------
   let st = startState(settings.auto); // one strand selection for everything, kept until changed
   if (settings.ready) st = next(st, { action: 'ready' });
-  const data = { chips: [], levels: [], similar: [], line: { count: 0, at: 0 }, versions: 1, timeMs: null, hidden: [], words: [], flows: settings.flows };
+  const data = { chips: [], levels: [], similar: [], line: { count: 0, at: 0 }, versions: 1, timeMs: null, hidden: [], words: [], flows: settings.flows, shape: settings.shape };
+  let series = ''; // written context, one gesture per entry: each take takes the first one (context.afterTake)
   const take = { recorder: null, lastChain: null, lastKinds: [], replayAt: -1, began: null, context: '', shareOnce: null, starting: false, stopSoon: false };
   const onboard = { at: Number(kept('sign.onboard', () => '0')) || 0 };
   let filter = EMPTY; // the chips of Similar: wer · wo · wann · was
+  let sticky = JSON.parse(kept('sign.sticky', () => '[]')); // words in front for the series, as levels (device only)
+  const stickyChips = () => sticky.map((text) => ({ text, stable: true }));
+  const setChips = (current = data.chips.filter((c) => !c.stable)) => { data.chips = [...stickyChips(), ...current]; };
+  setChips([]);
   let sources = [{ name: 'own', store }];
   let index = await buildIndex(sources);
 
@@ -122,7 +137,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const takesCount = async () => (await store.list('take/')).filter((f) => f.path.endsWith('.v.mp4')).length;
   data.line.count = await takesCount().catch(() => 0);
 
+  const project = await fetch(new URL('../project.json', import.meta.url)).then((r) => r.json()).catch(() => null); // the project's door
   const menu = await mountShareMenu({
+    project,
     panel: $('#share'), own: store, keychain, person, device, t,
     lastChain: async () => take.lastChain,
     selection: () => toRecord(st), // double-tap on a sharing point = these strands always go there
@@ -133,6 +150,29 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     onSources: async (list) => { sources = list; index = await buildIndex(sources); },
   });
   menu.runRules().catch(() => {}); // copies and backups of the list, quietly in the background
+
+  // ---------- audio → context: Whisper, when that connection is drawn (settings.flows 'a>x') ----------
+  let whisper = null; // Promise of the engine, loaded once (≈ 250 MB the first time, then from the cache)
+  const ensureWhisper = () => {
+    whisper ??= loadWhisper({ language: lang }).then((engine) => {
+      data.flowsRunning = ['a>x']; // the connection turns solid: it runs
+      paint();
+      return engine;
+    }).catch((err) => { whisper = null; console.warn('whisper', err); return null; });
+    return whisper;
+  };
+  if (settings.flows.includes('a>x')) ensureWhisper();
+  /** After a take: its sound → words with their time → an echo :x on top of the chain, shown as chips. */
+  async function flowAudio(chainPath, audio) {
+    const engine = await ensureWhisper();
+    if (!engine) return;
+    const words = await transcribe(engine, resample(toMono(audio.channels), audio.sampleRate, 16000));
+    if (!words.length) return;
+    await addEcho({ own: store, chainPath, from: 'a.1', kind: 'x', row: wordsRow(words), echo: engine.label, device, person });
+    setChips(words.map((w) => ({ text: w.text, t: [w.from, w.to] })));
+    paint();
+    index = await buildIndex(sources);
+  }
 
   // ---------- always ready: motion or sound starts and stops a take ----------
   const activity = [];
@@ -155,7 +195,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     step(action, extra);
     if (st.screen !== 'record') return;
     take.began = action;
-    take.context = action === 'take-with-context' ? contextOf(st.hold?.text) : '';
+    const first = parseNotation(series).find((n) => n.t !== 'sym'); // written context: the next gesture of the series
+    take.context = action === 'take-with-context' ? contextOf(st.hold?.text) : first ? writeNotation([first]) : '';
+    take.fromSeries = action !== 'take-with-context' && Boolean(first);
     take.starting = true; // the microphone takes ~50–300 ms to open; a tap meanwhile = stop right after
     const tap = await browserTap(camera).finally(() => { take.starting = false; });
     if (st.screen !== 'record') { tap.stop(); return; } // undone meanwhile (a second finger came)
@@ -189,12 +231,13 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const keep = toKeep(st);
     step('take'); // → saving
     const saved = await saveTake({
-      device, person, store, now: Date.now(), lengthMs: recorded.lengthMs, context: take.context,
+      device, person, store, now: Date.now(), lengthMs: recorded.lengthMs, context: withSticky(sticky.map((w) => `(${w})`).join(' '), take.context),
       video: kinds.includes('v') ? recorded.video : null,
       audio: kinds.includes('a') ? recorded.audio : null,
       onto, keep,
     });
     take.lastChain = saved.chain.path;
+    if (take.fromSeries) { series = nextOfSeries(series); showSeries(); } // the series goes one on
     take.lastKinds = [...new Set([...kinds, ...keep])];
     data.versions = onto ? data.versions + 1 : 1;
     data.line = { count: await takesCount(), at: 0 };
@@ -203,8 +246,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (settings.onboarding && onboard.at === NAME_SIGN_STEP) {
       const video = saved.paths.find((p) => p.endsWith('.v.mp4'));
       try { if (video) localStorage.setItem('sign.nameSign', video); } catch { /* private mode */ }
+      menu.joinProject().catch(() => {}); // the first group: hello to the project's door, with this name sign
     }
     learned(take.began);
+    if (settings.flows.includes('a>x') && recorded.audio && kinds.includes('a')) flowAudio(saved.chain.path, recorded.audio).catch((err) => console.warn('whisper', err));
     await menu.afterTake(saved.paths); // (always) rules of the list
     index = await buildIndex(sources);
   }
@@ -243,15 +288,16 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   };
   const showOwn = (on) => panel('#own', on, ownChips(settings, t), (c) => {
     settings = choose(settings, c.key, c.value);
+    data.shape = settings.shape;
     if (c.key === 'onboarding' && c.value) { onboard.at = 0; try { localStorage.setItem('sign.onboard', '0'); } catch { /* private mode */ } }
     saveSettings();
     paint();
     showOwn(true);
   });
-  const showSimilar = (on) => { // filter chips (wer · wo · wann · was) above the hits
+  const showSimilar = (on) => { // at the top: metadata and strand choice as chips, the hits as tiles (view)
     const hits = similar(index, { words: data.words, filters: filtersOf(index, filter) });
-    data.similar = hits.slice(0, 3).map((h) => h.key);
-    const chips = [...filterChips(index, filter, t), ...hits.map((h) => ({ label: h.entry.head?.['@'] ?? '·', key: h.key }))];
+    data.similar = hits.slice(0, 12).map((h) => h.key);
+    const chips = filterChips(index, filter, t);
     panel('#similar', on, chips, (c) => {
       if (!c.row) return;
       filter = toggle(filter, c);
@@ -265,9 +311,48 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     await saveSimilar(store, { kinds: f.kinds, persons: f.persons, time, sharingPoints: f.sharingPoints.map((label) => ({ label })) }, { device, person });
   }
 
+  // ---------- the context field: chips, and writing (one gesture per Enter; the series goes one on per take) ----------
+  const say = $('#say');
+  function showSeries() {
+    const gestures = readContext(series).gestures.map((g) => g.chips.map((c) => c.text).join(' '));
+    setChips(gestures.map((text, i) => ({ text, t: i ? [1, 2] : [0, 1] }))); // the next one now, the rest coming
+    data.timeMs = 0;
+    paint();
+  }
+  const openContext = (on) => {
+    $('#context').hidden = !on;
+    if (on) say.focus(); else say.blur();
+  };
+  say.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const text = say.value.replace(/[()[\]{}]/g, ' ').trim().replace(/\s+/g, ' ');
+    say.value = '';
+    if (!text) return openContext(false);
+    series = `${series} (${text})`.trim();
+    showSeries();
+  });
+
+  /** Fly one Similar tile into the line, then the new line slides in on the chain. */
+  async function intoLine(tileRole, ms = 420) {
+    const from = screen.last?.shapes.find((x) => x.role === tileRole && x.type === 'thumb');
+    data.arrive = { x: from?.x ?? innerWidth, y: from?.y ?? 0, s: from?.s, t: 0 };
+    await new Promise((done) => {
+      const t0 = performance.now();
+      const frame = (now) => {
+        data.arrive.t = Math.min(1, (now - t0) / ms);
+        paint();
+        if (data.arrive.t < 1) requestAnimationFrame(frame); else done();
+      };
+      requestAnimationFrame(frame);
+    });
+    delete data.arrive;
+    data.line = { count: (data.line?.count ?? 0) + 1, at: 0 };
+  }
+
   // ---------- one gesture → one action ----------
   async function act(gesture, role, extra = {}) {
-    const hit = { ...targetOf(role), ...extra };
+    let hit = { ...targetOf(role), ...extra };
+    if (hit.target === 'strand' && hit.kind === 'x' && ['down', 'up'].includes(gesture) && !st.hold) hit = { ...hit, target: 'context' }; // the context arc opens its field
     if (hit.target === 'delete') return gesture === 'tap' ? removeLast(hit.what) : null;
     const mode = st.mode === 'line' ? 'line' : st.similar ? 'similar' : 'take';
     const held = st.hold?.target ?? null; // what the other finger holds (parallel gesture)
@@ -294,6 +379,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         data.words = [st.hold.text];
         step('similar-context');
         return showSimilar(true);
+      case 'sticky': { // on: the word goes in front (the next level); off: it leaves the front
+        const word = hit.text;
+        if (!word) return null; // the sticky bubble itself: its chips are tapped one by one
+        sticky = sticky.includes(word) ? sticky.filter((w) => w !== word) : [...sticky, word];
+        try { localStorage.setItem('sign.sticky', JSON.stringify(sticky)); } catch { /* private mode */ }
+        setChips();
+        return paint();
+      }
       case 'chip-on-off': // a chip as a word for Similar
         data.words = data.words.includes(hit.text) ? data.words.filter((w) => w !== hit.text) : [...data.words, hit.text];
         return st.similar ? showSimilar(true) : paint();
@@ -305,6 +398,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         return step('ready');
       case 'strand-on-off':
         step('strand-on-off', { kind });
+        if (kind === 'x') openContext(st.fields.x === 'on'); // context on: the field opens, typing writes directly
         settings = { ...settings, auto: toRecord(st) }; // the selection stays until changed
         return saveSettings();
       case 'replay-back': case 'before': return replay(+1);
@@ -318,7 +412,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         settings = choose(settings, 'flows', flow);
         saveSettings();
         data.flows = settings.flows;
-        return paint(); // EXTEND(S2, whisper): with 'a>x' on, each take's audio → Whisper → chips (5-take/whisper.js, 4-save/add-echo.js)
+        if (settings.flows.includes('a>x')) ensureWhisper(); // loads now, so the next take flows at once
+        return paint();
       }
       case 'chips-in': return panel('#chips', true, strandChips(kind, { torch: data.torch }), async (c) => {
         data.torch = c.value;
@@ -360,23 +455,29 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'bend': return animate('bend', data.bend ?? 0, 1);
       case 'levels-open': data.levelsOpen = true; return paint();
       case 'levels-close': data.levelsOpen = false; return paint();
-      case 'level-open': return null; // EXTEND(S3, chain): show that older line (the chain version below)
-      case 'into-line': { // a Similar result laid on the chain: it flies into the arc, then a new line slides in
-        const from = screen.last?.shapes.find((x) => x.role === role && x.type === 'thumb');
-        data.arrive = { x: from?.x ?? innerWidth, y: from?.y ?? 0, s: from?.s, t: 0 };
-        await new Promise((done) => {
-          const t0 = performance.now();
-          const frame = (now) => {
-            data.arrive.t = Math.min(1, (now - t0) / 420);
-            paint();
-            if (data.arrive.t < 1) requestAnimationFrame(frame); else done();
-          };
-          requestAnimationFrame(frame);
-        });
-        delete data.arrive;
+      case 'level-open': // choose an earlier line of the chain (tap again = back to the current one)
+        data.levelAt = data.levelAt === hit.index ? null : hit.index;
+        return paint(); // EXTEND(S3, chain): play that version (index.versions → its chain below)
+      case 'into-line': // a Similar result laid on the chain: it flies into the line, then a new line slides in
+        await intoLine(role);
         data.versions += 1; // EXTEND(S3, chain): write the new line {…} with {:chain.1} below (4-save)
         return arrive();
+      case 'similar-all': { // all of Similar: one after another into the line, then one new line on the chain
+        const n = Math.min(6, data.similar.length);
+        for (let i = 0; i < n; i++) await intoLine(`similar:${i}`, 220);
+        data.versions += 1; // EXTEND(S3, chain): the whole similar as a line {:?.1} on top (G4c)
+        return arrive();
       }
+      case 'line-full': // the line in full screen: replay from the current one
+        if (take.replayAt < 0) await replay(+1);
+        step('full');
+        return document.documentElement.requestFullscreen?.().catch(() => {});
+      case 'from-top':
+        if (st.full) { step('unfull'); return document.exitFullscreen?.().catch(() => {}); }
+        step('similar-in');
+        return showSimilar(true);
+      case 'context-open': return openContext(true);
+      case 'context-close': return openContext(false);
       // ---------- in the table, not wired yet: each says where it docks ----------
       case 'take-over': return null; // EXTEND(S3, similar): a result into the Take in the middle (needs similar items on screen)
       case 'share': case 'aside': case 'remove': return null; // EXTEND(S3, line): the same for an element of a line
@@ -392,7 +493,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const handlers = {
     down: (e) => {
       const role = screen.roleAt(e);
-      handlers.doubleTap = role === 'point' ? () => act('double-tap', 'point') : undefined; // only the point waits for a second tap
+      const doubles = role === 'point' || role?.startsWith('chip:') || role === 'sticky' || role === 'line-arc'; // these wait for a second tap
+      handlers.doubleTap = doubles ? () => act('double-tap', role) : undefined;
       return role;
     },
     tap: (x, y, role) => { if (!$('#share').hidden && role !== 'point') return menu.show(false); return act('tap', role, { x, y }); }, // a tap beside the circles closes them

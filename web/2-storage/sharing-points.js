@@ -5,8 +5,9 @@
 //              (ask)               offered as a tile, sent only on a tap            offers
 //              (show) [(write)]    brought into Similar, read only [writing too]    sources
 //                                  (a public link writes only when it allows editing)
-//              (always) [from →] to  copy what is missing, again and again (catches up
-//                                  what a take could not write, e.g. disk unplugged)  runRules
+//              (always) [from →] to  what is NEW since the rule's time, again and again (catches up
+//                                  what a take could not write, e.g. disk unplugged); a copy took the rest
+//                                  once when it was made (share-mount)              runRules
 //              (backup)            encrypted copy (backup.js)                      runRules
 //              (show) from → to    give: a share of the folder, no copy (routes.give, Nextcloud) runRules
 //              (consent)           nothing to do here: atlas reads it
@@ -22,7 +23,8 @@ import { connect, ReadOnlyStore } from './connect.js';
 import { wants } from './list.js';
 import { copyRoute } from './routes.js';
 import { backup } from './backup.js';
-import { readDescription } from './sharing-point.js';
+import { readDescription, describe, trusted, signerKeys } from './sharing-point.js';
+import { signed } from '../1-model/crypto.js';
 import { specOf } from './spec.js';
 import { SELF } from './layout.js';
 import { ExistsError } from './memory.js';
@@ -53,11 +55,31 @@ export async function openAll(entries, { keychain, own, folders = null, fetch = 
         if (write) ({ store } = connect({ ...spec, write: true, drop: !read }, { secret, fetch }));
       }
       let description = null;
-      try { description = readDescription(dec.decode(await store.read(SELF))); } catch { /* not described yet */ }
+      try {
+        const text = dec.decode(await store.read(SELF));
+        description = readDescription(text);
+        // verified = sealed (y_) by one of its signers; null = no signer named (a plain folder someone described)
+        description.trusted = description.signers.length ? await trusted(text, signerKeys(description)) : null;
+      } catch { /* not described yet */ }
       open.set(i + 1, { entry, spec, store, description });
     } catch (err) { open.set(i + 1, { entry, error: String(err.message ?? err) }); }
   }
   return open;
+}
+
+/**
+ * Make a sharing point of a folder that is not one yet: write its sharing-point.sign, this device as its signer,
+ * sealed (y_). Never overwrites: a described folder stays as it is. signer: { device (q_), label, deviceKey }.
+ * → the description, or null when it was described already or cannot be written.
+ */
+export async function describeNew(store, { id, label, path = null, signer, time, kinds = ALL }) {
+  if (store.readOnly || store.dropOnly) return null;
+  const text = await signed(signer.deviceKey, describe({ id, by: signer.label, time, label, path, kinds,
+    signers: [{ label: signer.label, id: signer.device, key: signer.deviceKey.public }] }));
+  try { await store.write(SELF, new TextEncoder().encode(text)); } catch (err) { if (err instanceof ExistsError) return null; throw err; }
+  const description = readDescription(text);
+  description.trusted = true;
+  return description;
 }
 
 /** Kinds a rule may move to a sharing point: the rule's, inside what its sharing-point.sign allows. */
@@ -124,7 +146,7 @@ export async function runRules(rules, open, { own, backupKey = null, skip = () =
       if (to?.dropOnly) continue; // a drop link cannot say what is missing: only new takes go there (afterTake)
       const waiting = (!from || !to) && [rule.from, rule.to].some((n) => open.get(n)?.waiting);
       if (waiting) report.push({ rule, waiting: true }); // disk not plugged in: no error, it runs when it is back
-      else if (rule.mark === 'always') report.push({ rule, result: await copyRoute(from, to, { kinds, skip }) });
+      else if (rule.mark === 'always') report.push({ rule, result: await copyRoute(from, to, { kinds, skip, since: rule.time }) }); // new since the connection (a copy took the rest once)
       else if (rule.mark === 'backup') {
         if (!backupKey) throw new Error('no backup key on this device');
         const filter = (p) => wants(rule.kinds, p) && !skip(p);

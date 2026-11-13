@@ -1,0 +1,10 @@
+{
+  "about": "The project's door: its read link (join/ answers, sealed per device) and its file-drop link (hello/). Empty = no automatic join; a group text works as before. More doors = tried in order (one may be gone).",
+  "label": "Sign",
+  "doors": [
+    {
+      "read": "https://nx111767.your-storageshare.de/s/d89sxc5eGc8Yc9Q",
+      "drop": "https://nx111767.your-storageshare.de/s/s4Kk6aHL4ftBbGz"
+    }
+  ]
+}

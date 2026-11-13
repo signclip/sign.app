@@ -62,6 +62,25 @@ export function chipTexts(text) {
   return readContext(text).gestures.map((g) => g.chips.map((c) => c.text));
 }
 
+/**
+ * Sticky context in front (13.11.): what holds for a series is a prefix (G4) for every gesture of this take.
+ * sticky: its gestures in order are levels, (Essen) (Obst) = Essen › Obst; variants inside one level stay
+ * variants, ((Café) (Bar)) = Café or Bar; (Café Bar) is one chip of two words (G2). Sticky is kept on the device;
+ * each take stores the result, so the list of a series (afterTake) never loses it.
+ *   withSticky('(Obst)', '(Banane) (Apfel)') → '((Obst)((Banane))) ((Obst)((Apfel)))'   two gestures stay two
+ *   withSticky('(Essen) (Obst)', '(Banane)') → '((Essen)((Obst)((Banane))))'             Essen Obst Banane
+ *   withSticky('(Essen) (Obst)', '')         → '((Essen)((Obst)))'                        sticky alone
+ */
+export function withSticky(sticky, context) {
+  const levels = parse(sticky ?? '').filter((n) => n.t !== 'sym').map((n) => write([n]));
+  const gestures = parse(context ?? '').filter((n) => n.t !== 'sym').map((n) => write([n]));
+  if (!levels.length) return context ?? '';
+  // G4: a prefix and the bracket it applies to stand together in their own bracket: ((Obst)((Banane)))
+  const nest = (outer, gesture) => outer.reduceRight((body, level) => `(${level}${body})`, `(${gesture})`);
+  if (!gestures.length) return levels.length === 1 ? levels[0] : nest(levels.slice(0, -1), levels.at(-1));
+  return gestures.map((g) => nest(levels, g)).join(' ');
+}
+
 /** Series: after one Take the first gesture is done and leaves the text. */
 export function afterTake(text) {
   const items = parse(text);

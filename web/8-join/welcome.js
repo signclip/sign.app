@@ -31,8 +31,23 @@ export async function welcome({ door, helloPath, admin, signer, also = [], quota
  * Device, after join(): keep the secret in the keychain (by the id of the own sharing point) and
  * make the stores. → { entries (for listText), stores: Map(id → store) }
  */
+/**
+ * The app password came through the read folder (sealed for this device). Swap it for a new one right away
+ * (Nextcloud: POST /ocs/v2.php/core/apppassword/rotate): whoever reads the folder and one day opens the seal finds
+ * a dead password. If the server does not allow it (browser block), the travelled one stays (native app: it does).
+ */
+export async function rotate({ server, user, appPassword }, fetch = globalThis.fetch) {
+  try {
+    const res = await fetch(`${server.replace(/\/$/, '')}/ocs/v2.php/core/apppassword/rotate?format=json`, {
+      method: 'POST', headers: { Authorization: `Basic ${btoa(`${user}:${appPassword}`)}`, 'OCS-APIRequest': 'true', Accept: 'application/json' } });
+    if (!res.ok) return appPassword;
+    return (await res.json())?.ocs?.data?.apppassword ?? appPassword;
+  } catch { return appPassword; }
+}
+
 export async function arrive({ secret, sharingPoints, keychain, fetch = globalThis.fetch }) {
   const s = secret ? JSON.parse(secret) : {}; // a group of links only brings no account
+  if (s.appPassword) s.appPassword = await rotate(s, fetch); // the one that travelled is dead from now on
   if (s.appPassword) await keychain.set(s.id, s.appPassword);
   const entries = [], stores = new Map();
   for (const sp of sharingPoints) {

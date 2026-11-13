@@ -1,4 +1,4 @@
-// ids.js — identities !(q_ n_ e_ t_ u_), made on the device without a server.
+// ids.js — identities !(q_ n_ o_ t_ u_), made on the device without a server.
 //
 // Purpose:   one identity per file: source (device or sharing point), person, H3 cell,
 //            time, random (SCHEMA.md B2). Coarse to fine. Written as text, never one long string.
@@ -6,7 +6,7 @@
 // Origin:    Crockford Base32 alphabet; time part like UUIDv7 (RFC 9562), 48-bit milliseconds.
 // Test:      tests/model.test.mjs
 // Limits:    t_ runs until year 10889 · u_ has 80 random bits (16 chars): two files of the same
-//            source in the same millisecond collide with p ≈ 1 / 2^80 · e_ is an H3 cell
+//            source in the same millisecond collide with p ≈ 1 / 2^80 · o_ (Ort) is an H3 cell
 //            (resolution 5, ~250 km², optional) given by the caller · the file name carries
 //            u_ shortened to 12 chars (10⁶ files → p ≈ 4·10⁻⁷ that two share it; the head decides).
 // Witness:   y_ ("yes") in the own head = signature of the device key over the whole file (crypto.js);
@@ -63,10 +63,10 @@ export function newPerson() { return 'n_' + random(16); }
 /** A new source: a device or a sharing point (a device is a local sharing point). */
 export function newSource() { return 'q_' + random(16); }
 
-/** A new file identity. q: source, n: person, e: H3 cell or null, now: ms. */
-export function newId({ q, n, e = null, now = Date.now() }) {
+/** A new file identity. q: source, n: person, o: H3 cell (Ort) or null, now: ms. */
+export function newId({ q, n, o = null, now = Date.now() }) {
   if (!q?.startsWith('q_') || !n?.startsWith('n_')) throw new IdError('newId needs q_ and n_');
-  return { q, n, e: e ? (e.startsWith('e_') ? e : 'e_' + e) : null, t: 't_' + timePart(now), u: 'u_' + random(16) };
+  return { q, n, o: o ? (o.startsWith('o_') ? o : 'o_' + o) : null, t: 't_' + timePart(now), u: 'u_' + random(16) };
 }
 
 /** Identity as text in fixed order; the witness y_ (own head only) and the hash (references) may follow. */
@@ -74,9 +74,9 @@ export function writeId(id, hash = null) {
   return [...ID_PARTS.map((k) => id[k]).filter(Boolean), id.z, id.y, hash].filter(Boolean).join(' ');
 }
 
-/** Read "q_… n_… e_… t_… u_… [y_…] [hash]" back. Parts may be missing (in a similar); order is checked. */
+/** Read "q_… n_… o_… t_… u_… [y_…] [hash]" back. Parts may be missing (in a similar); order is checked. */
 export function readId(text) {
-  const id = { q: null, n: null, e: null, t: null, u: null, z: null, y: null, hash: null };
+  const id = { q: null, n: null, o: null, t: null, u: null, z: null, y: null, hash: null };
   let last = -1;
   for (const token of text.trim().split(/\s+/).filter(Boolean)) {
     const m = /^([a-z])_(.+)$/.exec(token);

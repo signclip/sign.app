@@ -49,6 +49,7 @@
     /* the line in its arc over the point, the chain under it (view/arc.js) */
     .thumb.now { stroke-width: 4; stroke: var(--rc-stroke); } .thumb.own:not(.now) { stroke-width: 1.5; }
     .thread.line-arc { opacity: .75; } .thumb.near { stroke-width: 2.5; } .thread.level { opacity: .22; stroke-width: 2; } .thread.level.open { opacity: .45; stroke-dasharray: 6 5; }
+    .thread.level.chosen { opacity: .9; stroke-width: 4; stroke-dasharray: none; } .thumb.chosen { opacity: 1; } .back { opacity: .3; }
     .arriving { opacity: .6; } .thumb.flying { stroke-width: 3; }
     .now-mark { stroke: var(--fg); stroke-width: 2; opacity: .5; }
     .point .ring { fill: none; stroke: var(--rc-stroke); stroke-width: 3; } .point .core { fill: var(--rc-stroke); }
@@ -57,7 +58,11 @@
     /* panels slide in from the edges */
     body.full #own, body.full #similar, body.full #chips, body.full #share { display: none; }
     #chips { position: absolute; top: 72px; left: 12px; right: 12px; text-align: center; }
-    #similar { position: absolute; top: 72px; right: 0; width: 42%; bottom: 140px; background: #E6F1FBdd; border-radius: 16px 0 0 16px; padding: 12px; overflow: auto; }
+    #similar { position: absolute; top: 8px; left: 8px; right: 8px; height: 44px; white-space: nowrap; overflow-x: auto; overflow-y: hidden; } /* metadata and strand choice above the tiles */
+    #similar .chip { background: var(--sc); color: #0C447C; } #similar .chip.on { outline: 2px solid var(--sc-stroke); }
+    .similar-band { fill: var(--sc); opacity: .18; }
+    #context { position: absolute; left: 12px; right: 12px; bottom: 16px; } /* the context field, pulled open or on: write */
+    #context input { width: 100%; box-sizing: border-box; font: 500 17px Inter, system-ui, sans-serif; padding: 12px 16px; border-radius: 22px; border: 1.5px solid var(--rc-stroke); background: var(--card); color: var(--fg); outline: none; }
     #own { position: absolute; top: 72px; left: 0; width: 46%; bottom: 140px; background: #FAECE7ee; border-radius: 0 16px 16px 0; padding: 12px; overflow: auto; }
     /* sharing points after ↑ on the point (view/points.js): a layer over the screen, only the shapes take touches */
     #share { position: absolute; inset: 0; pointer-events: none; }
@@ -87,6 +92,12 @@
     .sp.folder { fill: var(--sc); }
     .sp.group { stroke: var(--sc-stroke); stroke-width: 2.5; }
     .badge { fill: var(--card); stroke: var(--sc-stroke); stroke-width: 2; stroke-dasharray: 3 2; pointer-events: none; } .badge.joined { fill: var(--sc); stroke-dasharray: none; }
+    .badge.sealed { fill: var(--sc-stroke); stroke: var(--sc-stroke); stroke-dasharray: none; } .badge.unsealed { fill: none; stroke: var(--rc-stroke); stroke-width: 2.5; stroke-dasharray: 2 2; }
+    .view-only { fill: none; stroke: var(--sc-stroke); stroke-width: 1.2; stroke-dasharray: 3 3; pointer-events: none; }
+    .chevron { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; } .chevron.own { stroke: var(--rc-stroke); opacity: .7; } .chevron.backup { stroke: var(--rc-stroke); opacity: .9; }
+    .join-line { fill: none; stroke: var(--sc-stroke); stroke-width: 3; } .join-line.hello { stroke-dasharray: 2 6; stroke-linecap: round; } .join-line.own { stroke: var(--rc-stroke); }
+    .join-me, .join-own { fill: var(--rc); stroke: var(--rc-stroke); stroke-width: 1.5; } .join-group { fill: var(--sc); stroke: var(--sc-stroke); stroke-width: 1.5; }
+    .join-group.waiting, .join-own.waiting { fill: none; stroke-dasharray: 3 3; }
     .badge.ran { fill: var(--hold); stroke: var(--hold); stroke-dasharray: none; } .badge.failed { fill: none; stroke: var(--rc-stroke); stroke-dasharray: none; stroke-width: 2.5; }
     .hello { fill: none; stroke: var(--sc-stroke); stroke-width: 2.5; stroke-dasharray: 6 4; } .hello-dot { fill: var(--sc-stroke); pointer-events: none; }
     .sp.cloud { fill: none; stroke: var(--sc-stroke); stroke-width: 2; }
@@ -94,7 +105,7 @@
     .glyph { fill: none; stroke: var(--mut); stroke-width: 1.5; pointer-events: none; }
     .strand.mini { stroke-width: 5; stroke-linecap: round; }
     .hit { fill: none; stroke: transparent; stroke-width: 22; }
-    .bridge { stroke: var(--rc-stroke); stroke-width: 6; opacity: .35; } .bridge.backup { stroke-dasharray: 3 3; opacity: .6; }
+    .bridge { fill: none; stroke: var(--rc-stroke); stroke-width: 6; opacity: .35; } .bridge.give { stroke: var(--sc-stroke); stroke-width: 3; opacity: .7; } .chevron.give { stroke: var(--sc-stroke); } .bridge.backup { stroke-dasharray: 3 3; opacity: .6; }
     .label { font: 500 12px Inter, system-ui, sans-serif; fill: var(--fg); pointer-events: none; }
     .chip.on { outline: 2px solid var(--rc-stroke); }
     #own .chip { background: var(--card); color: #712B13; border: 1px solid var(--rc-stroke); }
@@ -110,6 +121,7 @@
   </div>
   <div id="chips" hidden></div>
   <div id="similar" hidden></div>
+  <div id="context" hidden><input id="say" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="context"></div>
   <div id="own" hidden></div>
   <div id="share" hidden></div>
   <script type="module">
