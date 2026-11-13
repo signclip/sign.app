@@ -38,5 +38,7 @@
   "give.all": "ganz",
   "menu.here": "diesen Ordner",
   "menu.account": "ganzes Konto",
-  "menu.give": "geben"
+  "menu.give": "geben",
+  "time.today": "heute",
+  "time.week": "7 Tage"
 }

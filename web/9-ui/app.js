@@ -21,7 +21,9 @@ import { glyphSvg } from './render.js';
 import { watch } from './ready.js';
 import { flip, zoomBy, focusAt, torch } from './camera.js';
 import { bind, edgeZone } from './touch.js';
-import { ownChips, strandChips, similarChips, draw } from './panels.js';
+import { ownChips, strandChips, draw } from './panels.js';
+import { filterChips, toggle, filtersOf, EMPTY } from './similar-filter.js';
+import { search } from '../7-similar/filter.js';
 import { mountShareMenu } from './share-mount.js';
 import { keychain } from './keychain.js';
 
@@ -37,7 +39,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const store = new LocalStore(await navigator.storage.getDirectory());
   let stream = await openDevices(navigator.mediaDevices, { facing: settings.facing });
   $('#live').srcObject = stream;
-  const state = { recording: null, only: null, on: new Set(settings.auto), ready: settings.ready, torch: false, replay: -1, sources: [{ name: 'own', store }], lastChain: null };
+  const state = { recording: null, only: null, on: new Set(settings.auto), ready: settings.ready, torch: false, replay: -1, sources: [{ name: 'own', store }], lastChain: null, filter: EMPTY };
   state.index = await buildIndex(state.sources);
   const menu = await mountShareMenu({ panel: $('#share'), own: store, keychain, person, device, t, lastChain: async () => state.lastChain,
     onSources: async (src) => { state.sources = src; state.index = await buildIndex(src); } });
@@ -83,7 +85,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
   const panel = (id, on, chips, onChip) => { $(id).hidden = !on; if (on) draw($(id), chips, onChip); };
   const showOwn = (on) => panel('#own', on, ownChips(settings, t), (c) => { settings = choose(settings, c.key, c.value); state.on = new Set(settings.auto); save(); paint(); showOwn(true); });
-  const showSimilar = (on) => panel('#similar', on, similarChips(state.index, [...state.index.tables.context.keys()].slice(-3)));
+  const showSimilar = (on) => { // filter chips (wer · wo · wann · was) above the hits, Similar narrowed like a strand
+    const hits = search(state.index, { filters: filtersOf(state.index, state.filter) }).map((h) => ({ label: h.entry.head?.['@'] ?? '·', key: h.key }));
+    panel('#similar', on, [...filterChips(state.index, state.filter, t), ...hits], (c) => { if (c.row) { state.filter = toggle(state.filter, c); showSimilar(true); } });
+  };
 
   async function act(gesture, target, x = {}) {
     const row = actionFor({ gesture, target: target === 'strand' && gesture === 'drag' ? x.drag : target, mode: state.recording ? 'take' : 'search' });
