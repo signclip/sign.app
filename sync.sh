@@ -1,5 +1,5 @@
 #!/bin/sh
-# sync.sh — copy the app from signclip/signclip (the one source) into web/. Run from this folder.
+# sync.sh — copy the app from signclip/sign (the one source) into web/. Run from this folder.
 # The code is written in signclip/app; this repo only publishes it (GitHub Pages) and builds the APK.
 set -e
 SRC="${1:-../signclip/app}"

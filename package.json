@@ -1,7 +1,7 @@
 {
   "name": "signapp",
   "private": true,
-  "description": "Sign: web app (GitHub Pages) and Android app (Capacitor). Source: signclip/signclip app/. Plugins: share, clipboard, browser (one-click login).",
+  "description": "Sign: web app (GitHub Pages) and Android app (Capacitor). Source: signclip/sign app/. Plugins: share, clipboard, browser (one-click login).",
   "scripts": {
     "android": "cap add android && cap sync android"
   },
