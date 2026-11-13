@@ -12,6 +12,7 @@
 //              chips    under the ring, clustered, stable below (chips.js); in full-screen replay above the point
 //              stretched  a line or a live take as parallel threads in one time span (timeline.js)
 //              template a template (Vorlage) small and blue at the upper left, beside the own take
+//              hint     onboarding: the next element breathes, a pale point does its gesture (hint.js)
 //            No labels (decided 08.11.). Colours only as classes (index.html): own, other, wait, now,
 //            later, keep, off, hold; never colour alone — dashed, filled or a shape says it too.
 // Depends:   9-ui/state.js (look), chips.js, timeline.js
@@ -22,6 +23,7 @@
 import { look, KINDS } from '../state.js';
 import { chipShapes } from './chips.js';
 import { timelineShapes } from './timeline.js';
+import { withHint } from './hint.js';
 
 // Where each strand sits on the ring, in degrees from the top, clockwise.
 const SIDES = {
@@ -47,7 +49,7 @@ function onCircle(cx, cy, r, deg) {
 
 /**
  * st: state.js · data: { chips (chips.js), timeMs, levels: [0–1], similar: [id], line: { before, after },
- * versions: n, items: a stretched line (timeline.js), template: true } · size: { w, h }.
+ * versions: n, items: a stretched line (timeline.js), template: true, hint: { role, gesture } } · size: { w, h }.
  * → { video, template, point, shapes }
  */
 export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
@@ -80,7 +82,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   if (st.screen === 'delete') deleteChips(g);
   g.add('point', { ...point, cls: pointClass(st), role: 'point' });
 
-  return { video, template, point, shapes: g.shapes };
+  return { video, template, point, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
 }
 
 /** C: older versions of the chain as pale rings behind, at most three. */
@@ -190,6 +192,7 @@ const SVG = {
   chip: (s) => `<g class="${s.cls}"${roleOf(s)}>`
     + `<rect x="${s.x}" y="${s.y - s.h / 2}" width="${s.w}" height="${s.h}" rx="${s.h / 2}"/>`
     + `<text x="${s.x + s.w / 2}" y="${s.y + 5}" text-anchor="middle">${esc(s.text)}</text></g>`,
+  hint: (s) => `<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" class="${s.cls}" style="--dx:${s.dx}px;--dy:${s.dy}px"/>`,
   point: (s) => {
     const core = s.cls.includes('recording')
       ? `<rect x="${s.cx - 16}" y="${s.cy - 16}" width="32" height="32" rx="8" class="core"/>` // stop

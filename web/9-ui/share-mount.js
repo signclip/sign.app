@@ -39,10 +39,10 @@ async function clipboardText() {
 /**
  * panel: element over the screen · own: the device store · keychain: { get, set } · person: { id, label } ·
  * device: q_ · t: translator · lastChain(): newest take chain · selection(): kinds on in the ring ·
- * onSources(list): new sources for Similar.
+ * onSources(list): new sources for Similar · nameSign(): bytes of the name sign video or null (goes with each hello).
  * → { show(on), afterTake(paths), runRules(), dropKind(n, kind) }
  */
-export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, onSources = () => {} }) {
+export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, onSources = () => {}, nameSign = async () => null }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
@@ -92,7 +92,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     draw();
   }
   const say = (text) => { s.note = text; draw(); };
-  const ctx = { s, keychain, edit, load, say, t, all, device, person, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
+  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
 
   // ---------- doing what a gesture says ----------
   async function shareTo(n) {

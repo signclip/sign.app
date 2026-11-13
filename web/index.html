@@ -50,6 +50,14 @@
     #share .note { position: absolute; left: 0; right: 0; bottom: 24px; text-align: center; color: var(--mut); font-size: 0.9em; }
     #share:not([hidden]) .points { animation: sheet-up .22s ease-out; }
     @keyframes sheet-up { from { transform: translateY(30%); opacity: 0; } to { transform: none; opacity: 1; } }
+    /* onboarding (onboarding.js, view/hint.js): the next element breathes, a pale point does the gesture */
+    .hint { fill: var(--rc-stroke); opacity: 0; pointer-events: none; transform-box: fill-box; transform-origin: center; }
+    .hint.tap { animation: hint-tap 1.6s ease-out infinite; } .hint.double-tap { animation: hint-tap .8s ease-out infinite; }
+    .hint.hold, .hint.hold-slow { animation: hint-hold 2.2s ease-in-out infinite; } .hint.move { animation: hint-move 1.8s ease-in-out infinite; }
+    @keyframes hint-tap { 0% { opacity: 0; transform: scale(1.6); } 30% { opacity: .6; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+    @keyframes hint-hold { 0% { opacity: 0; transform: scale(1.4); } 20% { opacity: .6; transform: scale(1); } 75% { opacity: .6; transform: scale(1); } 100% { opacity: 0; transform: scale(.6); } }
+    @keyframes hint-move { 0% { opacity: 0; transform: none; } 20% { opacity: .6; transform: none; } 80% { opacity: .6; transform: translate(var(--dx), var(--dy)); } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)); } }
+    .hinted { animation: breathe 1.6s ease-in-out infinite; } @keyframes breathe { 50% { opacity: .55; } }
     .tile-behind { fill: var(--card); stroke: var(--line); pointer-events: none; }
     .sheet { fill: var(--card); stroke: var(--line); filter: drop-shadow(0 -2px 8px rgba(0,0,0,.08)); }
     .handle { stroke: var(--mut); stroke-width: 4; stroke-linecap: round; }

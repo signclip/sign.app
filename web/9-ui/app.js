@@ -7,6 +7,7 @@
 //   chip: hold = record more strands to it (kept solid, new dashed) · ↓ take this context away
 //   live picture: tap = focus · hold = video while held · ← → front/back camera · pinch = zoom
 //   edges: upper left own · middle left strands · upper right Similar · middle right share · top full
+//   onboarding: the next element breathes, a pale point shows its gesture (onboarding.js); the first take is the name sign
 // Depends:   browser; 0-i18n, 1-model, 2-storage/local, 3-index, 4-save, 5-take, 7-similar, 9-ui
 // Test:      needs a browser; every part is tested on its own (tests/ui, state, view, list, similar).
 // Limits:    no Whisper yet (no chips from speech, no keywords); one take records at a time.
@@ -32,6 +33,7 @@ import { ownChips, strandChips, draw } from './panels.js';
 import { filterChips, toggle, filtersOf, EMPTY } from './similar-filter.js';
 import { mountShareMenu } from './share-mount.js';
 import { keychain } from './keychain.js';
+import { hintOf, progress, done, NAME_SIGN_STEP } from './onboarding.js';
 
 const $ = (sel) => document.querySelector(sel);
 const dec = new TextDecoder();
@@ -61,19 +63,33 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   let st = startState(settings.auto); // one strand selection for everything, kept until changed
   if (settings.ready) st = next(st, { action: 'ready' });
   const data = { chips: [], levels: [], similar: [], line: null, versions: 1, timeMs: null, hidden: [] };
-  const take = { recorder: null, lastChain: null, lastKinds: [], replayAt: -1 };
+  const take = { recorder: null, lastChain: null, lastKinds: [], replayAt: -1, began: null };
+  const onboard = { at: Number(kept('sign.onboard', () => '0')) || 0 };
   let filter = EMPTY; // the chips of Similar: wer · wo · wann · was
   let sources = [{ name: 'own', store }];
   let index = await buildIndex(sources);
 
   const screen = mountScreen({ root: $('#screen'), live: $('#live'), replay: $('#replay'), template: $('#template'), overlay: $('#overlay') });
-  const paint = () => screen.paint(st, data);
+  const paint = () => screen.paint(st, { ...data, hint: hintOf(onboard.at, settings.onboarding) });
+  /** An action was done: the onboarding goes one step on if it was its step; at the end it switches off. */
+  const learned = (action) => {
+    if (!settings.onboarding) return;
+    const at = progress(onboard.at, action);
+    if (at === onboard.at) return;
+    onboard.at = at;
+    try { localStorage.setItem('sign.onboard', String(at)); } catch { /* private mode */ }
+    if (done(at)) { settings = choose(settings, 'onboarding', false); saveSettings(); }
+    paint();
+  };
   const step = (action, extra = {}) => { st = next(st, { action, ...extra }); paint(); };
 
   const menu = await mountShareMenu({
     panel: $('#share'), own: store, keychain, person, device, t,
     lastChain: async () => take.lastChain,
     selection: () => toRecord(st), // double-tap on a sharing point = these strands always go there
+    nameSign: async () => { // the first take of the onboarding goes along with every hello
+      try { const p = localStorage.getItem('sign.nameSign'); return p ? await store.read(p) : null; } catch { return null; }
+    },
     onSources: async (list) => { sources = list; index = await buildIndex(sources); },
   });
   menu.runRules().catch(() => {}); // copies and backups of the list, quietly in the background
@@ -98,6 +114,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (take.recorder || st.screen === 'line') return;
     step(action, extra);
     if (st.screen !== 'record') return;
+    take.began = action;
     const tap = await browserTap(camera);
     take.recorder = startTake(camera, { MediaRecorder, tapAudio: () => tap });
     data.levels = [];
@@ -127,6 +144,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     take.lastKinds = [...new Set([...kinds, ...keep])];
     data.versions = onto ? data.versions + 1 : 1;
     step('saved');
+    if (settings.onboarding && onboard.at === NAME_SIGN_STEP) {
+      const video = saved.paths.find((p) => p.endsWith('.v.mp4'));
+      try { if (video) localStorage.setItem('sign.nameSign', video); } catch { /* private mode */ }
+    }
+    learned(take.began);
     await menu.afterTake(saved.paths); // (always) rules of the list
     index = await buildIndex(sources);
   }
@@ -165,7 +187,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   };
   const showOwn = (on) => panel('#own', on, ownChips(settings, t), (c) => {
     settings = choose(settings, c.key, c.value);
+    if (c.key === 'onboarding' && c.value) { onboard.at = 0; try { localStorage.setItem('sign.onboard', '0'); } catch { /* private mode */ } }
     saveSettings();
+    paint();
     showOwn(true);
   });
   const showSimilar = (on) => { // filter chips (wer · wo · wann · was) above the hits
@@ -192,6 +216,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const mode = st.mode === 'line' ? 'line' : st.similar ? 'similar' : 'take';
     const row = actionFor({ gesture, target: hit.drag ?? hit.target, mode });
     const kind = hit.kind;
+    if (row && !['take', 'take-while-held', 'strand-while-held'].includes(row.action)) learned(row.action); // takes count when saved
     switch (row?.action) {
       case 'take': return take.recorder ? end() : begin('take');
       case 'take-while-held': return begin('take-while-held');

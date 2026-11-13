@@ -2,7 +2,7 @@
 //
 // Purpose:   what the person sees in the share menu, and the folders of a signer behind it.
 //            Each file lies in exactly one folder; the first word of its name says the state.
-//              1 hello        name sign recorded → (hello …) in hello/ (drop only)
+//              1 hello        name sign recorded → (hello …) in hello/ (drop only), its video beside it
 //              2 hello back   a signer with a z_ of this sharing point seals the access + her sharing
 //                             points → (join …) in join/ (read-only link); the device checks the seal
 //              3 join         swipe left: the device takes the access locally, drops ((join));
@@ -36,15 +36,21 @@ async function chainFile({ by, device, deviceKey, now, defs = [], line, raw = nu
     [...top, ...defs], [raw ? `${raw}'t(${at})` : `(${line.map((c) => (c.startsWith('{') ? c : `(${c})`)).join(' ')})'t(${at})`, ...(below ? ['{:chain.1}'] : [])]));
   return { text, name: buildName({ words, person: by.label, time: at, u: shortU(id), kind: 'chain', ext: 'sign' }) };
 }
+/** The name sign beside a hello: same name, picture strand. */
+export const nameSignOf = (helloName) => buildName({ ...readName(helloName), kind: 'v', ext: 'mp4' });
 const belowOf = async (bytes) => ({ id: readFile(dec.decode(bytes)).head.id, hash: await hashBytes(bytes) });
 
-/** 1 · Device: say hello. device: { id, label, key } · pickup: ECDH public key · target: label. */
-export async function sayHello({ store, device, deviceKey = null, person, target, pickup, now = Date.now() }) {
+/**
+ * 1 · Device: say hello. device: { id, label, key } · pickup: ECDH public key · target: label ·
+ * nameSign: the video of the name sign (bytes) or null; it lies beside the hello with the same name, .v.mp4.
+ */
+export async function sayHello({ store, device, deviceKey = null, person, target, pickup, nameSign = null, now = Date.now() }) {
   const f = await chainFile({ by: person, device: device.id, deviceKey, now, words: ['hello', target],
     defs: [defLine('sharing-point.1', { hint: device.label, id: `${device.id} z_${device.key}` })],
     line: ['hello', target, `pickup ${pickup}`, '{:sharing-point.1}'] });
   const path = `hello/${f.name}`;
   await store.write(path, enc.encode(f.text));
+  if (nameSign) await store.write(`hello/${nameSignOf(f.name)}`, nameSign);
   return path;
 }
 

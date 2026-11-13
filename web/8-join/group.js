@@ -58,6 +58,6 @@ export const invitation = (label, group) => [label, group.read.webdav, group.dro
  */
 export async function waitingHellos(store) {
   const paths = (await store.list()).map((f) => f.path);
-  const hellos = paths.filter((p) => p.startsWith('hello/') && /\(hello /.test(p));
+  const hellos = paths.filter((p) => p.startsWith('hello/') && p.endsWith('.chain.sign') && /\(hello /.test(p));
   return hellos.filter((h) => !answerFor(paths, h));
 }

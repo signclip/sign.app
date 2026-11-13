@@ -11,6 +11,7 @@
 // Depends:   browser; 2-storage (nextcloud, sharing-point, spec), 8-join (group, join), 9-ui (device-keys,
 //            system-share)
 // Test:      the parts in tests/join.test.mjs; this needs a browser.
+// Name sign:  the first take of the onboarding goes into the drop beside the hello (join.js nameSignOf).
 // Limits:    one hello per device and group; a renew reaches members on their next start.
 
 import { Nextcloud } from '../2-storage/nextcloud.js';
@@ -48,7 +49,7 @@ export async function makeOrRenew(ctx, n) {
   let group;
   if (before) { // renew: new links, the old stop, a new join for everyone who joined
     const paths = (await sp.store.list()).map((f) => f.path);
-    const members = paths.filter((p) => p.startsWith('hello/') && answerFor(paths, p));
+    const members = paths.filter((p) => p.startsWith('hello/') && p.endsWith('.chain.sign') && answerFor(paths, p));
     ({ group } = await renewGroup(nc, { folder, label, store: sp.store, members, signer: await signerOf(ctx) }));
     for (const x of [Math.max(before.read.n, before.drop.n), Math.min(before.read.n, before.drop.n)]) await edit({ remove: x });
   } else {
@@ -97,7 +98,7 @@ async function sayHelloTo(ctx, label) {
   if (!drop) return;
   const keys = await deviceKeys();
   const device = { id: ctx.device, label: ctx.person.label, key: keys.device.public };
-  const helloPath = await sayHello({ store: drop, device, deviceKey: keys.device, person: ctx.person, target: label, pickup: keys.pickup.public });
+  const helloPath = await sayHello({ store: drop, device, deviceKey: keys.device, person: ctx.person, target: label, pickup: keys.pickup.public, nameSign: await ctx.nameSign?.() });
   await joins.set(label, { helloPath, state: 'hello' });
 }
 
