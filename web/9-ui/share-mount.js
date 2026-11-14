@@ -358,7 +358,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const browse = s.accounts ? accountTiles() : s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const hellos = s.hellos.map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();
@@ -401,11 +401,24 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     },
     pinch: (factor) => { // two fingers on an account: apart = more space, together = less (steps of 25 %)
       if (!role?.startsWith('browse:') || !s.accounts) return null;
+      s.zoom = { role, scale: Math.max(0.7, Math.min(1.4, (s.zoom?.scale ?? 1) * factor)) }; // seen: the tile follows the fingers
+      draw();
       pinched *= factor;
       if (pinched > 0.8 && pinched < 1.25) return null;
       const by = pinched >= 1.25 ? +1 : -1;
       pinched = 1;
       return accountTiles()[Number(role.split(':')[1])]?.more?.(by);
+    },
+    pinchEnd: () => { // the tile settles back to its size (250 ms)
+      if (!s.zoom) return;
+      const from = s.zoom.scale, start = performance.now();
+      const step = (now) => {
+        const p = Math.min(1, (now - start) / 250);
+        s.zoom = p < 1 ? { ...s.zoom, scale: from + (1 - from) * (1 - (1 - p) ** 3) } : null;
+        draw();
+        if (p < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
     },
     dragEnd: (el, moved) => {
       const from = circleOf(role);

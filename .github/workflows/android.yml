@@ -28,7 +28,10 @@ jobs:
         run: sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" /><uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /><uses-permission android:name="android.permission.VIBRATE" />\n    <application#' android/app/src/main/AndroidManifest.xml
       - name: the same signing key every time (secret DEBUG_KEYSTORE), so an update installs over the app and keeps its data
         env: { KS: '${{ secrets.DEBUG_KEYSTORE }}' }
-        run: if [ -n "$KS" ]; then mkdir -p ~/.android && echo "$KS" | base64 -d > ~/.android/debug.keystore; fi
+        run: |
+          if [ -z "$KS" ]; then echo "secret DEBUG_KEYSTORE missing: a random key would make the APK conflict with the installed app"; exit 1; fi
+          mkdir -p ~/.android && echo "$KS" | base64 -d > ~/.android/debug.keystore
+          keytool -list -v -keystore ~/.android/debug.keystore -storepass android | grep -m1 'SHA256'
       - run: cd android && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with: { name: sign-debug-apk, path: android/app/build/outputs/apk/debug/app-debug.apk }

@@ -37,7 +37,7 @@ export function edgeZone(x, y, w, h) {
  *   hold(role)               the finger stayed HOLD_MS · holdEnd(role) · dragEnd(element, moved, role)
  *   swipe(dir, role)         · pinch(factor, role, how): two fingers, neither held yet; role of the first;
  *                              how { fx, fy (distance across / up-down changed), angle (0 = side by side, 90 = above), mid (start, between) }
- *   slide(role, dx, dy) · slideEnd(role): one finger on a role starting with 'corner', moved (the window's form)
+ *   pinchEnd() both fingers up · slide(role, dx, dy) · slideEnd(role): one finger on a role starting with 'corner', moved (the window's form)
  *   parallel(heldRole, role) a second finger went down while the first one is held: from now on the first
  *                            finger is a property (DESIGN principle 4), the second does the action
  * Without a held finger, a second finger is a pinch (as before). A third finger is ignored.
@@ -111,10 +111,7 @@ export function bind(el, h) {
     const e = ev.type === 'pointercancel' ? { clientX: t.cx ?? t.x, clientY: t.cy ?? t.y, pointerId: ev.pointerId } : ev;
     touches.delete(e.pointerId);
     clearTimeout(t.timer);
-    if (t.pinch) {
-      if (!pinchers().length) spread = null;
-      return;
-    }
+    if (t.pinch) { if (!pinchers().length) { spread = null; h.pinchEnd?.(); } return; } // both fingers up: the pinch ends
     if (String(t.role).startsWith('corner')) return h.slideEnd?.(t.role);
     if (t.held) {
       const moved = Math.hypot(e.clientX - t.x, e.clientY - t.y) > 30; // held and carried = a drag
