@@ -201,13 +201,15 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     s.flash = role; draw(); setTimeout(() => { s.flash = null; draw(); }, 700); // seen at once; the app opens after the files are ready
     return sendTo(target, { files }).catch(() => say(t('notReachable')));
   }
+  const FIRST_APPS = ['com.whatsapp', 'org.thoughtcrime.securesms', 'org.telegram', 'com.google.android.gm', 'com.google.android.apps.messaging', 'com.google.android.apps.docs', 'com.google.android.documentsui', 'com.google.android.gms', 'com.android.bluetooth', 'com.instagram']; // messenger, mail, Drive, save to files, Nearby Share
   /** Android (14.11.): the apps that take a share, the most used first, loaded once when the menu first opens. */
   async function loadApps() {
     if (s.apps) return;
     let used = {};
     try { used = JSON.parse(localStorage.getItem('sign.apps') || '{}'); } catch { /* private mode */ }
     const list = await targets('video/*');
-    s.apps = { list: list.sort((a, b) => (used[b.pkg] ?? 0) - (used[a.pkg] ?? 0)), x: 0 };
+    const rank = (a) => (used[a.pkg] ?? 0) * 100 + (FIRST_APPS.length - Math.max(-1, FIRST_APPS.findIndex((p) => a.pkg.startsWith(p)))) * (FIRST_APPS.some((p) => a.pkg.startsWith(p)) ? 1 : 0);
+    s.apps = { list: list.sort((a, b) => rank(b) - rank(a)), x: 0 }; // what you use most first; before that the usual ones
     if (!panel.hidden) draw();
   }
   function usedApp(app) {
@@ -466,12 +468,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       role = roleOf(e.target);
       return role; // touch.js lets the share row slide by it
     },
-    slide: (r, dx) => { // the share row follows the finger (14.11.)
+    slide: (r, dx) => { // the share row follows the finger (14.11.): moved by CSS on every frame, drawn anew only at the end
       if (!s.apps) return null;
-      s.apps.x = Math.max(rowLimit(s.apps.list.length + 1, { w: panel.getBoundingClientRect().width }), Math.min(0, (s.apps.x ?? 0) + dx));
-      return draw();
+      const limit = rowLimit(s.apps.list.length + 1, { w: panel.getBoundingClientRect().width }), x = s.apps.x ?? 0;
+      s.apps.drag = Math.max(limit - x, Math.min(-x, (s.apps.drag ?? 0) + dx));
+      for (const el of panel.querySelectorAll('.row')) el.style.transform = `translateX(${s.apps.drag}px)`;
+      return null;
     },
-    slideEnd: () => null,
+    slideEnd: () => { if (!s.apps?.drag) return null; s.apps.x = (s.apps.x ?? 0) + s.apps.drag; s.apps.drag = 0; return draw(); },
     tap: () => tapped(role), // waits 300 ms: it may become a double-tap
     doubleTap: () => { // 14.11.: on a sharing point = encrypted ↔ readable (the line from this device turns double / single)
       const n = circleOf(role);
@@ -486,6 +490,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
       }
       if (role?.startsWith('browse:') && s.accounts && ['down', 'down-far', 'up'].includes(dir)) { const x = accountTiles()[Number(role.split(':')[1])]; return dir === 'up' ? x?.up?.() : x?.down?.(); } // account: ↓ rests ↑ wakes · device: ↓ quiet · group: ↓ out (14.11.)
+      if ((role?.startsWith('app:') || role === 'out:system') && dir === 'up') return outside(); // ↑ on the row: the classic Android / iOS share sheet
       if (role?.startsWith('hello:') && dir === 'left') return welcome(ctx, s.hellos[Number(role.split(':')[1])]).then(load).then(draw); // ← hello → join: welcomed
       if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → back: look again (new hellos, a failed welcome tried anew)
       const n = circleOf(role);

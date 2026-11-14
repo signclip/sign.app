@@ -209,19 +209,18 @@ function appRow({ list = [], x = 0 }, { w, h, k, add, at }) {
   const items = [...list.map((a, i) => ({ ...a, role: `app:${i}` })), { role: 'out:system', label: '' }];
   items.forEach((a, i) => {
     const cx = first + i * gap + x;
-    if (cx < -size || cx > w + size) return; // off the row
-    if (a.icon) add('image', { png: a.icon, x: cx - size / 2, y, s: size, cls: 'app', role: a.role });
-    else { add('circle', { cx, cy: y + size / 2, r: size / 2, cls: 'sp out round', role: a.role }); glyphShare({ cx, cy: y + size / 2 }, k, add); }
-    if (a.label) add('label', { x: cx, y: y + size + 14 * k, text: a.label.length > 10 ? `${a.label.slice(0, 9)}…` : a.label, cls: 'label app-label' });
+    if (a.icon) add('image', { png: a.icon, x: cx - size / 2, y, s: size, cls: 'app row', role: a.role }); // all drawn: the row slides by CSS, no redraw
+    else { add('circle', { cx, cy: y + size / 2, r: size / 2, cls: 'sp out round row', role: a.role }); glyphShare({ cx, cy: y + size / 2 }, k, add, ' row'); }
+    if (a.label) add('label', { x: cx, y: y + size + 14 * k, text: a.label.length > 10 ? `${a.label.slice(0, 9)}…` : a.label, cls: 'label app-label row' });
     at.set(a.role, { cx, cy: y + size / 2, r: size / 2 });
   });
 }
 /** How far the row may slide: 0 … −(its length beyond the screen). */
 export const rowLimit = (n, { w = 390, k = w / 390 } = {}) => Math.min(0, w - (40 * k * 2 + n * 70 * k));
-function glyphShare({ cx, cy }, k, add) { // three dots, two lines: the share sign every phone knows
+function glyphShare({ cx, cy }, k, add, extra = '') { // three dots, two lines: the share sign every phone knows
   const p = [[cx + 8 * k, cy - 9 * k], [cx - 8 * k, cy], [cx + 8 * k, cy + 9 * k]];
-  add('path', { d: `M ${p[0]} L ${p[1]} L ${p[2]}`.replace(/,/g, ' '), cls: 'glyph' });
-  for (const [x, y] of p) add('circle', { cx: x, cy: y, r: 3.5 * k, cls: 'glyph dot' });
+  add('path', { d: `M ${p[0]} L ${p[1]} L ${p[2]}`.replace(/,/g, ' '), cls: `glyph${extra}` });
+  for (const [x, y] of p) add('circle', { cx: x, cy: y, r: 3.5 * k, cls: `glyph dot${extra}` });
 }
 function glyphCopy({ cx, cy }, k, add) {
   const r = (x, y) => `M ${x + 2 * k} ${y} h ${10 * k} a ${2 * k} ${2 * k} 0 0 1 ${2 * k} ${2 * k} v ${12 * k} a ${2 * k} ${2 * k} 0 0 1 ${-2 * k} ${2 * k} h ${-10 * k} a ${2 * k} ${2 * k} 0 0 1 ${-2 * k} ${-2 * k} v ${-12 * k} a ${2 * k} ${2 * k} 0 0 1 ${2 * k} ${-2 * k} Z`;

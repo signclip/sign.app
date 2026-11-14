@@ -152,7 +152,10 @@ export async function loginAt(ctx, server, id = newSource()) {
     s.browse = { id, server: got.server, user: got.user, store, at: '', inside: await store.folders('') };
     ctx.draw?.();
     return say(t('menu.account'));
-  } catch { return say(t('menu.native')); } // the browser is blocked (CORS); the app is not
+  } catch (err) { // the browser is blocked (CORS); in the app: which step failed, short, to find it (14.11.)
+    const why = String(err?.message ?? err).slice(0, 60);
+    return say(globalThis.Capacitor?.isNativePlatform?.() ? `${t('notReachable')} · ${why}` : t('menu.native'));
+  }
 }
 
 /**
