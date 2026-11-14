@@ -1,7 +1,7 @@
 {
   "name": "signapp",
   "private": true,
-  "description": "Sign: web app (GitHub Pages) and Android app (Capacitor). Source: signclip/sign app/. Plugins: share, clipboard, browser (one-click login), filesystem (files into the share sheet); own: DavHttp (native/android).",
+  "description": "Sign: web app (GitHub Pages) and Android app (Capacitor). Source: signclip/sign app/. Plugins: app (back button), share, clipboard, browser (one-click login), filesystem (files into the share sheet); own: DavHttp (native/android).",
   "scripts": {
     "android": "cap add android && cap sync android"
   },
@@ -14,6 +14,7 @@
     "@capacitor/browser": "^7.0.0",
     "@capacitor/clipboard": "^7.0.0",
     "@capacitor/share": "^7.0.0",
-    "@capacitor/filesystem": "^7.0.0"
+    "@capacitor/filesystem": "^7.0.0",
+    "@capacitor/app": "^7.0.0"
   }
 }

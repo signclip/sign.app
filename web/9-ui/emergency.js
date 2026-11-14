@@ -14,20 +14,23 @@ const groups = (s) => s.replace(/(.{4})/g, '$1 ').trim();
 
 /** The lines of the sheet. key: "q_… z_…" · paper: the paper password · date: "2026.11.14". */
 export function sheetLines({ name, key, paper, date }) {
-  const [q, z] = key.split(' ');
+  const [q, z] = key.split(' '); // the whole key in one line: select it in the PDF viewer, copy, paste
   return [
-    { text: 'Sign · Notfallblatt', size: 22, gap: 0 },
-    { text: `${name} · ${date}`, size: 12, gap: 10 },
-    { text: 'Öffnet deine Backups, auch wenn alle Geräte fehlen. Sicher aufbewahren, nicht fotografieren.', size: 10, gap: 18 },
-    { text: 'Papier-Passwort für Backups', size: 12, gap: 18 },
-    { text: groups(paper), size: 16, gap: 8, mono: true },
-    { text: 'Ein neues Blatt ersetzt dieses: dann gilt nur noch das neue Passwort.', size: 9, gap: 6 },
-    { text: 'Prüfschlüssel dieses Geräts (öffentlich)', size: 12, gap: 22 },
-    { text: q ?? '', size: 11, gap: 8, mono: true },
-    { text: z ?? '', size: 9, gap: 4, mono: true },
-    { text: 'Notzugang Admin - nur von Hand eintragen, nie digital', size: 12, gap: 26 },
-    { text: 'Konto:     ______________________________', size: 12, gap: 18 },
-    { text: 'Passwort:  ______________________________', size: 12, gap: 18 },
+    { text: 'Sign', size: 30, gap: 0 },
+    { text: 'Notfallblatt', size: 16, gap: 4, grey: true },
+    { text: `${name}  ·  ${date}`, size: 11, gap: 6, grey: true },
+    { text: 'Papier-Passwort für deine Backups', size: 13, gap: 14, rule: true },
+    { text: groups(paper), size: 18, gap: 14, mono: true, box: true },
+    { text: 'Öffnet alle Backups, auch wenn jedes Gerät fehlt. Ein neues Blatt ersetzt dieses.', size: 9, gap: 12, grey: true },
+    { text: 'Prüfschlüssel dieses Geräts (öffentlich, zum Kopieren)', size: 13, gap: 14, rule: true },
+    { text: key, size: 7.5, gap: 12, mono: true, box: true },
+    { text: `${q ?? ''} · ${(z ?? '').slice(0, 10)}…  (Gerät)`, size: 10, gap: 10, mono: true, grey: true },
+    { text: 'Notzugang Admin (nur von Hand eintragen, nie digital)', size: 13, gap: 14, rule: true },
+    { text: 'Konto', size: 9, gap: 16, grey: true },
+    { text: ' ', size: 14, gap: 4, box: true },
+    { text: 'Passwort', size: 9, gap: 14, grey: true },
+    { text: ' ', size: 14, gap: 4, box: true },
+    { text: 'Sicher aufbewahren, nicht fotografieren, nicht in eine Cloud legen.', size: 9, gap: 40, grey: true, rule: true },
   ];
 }
 

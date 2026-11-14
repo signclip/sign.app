@@ -27,7 +27,7 @@ import { quietIds } from '../4-save/remove.js';
 import { deviceKeys } from './device-keys.js';
 import { readPaste } from '../2-storage/spec.js';
 import { copyRoute } from '../2-storage/routes.js';
-import { send, filesOf } from './system-share.js';
+import { send, filesOf, targets, sendTo } from './system-share.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
@@ -191,12 +191,27 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   }
 
   /** The last take through the system share sheet (14.11.): video or picture, sound, text as files. */
-  async function outside() {
+  async function outside(target = undefined) {
     const chainPath = await lastChain();
     if (!chainPath) return say(t('notReachable'));
     const defs = [...readFile(dec.decode(await own.read(chainPath))).defs.values()].filter((d) => ['v', 'a', 'x'].includes(d.kind) && d.id);
     const files = await filesOf(own, defs.map((d) => d.id));
-    return files.length ? send({ title: 'Sign', files }).catch(() => null) : say(t('notReachable'));
+    if (!files.length) return say(t('notReachable'));
+    if (target === undefined) return send({ title: 'Sign', files }).catch(() => null);
+    s.flash = role; draw(); setTimeout(() => { s.flash = null; draw(); }, 700); // seen at once; the app opens after the files are ready
+    return sendTo(target, { files }).catch(() => say(t('notReachable')));
+  }
+  /** Android (14.11.): the apps that take a share, the most used first, loaded once when the menu first opens. */
+  async function loadApps() {
+    if (s.apps) return;
+    let used = {};
+    try { used = JSON.parse(localStorage.getItem('sign.apps') || '{}'); } catch { /* private mode */ }
+    const list = await targets('video/*');
+    s.apps = { list: list.sort((a, b) => (used[b.pkg] ?? 0) - (used[a.pkg] ?? 0)), page: 0 };
+    if (!panel.hidden) draw();
+  }
+  function usedApp(app) {
+    try { const used = JSON.parse(localStorage.getItem('sign.apps') || '{}'); used[app.pkg] = (used[app.pkg] ?? 0) + 1; localStorage.setItem('sign.apps', JSON.stringify(used)); } catch { /* private mode */ }
   }
 
   /** The emergency sheet (14.11.): a paper password for the backups (kept in the keychain, sealed into each backup), as PDF. */
@@ -280,6 +295,10 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (canPick()) return pickFolder(ctx);
       s.shake = 'sp:0'; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; // the phone: with the native app (S4)
     }
+    if (what === 'sp' && s.joinStates.get(ctx.tileOf(Number(a))?.label) === 'door') { // onboarding: tap the hello bubble = hello (14.11.)
+      const label = ctx.tileOf(Number(a)).label;
+      return helloToDoor(ctx, label).then((m) => { if (m) { s.joinStates.set(label, m.state); s.fresh.add(label); } onHello(); draw(); });
+    }
     if (what === 'sp') {
       const tile = ctx.tileOf(Number(a));
       if (tile?.state === 'cloud') return askAccount(ctx, tile.n); // my cloud id copied, their server opens
@@ -301,7 +320,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'confirm') return confirmTap(a); // the first circle
     if (what === 'sp-kind') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'tap-kind'), 'tap-kind', s.rules, { kind: b }));
     if (what === 'add') return addNew(ctx); // the one + tile
-    if (what === 'out') return outside(); // the share sign: the last take to other apps
+    if (what === 'out') return outside(); // the share sign: the last take to other apps (the system sheet)
+    if (what === 'app') { const app = s.apps?.list?.[Number(a)]; if (!app) return null; usedApp(app); return outside(app); } // one app of the row: straight there
     if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.look ? x.look() : null; } // an account: tap = look at it
     if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
     if (what === 'hello') { // tap = look: the name sign that came with the hello, in the window (14.11.; ← = welcome)
@@ -411,7 +431,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const ws = words().map((w) => w.toLowerCase());
     const hellos = s.hellos.filter((x) => ws.every((w) => x.name.toLowerCase().includes(w))).map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to · context words find hellos too
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.accounts || s.browse ? null : s.apps ?? null, browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();
@@ -440,6 +460,11 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
       }
       if (role?.startsWith('browse:') && s.accounts && ['down', 'down-far', 'up'].includes(dir)) { const x = accountTiles()[Number(role.split(':')[1])]; return dir === 'up' ? x?.up?.() : x?.down?.(); } // account: ↓ rests ↑ wakes · device: ↓ quiet · group: ↓ out (14.11.)
+      if (role?.startsWith('app:') && s.apps && (dir === 'left' || dir === 'right')) { // the row pages: ← more, → back
+        const pages = Math.ceil(s.apps.list.length / 5);
+        s.apps.page = Math.max(0, Math.min(pages - 1, s.apps.page + (dir === 'left' ? 1 : -1)));
+        return draw();
+      }
       if (role?.startsWith('hello:') && dir === 'left') return welcome(ctx, s.hellos[Number(role.split(':')[1])]).then(load).then(draw); // ← hello → join: welcomed
       if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → back: look again (new hellos, a failed welcome tried anew)
       const n = circleOf(role);
@@ -523,7 +548,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   document.addEventListener('visibilitychange', () => { if (!document.hidden && !panel.hidden) look(); }); // back after copying a link
   function show(on) {
     panel.hidden = !on;
-    if (on) { s.appear = true; draw(); look(); }
+    if (on) { s.appear = true; draw(); look(); loadApps().catch(() => {}); }
   }
   return {
     show,

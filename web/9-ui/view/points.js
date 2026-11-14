@@ -60,7 +60,7 @@ function edgeBar(kind, { cx, cy, tw, th }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, clip = 'ready', shake = null, zoom = null, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
+export function pointShapes(all, { own = '', admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, clip = 'ready', shake = null, zoom = null, apps = null, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const tw = 86 * k; // a tile: a rounded rectangle, two layers behind it = much lies inside
   const th = 64 * k;
   const y0 = top + 72 * k; // first row, under the handle
@@ -139,9 +139,9 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   /** The growing sharing icon in the group's spot: me · group · my own space. */
   function joinIcon(i, t, state) {
     const { cx, cy } = grid(i, { w, k, y0 });
-    const r = 13 * k, me = [cx - 34 * k, cy], group = [cx + 30 * k, cy - 22 * k], mine = [cx + 30 * k, cy + 22 * k];
+    const r = 19 * k, me = [cx - 38 * k, cy], group = [cx + 32 * k, cy - 25 * k], mine = [cx + 32 * k, cy + 25 * k]; // big, like a tile (14.11.)
     const line = ([x1, y1], [x2, y2], cls) => add('path', { d: `M ${x1} ${y1} L ${x2} ${y2}`, cls: `join-line ${cls}` });
-    if (state === 'door') { // onboarding: the door as a hello bubble, breathing; drag yourself (your tile or this circle) onto it
+    if (state === 'door') { // onboarding: the door as a hello bubble, breathing; tap it = hello (or drag yourself onto it)
       add('circle', { cx: me[0], cy: me[1], r, cls: 'join-me', role: 'sp:0' });
       add('circle', { cx: group[0], cy: group[1], r: r * 1.4, cls: 'join-group door breathe', role: `sp:${t.n}` });
       add('label', { x: cx, y: cy + th / 2 + 18 * k, text: t.label, cls: 'label' });
@@ -175,6 +175,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   (ghost ? glyphCopy : glyphPlus)(at.get('add:new'), k, add);
   tile(next + 1, 'out:system', 'sp out', '', { stack: false }); // the classic way out (14.11.): the system share sheet to other apps
   glyphShare(at.get('out:system'), k, add);
+  if (apps?.list?.length) appRow(apps, { w, h, k, add, at }); // Android: the apps right here, at the bottom of the sheet
   return { shapes, at };
 }
 
@@ -195,6 +196,18 @@ function ends(a, b) {
 // a plus: one more sharing point · a copy sign: two sheets, one over the other (nothing on the clipboard yet)
 function glyphPlus({ cx, cy }, k, add) {
   add('path', { d: `M ${cx - 10 * k} ${cy} H ${cx + 10 * k} M ${cx} ${cy - 10 * k} V ${cy + 10 * k}`, cls: 'glyph' });
+}
+/** The share row (14.11.): up to 5 apps side by side, the most used first; ← → = more; tap = the last take goes there. */
+function appRow({ list, page = 0 }, { w, h, k, add, at }) {
+  const per = 5, size = 44 * k, y = h - 112 * k, gap = w / per;
+  add('line', { x1: 24 * k, y1: y - 16 * k, x2: w - 24 * k, y2: y - 16 * k, cls: 'apps-rule' });
+  list.slice(page * per, page * per + per).forEach((a, i) => {
+    const cx = gap * (i + 0.5), role = `app:${page * per + i}`;
+    add('image', { png: a.icon, x: cx - size / 2, y, s: size, cls: 'app', role });
+    add('label', { x: cx, y: y + size + 14 * k, text: a.label.length > 11 ? `${a.label.slice(0, 10)}…` : a.label, cls: 'label app-label' });
+    at.set(role, { cx, cy: y + size / 2, r: size / 2 });
+  });
+  if (list.length > per) add('label', { x: w / 2, y: y + size + 32 * k, text: '·'.repeat(Math.ceil(list.length / per)).split('').map((d, i) => (i === page ? '•' : d)).join(' '), cls: 'label app-label' });
 }
 function glyphShare({ cx, cy }, k, add) { // three dots, two lines: the share sign every phone knows
   const p = [[cx + 8 * k, cy - 9 * k], [cx - 8 * k, cy], [cx + 8 * k, cy + 9 * k]];

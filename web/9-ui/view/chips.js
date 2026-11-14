@@ -42,7 +42,7 @@ function spaceBefore(chips, i, k) {
 }
 
 /**
- * groups = gestures: [{ text, t, stable } | { items: [{ text, t }], head?, stable }] · timeMs · cx, y (lowest
+ * groups = gestures: [{ text, t, stable, offer } | { items: [{ text, t }], head?, stable, offer }] · offer: greyed, tap = mine · timeMs · cx, y (lowest
  * row), k (scale), w (screen width). → shapes [{ type: 'bubble' | 'chip', … }]
  */
 export function chipShapes(groups = [], { timeMs = null, cx, y, k = 1, w = 390 }) {
@@ -71,16 +71,17 @@ function rowShapes(row, { timeMs, cx, y, k, w }) {
   for (const { gesture, chips, width } of units) {
     const stable = Boolean(gesture.stable);
     const bubbled = chips.length > 1 || gesture.sticky; // the sticky context is always one bubble, even of one word
+    const offer = gesture.offer ? `offer:${chips.map((c) => c.text).join(' ')}` : null; // greyed, from the result above (Doppel)
     if (bubbled) {
       const lit = chips.some((c) => toneOf(c, stable, timeMs) === 'now');
       out.push({ type: 'bubble', x, y: y - 20 * k, w: width, h: 40 * k,
-        cls: `bubble${stable ? ' stable' : ''}${gesture.sticky ? ' sticky' : ''}${lit ? ' now' : ''}`, role: gesture.sticky ? 'sticky' : `gesture:${chips.map((c) => c.text).join(' ')}` });
+        cls: `bubble${stable ? ' stable' : ''}${gesture.sticky ? ' sticky' : ''}${lit ? ' now' : ''}${offer ? ' offer' : ''}`, role: offer ?? (gesture.sticky ? 'sticky' : `gesture:${chips.map((c) => c.text).join(' ')}`) });
     }
     let chipX = x + (bubbled ? PAD * k : 0);
     chips.forEach((c, i) => {
       chipX += spaceBefore(chips, i, k);
       out.push({ type: 'chip', x: chipX, y, w: c.w, h: 32 * k, text: c.text,
-        cls: `chip ${c.head ? 'own head' : toneOf(c, stable, timeMs)}`, role: c.wait ? null : `chip:${c.text}` });
+        cls: `chip ${offer ? 'offer' : c.head ? 'own head' : toneOf(c, stable, timeMs)}`, role: offer ?? (c.wait ? null : `chip:${c.text}`) });
       chipX += c.w;
     });
     x += width + GAP * k;

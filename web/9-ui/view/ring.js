@@ -230,10 +230,10 @@ function chipArea({ st, data, cx, cy, win, k, w, shapes, fieldY }, point) {
   if (st.screen === 'line') return;
   if (st.full && st.mode !== 'line') return;
   const open = (data.open ?? 0) > 0.5; // the context field is open: the chips sit in it, its lowest row stays free to type
-  if (!data.chips?.length && !open && !st.full) return; // nothing written, field closed: no lonely dashed chip (14.11.)
+  if (!data.chips?.length && !data.offers?.length && !open && !st.full) return; // nothing written, field closed: no lonely dashed chip (14.11.)
   const y = st.full ? point.cy - 70 * k : open ? fieldY - 42 * k : fieldY; // chips 32 px high, centred: they end 2 px above the typing row
   const held = st.hold?.target === 'chip' ? [`chip:${st.hold.text}`, `gesture:${st.hold.text}`] : [];
-  shapes.push(...chipShapes(data.chips, { timeMs: data.timeMs, cx, y, k, w })
+  shapes.push(...chipShapes([...(data.chips ?? []), ...(data.offers ?? [])], { timeMs: data.timeMs, cx, y, k, w }) // own chips, then the offers of the result above
     .map((s) => (held.includes(s.role) ? { ...s, cls: `${s.cls} hold` } : s))); // the held context, as property
 }
 
@@ -323,6 +323,7 @@ const SVG = {
   line: (s) => `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" class="${s.cls}"${roleOf(s)}/>`,
   path: (s) => `<path d="${s.d}" class="${s.cls}"${roleOf(s)}/>`,
   sheet: (s) => `<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="${s.r}" class="${s.cls}"${roleOf(s)}/>`,
+  image: (s) => `<image href="data:image/png;base64,${s.png}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" class="${s.cls}"${roleOf(s)}/>`, // an app's icon (share row)
   label: (s) => `<text x="${s.x}" y="${s.y}" text-anchor="middle" class="${s.cls}">${esc(s.text)}</text>`,
   video: (s) => (s.window ? `<path d="${outlinePath(s.window)}" class="${s.cls}"${roleOf(s)}/>` : `<circle cx="${s.cx}" cy="${s.cy}" r="${s.d / 2}" class="${s.cls}"${roleOf(s)}/>`),
   thumb: (s) => `${s.href ? `<image href="${esc(s.href)}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" preserveAspectRatio="xMidYMid slice" style="clip-path: inset(0 round ${s.round ? s.s / 2 : 12}px)"/>` : ''}<rect x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" rx="${s.round ? s.s / 2 : 12}" class="${s.cls}${s.href ? ' seen' : ''}"${roleOf(s)}/>`,

@@ -267,6 +267,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const first = parseNotation(series).find((n) => n.t !== 'sym'); // written context: the next gesture of the series
     take.context = action === 'take-with-context' ? contextOf(st.hold?.text) : first ? writeNotation([first]) : '';
     take.fromSeries = action !== 'take-with-context' && Boolean(first);
+    if (data.adopted?.length) { take.context = [take.context, ...data.adopted.map((x) => `(${x})`)].filter(Boolean).join(' '); data.adopted = []; } // offers taken from the result above
     if (data.photo && toRecord(st).includes('v')) { // the picture point is on: one picture, no sound, saved at once
       const picture = await snapshot($('#live'));
       take.recorder = { stop: async () => ({ lengthMs: 0, picture, video: null, audio: null }), frame() {} };
@@ -443,6 +444,36 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const src = sources.find((x) => x.name === name);
     return src ? { store: src.store, path: rest.join(':') } : null;
   }
+  /** The context text of a take chain (its :x strand), or ''. */
+  async function contextTextOf(chain) {
+    const x = [...chain.defs.values()].find((d) => d.kind === 'x' && d.id);
+    const where = x && index.sharingPoints(writeId(x.id)).find((p) => /\.x\.sign$/.test(p));
+    if (!where) return '';
+    const [name, ...rest] = where.split(':');
+    const src = sources.find((y) => y.name === name);
+    if (!src) return '';
+    const text = new TextDecoder().decode(await src.store.read(rest.join(':')));
+    return readFile(text).rows.map((r) => r.text ?? '').join(' ').trim();
+  }
+  /**
+   * Similar · Doppel (14.11.): the context of the result above comes into my field greyed, as offers: one gesture = one
+   * chip or a cluster of chips in a bubble (chips in chips). Tap an offer = it becomes mine; ↓ = away.
+   */
+  async function offerContext(chain) {
+    const text = chain ? await contextTextOf(chain).catch(() => '') : '';
+    const mine = new Set(data.chips.map((c) => c.text));
+    data.offers = readContext(text).gestures.map((g) => g.chips.map((c) => c.text)).filter((w) => w.length && !mine.has(w.join(' ')))
+      .map((w) => (w.length > 1 ? { items: w.map((text) => ({ text, offer: true })), offer: true } : { text: w[0], offer: true }));
+  }
+  const offerText = (o) => (o.items ? o.items.map((c) => c.text).join(' ') : o.text);
+  /** An offer taken (14.11.): it joins my context for this take, as written there (one gesture, in front of the series). */
+  function adopt(text) {
+    data.offers = (data.offers ?? []).filter((o) => offerText(o) !== text);
+    data.adopted = [...(data.adopted ?? []), text]; // goes into the next take's context
+    setChips([...data.chips.filter((c) => !c.stable), { text }]);
+    navigator.vibrate?.(8);
+    return paint();
+  }
   /** A small picture for a tile: the picture itself, or the first frame of the video (96 px, kept for the session). */
   const thumbs = new Map(), pics = new Map();
   async function thumbOf(key) {
@@ -502,6 +533,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     else { delete v.dataset.picture; v.poster = ''; v.src = URL.createObjectURL(blob); v.loop = true; v.muted = true; v.play().catch(() => {}); }
     data.double = key;
     data.doubleAt = i;
+    await offerContext(takeOf(key));
     return paint();
   }
   /** An index key (chain or strand) → its take chain entry. */
@@ -847,7 +879,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'context-close': return openContext(false);
       // ---------- in the table, not wired yet: each says where it docks ----------
       case 'take-over': return reference(hit.index); // Similar · Doppel: the result above, the live picture below
-      case 'reference-out': data.double = null; $('#template').removeAttribute('src'); return paint(); // back to viele
+      case 'reference-out': data.double = null; data.offers = []; $('#template').removeAttribute('src'); return paint(); // back to viele
       case 'reference-next': case 'reference-before': { // ← next · → before, in the order of the tiles
         const n = data.similar.length;
         return n ? reference((data.doubleAt + (row.action === 'reference-next' ? 1 : -1) + n) % n) : null;
@@ -897,7 +929,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       handlers.doubleTap = doubles ? () => act('double-tap', role) : undefined;
       return role;
     },
-    tap: (x, y, role) => { if (!$('#share').hidden && role !== 'point') return menu.show(false); return act('tap', role, { x, y }); }, // a tap beside the circles closes them
+    tap: (x, y, role) => {
+      if (!$('#share').hidden && role !== 'point') return menu.show(false); // a tap beside the circles closes them
+      if (role?.startsWith('offer:')) return adopt(role.slice(6)); // a greyed context of the result above: now mine
+      return act('tap', role, { x, y });
+    },
     hold: (role) => act('hold', role),
     parallel: async (heldRole) => { // a second finger came while one is held: the held thing becomes the property
       const hold = propertyOf(heldRole);
@@ -910,7 +946,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (propertyRole && role === propertyRole) { spentRole = role; propertyRole = null; return step('release-property'); }
       if (st.held) end(); else if (st.sub === 'scrub') step('release');
     },
-    swipe: (dir, role) => act(dir, role),
+    swipe: (dir, role) => { if (role?.startsWith('offer:') && dir.startsWith('down')) { data.offers = data.offers.filter((o) => offerText(o) !== role.slice(6)); return paint(); } return act(dir, role); }, // ↓ on an offer: away
     pinch: (factor, role, how = {}) => { // on the point: one above the other = camera zoom, side by side = time (line zoom, or the waits) · on the picture: the window's form
       if (role === 'point') {
         if ((how.angle ?? 90) >= 45) return zoomBy(camera, how.fy ?? factor); // up and down: the picture
@@ -941,6 +977,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     },
   };
   bind($('#screen'), handlers);
+  // Android "back" (14.11.): one step back, never out of the app by surprise: sharing menu → full screen → Similar → context field
+  globalThis.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
+    if (!$('#share').hidden) return menu.show(false);
+    if (st.full) return act('down', 'top-middle');
+    if (data.double) { data.double = null; data.offers = []; $('#template').removeAttribute('src'); return paint(); } // Doppel → viele
+    if (st.similar) return act('edge-out', 'upper-right');
+    if ((data.open ?? 0) > 0) return openContext(false);
+    return globalThis.Capacitor.Plugins.App.minimizeApp?.();
+  });
 
   // ---------- edges ----------
   const edges = new Map(); // pointerId → where it started: an edge pull can come while the other finger holds

@@ -25,8 +25,26 @@ async function cached(files) {
   const fs = cap().Filesystem;
   if (!fs) return null;
   const uris = [];
-  for (const f of files) uris.push((await fs.writeFile({ path: `share/${f.name}`, data: b64(new Uint8Array(await f.arrayBuffer())), directory: 'CACHE', recursive: true })).uri);
+  for (const f of files) {
+    const path = `share/${f.name.replace(/[^\w.\-]+/g, '_')}`; // plain names: some apps stumble over ( ) ' @ !
+    uris.push((await fs.writeFile({ path, data: b64(new Uint8Array(await f.arrayBuffer())), directory: 'CACHE', recursive: true })).uri);
+  }
   return uris;
+}
+const mimeOf = (files) => { const t = [...new Set(files.map((f) => f.type || 'application/octet-stream'))]; return t.length === 1 ? t[0] : t.every((x) => x.startsWith('video/')) ? 'video/*' : '*/*'; };
+
+/** Android: the apps that take a share, with their icons (ShareTargets plugin) → [{ label, pkg, cls, icon }] or []. */
+export async function targets(mime = '*/*') {
+  try { return (await cap().ShareTargets?.list({ mime }))?.targets ?? []; } catch { return []; }
+}
+
+/** Android: straight to one app (target from targets()), or the system chooser without a target. → true when sent. */
+export async function sendTo(target, { text = '', files = [] }) {
+  const plugin = cap().ShareTargets;
+  if (!plugin) return send({ text, files });
+  const uris = (await cached(files)) ?? [];
+  await plugin.send({ paths: uris.map((u) => decodeURI(u.replace(/^file:\/\//, ''))), mime: mimeOf(files), text, ...(target ? { pkg: target.pkg, cls: target.cls } : {}) });
+  return true;
 }
 
 /**
@@ -35,6 +53,7 @@ async function cached(files) {
  * a single file downloaded.
  */
 export async function send({ text = '', title = 'Sign', files = [] }) {
+  if (cap().ShareTargets && files.length) return sendTo(null, { text, files }); // Android: content:// for every app, the chooser
   if (cap().Share) {
     const uris = files.length ? await cached(files) : [];
     if (uris) return cap().Share.share({ title, text, ...(uris.length ? { files: uris } : {}) });
