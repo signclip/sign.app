@@ -6,8 +6,10 @@
 //            (decided 13.11.: a connection = what is new goes there; a copy also takes everything so far)
 //              tap               share the last take there, now
 //              hold              NEW goes there from now on (the strands that are on in the ring); held again = off
+//              double-tap        encrypted ↔ readable (14.11.); a sharing point others read shakes (needs a group key)
 //              drag tile → tile  COPY there: everything so far once, then what is new (a line with a chevron);
 //                                this device (0) onto a tile = all my takes; a tile onto 0 = bring it here once
+//              tap this device   choose a new folder or disk on it (14.11.; phone: native app S4); + is for links only
 //                                (a backup is restored); dropped again = the connection ends
 //            encryption is no gesture (13.11.): always where it can be. On the way it always is (HTTPS); at rest
 //            a sharing point only I read (a picked folder or disk: private) gets everything encrypted (backup format) by
@@ -144,6 +146,14 @@ export function gestureOn(n, gesture, rules, extra = {}) {
       const mark = send?.mark ?? 'always'; // a strand put on a sharing point means "always"
       if (!kinds.length) return { edit: { rule: { to: n, mark }, on: false } }; // the last strand off ends it
       return { edit: { rule: { to: n, mark, kinds: allOrSome(kinds) }, on: true } };
+    }
+
+    case 'double': { // 14.11.: encrypted ↔ readable, for what goes from this device there from now on
+      const enc = ruleOf(rules, n, 'backup'), plain = ruleOf(rules, n, 'always');
+      const swap = (off, on) => ({ edits: [{ rule: { to: n, mark: off }, on: false }, { rule: { to: n, mark: on, kinds: [] }, on: true }] });
+      if (enc) return swap('backup', 'always'); // readable again: others with the link can read new files
+      if (!extra.private) return { deny: n }; // others read it: encrypted only with a group key (not yet)
+      return plain ? swap('always', 'backup') : { edit: { rule: { to: n, mark: 'backup', kinds: [] }, on: true } };
     }
 
     case 'left': { // bring in (show) or take out again

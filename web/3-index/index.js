@@ -11,6 +11,7 @@
 //            Video, audio and Parquet are never opened: chains define them, names locate them.
 // Depends:   1-model (file, ids, filename)
 // Test:      tests/storage.test.mjs, tests/share.test.mjs
+// Seals:     with keys, every .sign is checked against the z_ of its q_ (this device, lists, sharing-point.sign).
 // Limits:    in memory: ~200–300 B per file → 10⁵ Takes (~5·10⁵ files) ≈ 100–150 MB.
 //            Lookups are Map reads (~1 µs); versions walk the chain (~1 µs per step).
 // EXTEND(S3, index): the same tables in IndexedDB (PWA) / SQLite (native), index parts in
@@ -104,13 +105,21 @@ export class Index {
   similar() { return [...this.tables.similar].map((k) => this.tables.chains.get(k)); }
 }
 
+/** Check keys announced in a .sign: devices in a list, signers in a sharing-point.sign → [[q_…, z_…]]. */
+export function announcedKeys(text) {
+  return [...text.matchAll(/^:sharing-point\.\d+[^\n]*?!\((q_[0-9A-Z]+) z_([0-9A-Z]+)\)/gm)].map((m) => [m[1], m[2]]);
+}
+
 /**
  * Read every sharing point. stores: [{ name, store }]. Only .sign files are opened.
- * keys: { q_…: public key } from the lists of persons; then each file is checked:
- * witnessed true (right), false (missing or wrong: shown apart, not used in lines).
+ * keys: { q_…: z_… } known before (this device), or null = no checking. The keys announced in the files
+ * (lists, sharing-point.sign) are added on the way (14.11.); files whose key comes later are checked at the end.
+ * witnessed: true (right) · false (missing, wrong, or no key known: shown apart, not used in lines).
  */
 export async function buildIndex(stores, { keys = null } = {}, index = new Index()) {
   const dec = new TextDecoder();
+  const known = keys ? { ...keys } : null, later = [];
+  const check = async (entry, q, text) => { entry.witnessed = Boolean(known[q]) && (await checkWitness(known[q], text)); };
   index.skipped = []; // [{ store, path?, error }]: not part of the tables, never stops the rest (a brought-in
   //                     sharing point may be offline or hold a file this version cannot read)
   for (const { name, store } of stores) {
@@ -118,17 +127,22 @@ export async function buildIndex(stores, { keys = null } = {}, index = new Index
     try { files = await store.list(); } catch (err) { index.skipped.push({ store: name, error: String(err.message ?? err) }); continue; }
     for (const { path } of files) {
       index.addPath(name, path);
-      if (!path.endsWith('.sign') || path.endsWith('sharing-point.sign')) continue;
+      if (!path.endsWith('.sign')) continue;
       try {
         const text = dec.decode(await store.read(path));
+        if (known) for (const [q, z] of announcedKeys(text)) known[q] ??= z;
+        if (path.endsWith('sharing-point.sign')) continue; // only its keys
         const key = index.addText(text, { store: name, path });
-        if (!keys || !key) continue;
+        if (!known || !key) continue;
         const q = key.split(' ')[0];
         const entry = index.tables.chains.get(key) ?? index.tables.strands.get(key);
-        entry.witnessed = Boolean(keys[q]) && (await checkWitness(keys[q], text));
+        if (!/ y_/.test(text.slice(0, text.indexOf('\n') >>> 0))) entry.witnessed = false; // no seal at all: nothing to wait for
+        else if (known[q]) await check(entry, q, text); else later.push([entry, q, text]);
       } catch (err) { index.skipped.push({ store: name, path, error: String(err.message ?? err) }); }
     }
   }
+  for (const [entry, q, text] of later) await check(entry, q, text); // its key came in a file read after it
+  index.keys = known;
   return index;
 }
 

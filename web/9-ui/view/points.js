@@ -23,8 +23,9 @@
 //                          a dashed group circle · join = the group filled, a dotted line to my own space ·
 //                          join-own = all three filled: the icon complete, shown once, then the tiles take over.
 //                          At the signer each hello is a circle on a line from its group (the same icon).
-//              dashed +    ONE tile to bring a new one in (13.11.): a link or address on the clipboard is taken,
-//                          else a folder or disk is chosen; everything else is a connection between tiles
+//              dashed +    ONE tile to bring a new one in (13.11.): a link or address on the clipboard is taken
+//                          (folders and disks: tap this device, 14.11.); everything else is a connection between tiles ·
+//                          nothing usable on the clipboard (14.11.): a faint copy sign instead (copy a link, it turns +)
 //              dashed blue a share waiting for me (tap = take in), or the other side's page to accept
 //                          what I just gave (tap = open it, log in there if asked)
 //              browse      after a login: the folders of the account as tiles, ↑ = one level up
@@ -58,7 +59,7 @@ function edgeBar(kind, { cx, cy, tw, th }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
+export function pointShapes(all, { own = '', admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, clip = 'ready', shake = null, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const tw = 86 * k; // a tile: a rounded rectangle, two layers behind it = much lies inside
   const th = 64 * k;
   const y0 = top + 72 * k; // first row, under the handle
@@ -72,7 +73,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
     const { cx, cy } = grid(i, { w, k, y0 });
     at.set(role, { cx, cy, r: th / 2 });
     if (stack) for (const d of [8, 4]) add('sheet', { x: cx - tw / 2 + d * k, y: cy - th / 2 - d * k, w: tw, h: th, r: 14 * k, cls: 'tile-behind' });
-    add('sheet', { x: cx - tw / 2, y: cy - th / 2, w: tw, h: th, r: 14 * k, cls: `${cls}${appear ? ` appear a${Math.min(i, 9)}` : ''}${role === flash ? ' flash' : ''}`, role }); // opening: the tiles build up · flash: done (e.g. copied)
+    add('sheet', { x: cx - tw / 2, y: cy - th / 2, w: tw, h: th, r: 14 * k, cls: `${cls}${appear || fresh.has(role) ? ` appear a${appear ? Math.min(i, 9) : 0}` : ''}${role === flash ? ' flash' : ''}${role === shake ? ' shake' : ''}`, role }); // opening: the tiles build up · flash: done (e.g. copied)
     if (label) add('label', { x: cx, y: cy + th / 2 + 18 * k, text: label, cls: 'label' });
     return { cx, cy };
   };
@@ -167,8 +168,9 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   });
   incoming.forEach((x, i) => tile(next++, `incoming:${i}`, 'sp incoming', x.label)); // waiting for me: tap = take in
   if (acceptThere) tile(next++, 'accept-there', 'sp incoming there', acceptThere.label); // tap = their page to accept
-  tile(next, 'add:new', `sp add${waitSecret ? ' now' : ''}${pulse === 'add:new' ? ' breathe' : ''}`, '', { stack: false });
-  glyphPlus(at.get('add:new'), k, add);
+  const ghost = clip !== 'ready' && !waitSecret; // nothing to take: the copy sign says "copy something first"
+  tile(next, 'add:new', `sp add${waitSecret ? ' now' : ''}${ghost ? ' ghost' : ''}${pulse === 'add:new' ? ' breathe' : ''}`, '', { stack: false });
+  (ghost ? glyphCopy : glyphPlus)(at.get('add:new'), k, add);
   return { shapes, at };
 }
 
@@ -186,9 +188,13 @@ function ends(a, b) {
   return { x1: a.cx, y1: a.cy, x2: b.cx, y2: b.cy };
 }
 
-// a plus: one more sharing point
+// a plus: one more sharing point · a copy sign: two sheets, one over the other (nothing on the clipboard yet)
 function glyphPlus({ cx, cy }, k, add) {
   add('path', { d: `M ${cx - 10 * k} ${cy} H ${cx + 10 * k} M ${cx} ${cy - 10 * k} V ${cy + 10 * k}`, cls: 'glyph' });
+}
+function glyphCopy({ cx, cy }, k, add) {
+  const r = (x, y) => `M ${x + 2 * k} ${y} h ${10 * k} a ${2 * k} ${2 * k} 0 0 1 ${2 * k} ${2 * k} v ${12 * k} a ${2 * k} ${2 * k} 0 0 1 ${-2 * k} ${2 * k} h ${-10 * k} a ${2 * k} ${2 * k} 0 0 1 ${-2 * k} ${-2 * k} v ${-12 * k} a ${2 * k} ${2 * k} 0 0 1 ${2 * k} ${-2 * k} Z`;
+  add('path', { d: `${r(cx - 11 * k, cy - 12 * k)} ${r(cx - 3 * k, cy - 4 * k)}`, cls: 'glyph ghost' });
 }
 
 /**

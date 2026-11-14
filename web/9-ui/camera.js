@@ -6,6 +6,7 @@
 //            focus point partly); the native app (Capacitor) can do all three.
 
 import { openDevices } from '../5-take/recorder.js';
+import { constraints } from '../5-take/settings.js';
 
 const track = (stream) => stream.getVideoTracks()[0];
 const caps = (stream) => track(stream)?.getCapabilities?.() ?? {};
@@ -14,6 +15,14 @@ const caps = (stream) => track(stream)?.getCapabilities?.() ?? {};
 export async function flip(stream, facing) {
   stream.getTracks().forEach((t) => t.stop());
   return openDevices(navigator.mediaDevices, { facing });
+}
+
+/** Only the picture changes camera; the sound track stays (a take goes on, its sound unbroken). */
+export async function flipPicture(stream, facing) {
+  const { video } = constraints({ facing });
+  const fresh = await navigator.mediaDevices.getUserMedia({ video });
+  stream.getVideoTracks().forEach((t) => t.stop());
+  return new MediaStream([...fresh.getVideoTracks(), ...stream.getAudioTracks()]);
 }
 
 /** Zoom by a pinch factor (1 = unchanged), kept within what the camera allows. */

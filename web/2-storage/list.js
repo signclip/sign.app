@@ -12,6 +12,7 @@
 // Limits:    one list ≈ 100 B per sharing point + 60 B per rule; 10³ versions ≈ 0.5 MB in chain/;
 //            numbers n are positions, so a removed sharing point renumbers the rest in the new version.
 
+import { signed } from '../1-model/crypto.js';
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
 import { newId, writeId, shortU } from '../1-model/ids.js';
 import { hashBytes } from '../1-model/hash.js';
@@ -56,7 +57,7 @@ export function wants(kinds, path) {
  *   { label: 'Kurs 3', n }                                         rename
  * meta: { device (q_), person: { id, label }, now (ms), time } → { text, entries, rules }
  */
-export async function editList(oldText, edit, { device, person, now = Date.now(), time }) {
+export async function editList(oldText, edit, { device, person, now = Date.now(), time, deviceKey = null }) {
   let entries = readList(oldText).map(({ always, ...sp }) => sp);
   let rules = rulesOf(oldText);
   const same = (a, b) => (a.from ?? 0) === (b.from ?? 0) && a.to === b.to && a.mark === b.mark;
@@ -82,7 +83,7 @@ export async function editList(oldText, edit, { device, person, now = Date.now()
 
   const old = readFile(oldText);
   const id = newId({ q: device, n: person.id, now });
-  const text = fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": time }), [
+  const text = await signed(deviceKey, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": time }), [
     ...entries.map((sp, i) => {
       const id = sp.key ? `${sp.id} z_${sp.key}` : sp.id; // a device carries its check key
       return defLine(`sharing-point.${i + 1}`, { hint: sp.label, path: sp.path, id });
@@ -94,7 +95,7 @@ export async function editList(oldText, edit, { device, person, now = Date.now()
       return relationLine({ what: r.kinds, from: r.from, to: r.to, marks, time: r.time });
     }),
     ...(old.head.id ? ['{:chain.1}'] : []),
-  ]);
+  ]));
   return { text, id, entries, rules };
 }
 

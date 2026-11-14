@@ -10,14 +10,15 @@
 //            every strand may be missing (only audio, only text …).
 //            onto + keep: adding to an existing combination (SCHEMA G4b): the kept strands come from the
 //            chain below by reference, the new ones are recorded: {:x.1 _({:v.1})} and {:chain.1} at the bottom.
-// EXTEND(S2, video head): write the head line into the MP4 (udta box) once real recordings exist.
+// Heads (14.11.): every strand carries its own head with ID and y_ (media-head.js: wav chunk, png tEXt, mp4 uuid box).
 // EXTEND(S5, landmarks): .l.parquet and .m.mp4 come as echo in a new chain on top of this one.
 
 import { newId, writeId, shortU } from '../1-model/ids.js';
 import { hashBytes, storedText } from '../1-model/hash.js';
 import { headLine, defLine, fileText, readFile } from '../1-model/file.js';
 import { toJson } from '../1-model/json.js';
-import { encodeWav } from '../1-model/wav.js';
+import { encodeWav, wavSamples } from '../1-model/wav.js';
+import { headed, sealHead } from '../1-model/media-head.js';
 import { flatWords, timeLabel } from '../1-model/filename.js';
 import { pathOf, jsonPath } from '../2-storage/layout.js';
 import { signed } from '../1-model/crypto.js';
@@ -51,9 +52,13 @@ export async function saveTake({ device, person, cell = null, where = null, now 
     used.push(`${kind}.${n}`);
   };
 
-  if (video) { const id = make(); await add('v', id, video); }
-  else if (picture) { const id = make(); await add('v', id, picture, { ext: 'png' }); } // one picture (14.11.): the visual strand as .v.png, lossless
-  if (audio) { const id = make(); await add('a', id, encodeWav(audio.channels, audio.sampleRate, head('a', id))); }
+  // every strand carries its own head with ID and seal (media-head.js); the chain then holds the hash of the whole file
+  if (video) { const id = make(), ext = video[4] === 0x66 && video[5] === 0x74 ? 'mp4' : 'webm'; await add('v', id, await headed(ext, video, head('v', id), deviceKey)); } // 'ftyp' = MP4
+  else if (picture) { const id = make(); await add('v', id, await headed('png', picture, head('v', id), deviceKey), { ext: 'png' }); } // one picture (14.11.): the visual strand as .v.png, lossless
+  if (audio) {
+    const id = make(), samples = wavSamples(audio.channels);
+    await add('a', id, encodeWav(audio.channels, audio.sampleRate, await sealHead(deviceKey, head('a', id), samples), samples));
+  }
   if (context) {
     const id = make();
     const text = await signed(deviceKey, fileText(head('x', id), [], [storedText(context).replace(/\s*\n\s*/g, ' ').trim()]));

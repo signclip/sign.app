@@ -28,9 +28,9 @@ import { copy } from './system-share.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
-import { addNew, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
+import { addNew, peek, pickFolder, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
-import { folders } from './folders.js';
+import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
 import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled } from '../8-join/provision.js';
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
@@ -48,7 +48,8 @@ function keep(key, value) { try { localStorage.setItem(key, JSON.stringify(value
 async function clipboardText() {
   try {
     const cap = globalThis.Capacitor?.Plugins?.Clipboard;
-    return cap ? (await cap.read()).value : await navigator.clipboard.readText();
+    const read = cap ? cap.read().then((r) => r.value) : navigator.clipboard.readText();
+    return await Promise.race([read, new Promise((_, no) => setTimeout(() => no(new Error('clipboard')), 1000))]); // at most 1 s
   } catch {
     return '';
   }
@@ -87,8 +88,9 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   note.className = 'note';
   panel.append(svg, note);
 
-  const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()) });
-  const all = () => tiles(s.entries, s.rules, s.open, s.runs);
+  let sealWith = null; deviceKeys().then((k) => { sealWith = k.device; }, () => {}); // the list is sealed like every .sign
+  const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()), deviceKey: sealWith });
+  const all = () => tiles(s.entries, s.rules, s.open, s.runs).filter((x) => s.entries[x.n - 1]?.id !== device); // this device is the own tile (0), not a second one
 
   // ---------- upkeep: what is due runs by itself (2-storage/upkeep.js) ----------
   const host = async () => { const { pickup } = await deviceKeys(); return { id: device, pickup: pickup.public, privateKey: pickup.privateKey }; };
@@ -131,6 +133,11 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const text = at ? dec.decode(await own.read(at)) : '';
     s.entries = text ? readList(text) : [];
     s.rules = text ? rulesOf(text) : [];
+    if (!s.entries.some((e) => e.id === device && e.key)) { // this device in my own list with its check key z_ (14.11.):
+      const { device: key } = await deviceKeys(); sealWith = key; // whoever reads my list (atlas too) can check my seals
+      const added = await changeList(own, { add: { label: `${person.label} · ${device.slice(2, 6)}`, path: null, id: device, key: key.public } }, meta()).catch(() => null);
+      if (added) return load(); // once; if it cannot be written, the list stays as it was
+    }
     s.open = await openAll(s.entries, { keychain, own, folders });
     onSources(sources(s.rules, s.open, own));
     waitingShares(ctx).then(async (list) => { // asks in the background
@@ -175,7 +182,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     s.focus = n;
     const tile = ctx.tileOf(n);
     const target = { entry: { ...sp.entry, always: kinds ?? (tile.kinds.length ? tile.kinds : KINDS) }, description: sp.description ?? { kinds: KINDS }, store: sp.store };
-    await shareTake({ own, chainPath, device, person, now: Date.now(), targets: [target], once: once() }); // once: a held strand (parallel)
+    await shareTake({ own, chainPath, device, person, now: Date.now(), targets: [target], once: once(), deviceKey: (await deviceKeys()).device }); // once: a held strand (parallel)
     return say(`${t('share')} → ${sp.entry.label}`);
   }
 
@@ -223,6 +230,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       return say(r ? t('run.ok', { label: ctx.tileOf(result.once.n)?.label ?? '', n: r.copied.length }) : t('notReachable'));
     }
     if (result.action === 'share') return shareTo(result.n);
+    if (result.deny) { s.shake = `sp:${result.deny}`; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; } // not possible: the tile shakes
     if (result.give) { // my Nextcloud dropped on another account: the line, and the share now
       for (const change of result.edits ?? [result.edit]) await edit(change);
       const entry = s.entries[result.give.n - 1];
@@ -242,7 +250,10 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (!role) return show(false); // a tap beside the sheet = back
     if (role === 'sheet') return null; // the sheet itself
     const [what, a, b] = role.split(':');
-    if (what === 'sp' && a === '0') return null; // this device: its gestures are drags
+    if (what === 'sp' && a === '0') { // this device (14.11.): a tap chooses a new folder or disk on it
+      if (canPick()) return pickFolder(ctx);
+      s.shake = 'sp:0'; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; // the phone: with the native app (S4)
+    }
     if (what === 'sp') {
       const tile = ctx.tileOf(Number(a));
       if (tile?.state === 'cloud') return askAccount(ctx, tile.n); // my cloud id copied, their server opens
@@ -343,7 +354,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const browse = s.accounts ? accountTiles() : s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const hellos = s.hellos.map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();
@@ -356,9 +367,13 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   const circleOf = (r) => (r?.startsWith('sp:') ? Number(r.split(':')[1]) : null);
   const handlers = {
     down: (e) => {
-      role = roleOf(e.target); // double-tap is free here (13.11.: encryption is no gesture), so a tap never waits
+      role = roleOf(e.target);
     },
-    tap: () => tapped(role),
+    tap: () => tapped(role), // waits 300 ms: it may become a double-tap
+    doubleTap: () => { // 14.11.: on a sharing point = encrypted ↔ readable (the line from this device turns double / single)
+      const n = circleOf(role);
+      return n ? apply(gestureOn(n, 'double', s.rules, { private: ctx.tileOf(n)?.private })) : null;
+    },
 
     swipe: (dir) => {
       if (s.confirm && (dir === 'down' || dir === 'down-far')) { s.confirm = null; return draw(); } // the first circle pushed away: nothing goes
@@ -421,9 +436,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (changed && !panel.hidden) draw();
   }, 30e3);
 
+  async function look() { // the + appears when the clipboard holds something it can take (14.11.)
+    const now = await peek(s);
+    if (now !== s.clip) { s.clip = now; if (now === 'ready') s.fresh.add('add:new'); if (!panel.hidden) draw(); }
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !panel.hidden) look(); }); // back after copying a link
   function show(on) {
     panel.hidden = !on;
-    if (on) { s.appear = true; draw(); }
+    if (on) { s.appear = true; draw(); look(); }
   }
   return {
     show,

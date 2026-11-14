@@ -17,6 +17,7 @@ import { newId, writeId, shortU } from '../1-model/ids.js';
 import { hashBytes } from '../1-model/hash.js';
 import { buildName, timeLabel } from '../1-model/filename.js';
 import { monthOf } from '../2-storage/layout.js';
+import { signed } from '../1-model/crypto.js';
 import { timeRange } from '../7-similar/filter.js';
 
 const enc = new TextEncoder(), dec = new TextDecoder();
@@ -53,7 +54,7 @@ export function readSimilar(text) {
  * Keep a similar as its own chain. from: path of the chain it is called from (→ {:chain.1}), or null for a
  * new one. → { path, id, text }
  */
-export async function saveSimilar(store, similar, { device, person, now = Date.now(), from = null }) {
+export async function saveSimilar(store, similar, { device, person, now = Date.now(), from = null, deviceKey = null }) {
   const time = timeLabel(now);
   const id = newId({ q: device, n: person.id, now });
   const defs = similarDefs(similar);
@@ -63,7 +64,7 @@ export async function saveSimilar(store, similar, { device, person, now = Date.n
     defs.push(defLine('chain.1', { id: writeId(readFile(below).head.id, await hashBytes(enc.encode(below))) }));
     rows.push('{:chain.1}');
   }
-  const text = fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": time }), defs, rows);
+  const text = await signed(deviceKey, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": time }), defs, rows));
   const words = ['similar', ...(similar.words ?? [])].slice(0, 6);
   const path = `chain/${monthOf(time)}/${buildName({ words, person: person.label, time, u: shortU(id), kind: 'chain', ext: 'sign' })}`;
   await store.write(path, enc.encode(text));

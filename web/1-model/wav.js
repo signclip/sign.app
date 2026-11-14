@@ -10,8 +10,16 @@
 
 const enc = new TextEncoder();
 
-/** channels: Float32Array per channel (same length). Returns Uint8Array. */
-export function encodeWav(channels, sampleRate, head = '') {
+/** The samples as they stand in the data chunk: interleaved 32-bit float, little endian (what a head's seal covers). */
+export function wavSamples(channels) {
+  const count = channels.length, frames = channels[0]?.length ?? 0;
+  const out = new Uint8Array(frames * count * 4), v = new DataView(out.buffer);
+  for (let i = 0, o = 0; i < frames; i++) for (let c = 0; c < count; c++, o += 4) v.setFloat32(o, channels[c][i], true);
+  return out;
+}
+
+/** channels: Float32Array per channel (same length). samples: wavSamples(channels), if made already. Returns Uint8Array. */
+export function encodeWav(channels, sampleRate, head = '', samples = wavSamples(channels)) {
   const count = channels.length;
   const frames = channels[0]?.length ?? 0;
   const headBytes = enc.encode(head);
@@ -30,7 +38,7 @@ export function encodeWav(channels, sampleRate, head = '') {
   tag('fact'); u32(4); u32(frames);
   tag('sign'); u32(headBytes.length); u8.set(headBytes, o); o += headBytes.length + headPad;
   tag('data'); u32(dataBytes);
-  for (let i = 0; i < frames; i++) for (let c = 0; c < count; c++) { v.setFloat32(o, channels[c][i], true); o += 4; }
+  u8.set(samples, o);
   return u8;
 }
 
@@ -49,6 +57,7 @@ export function readWav(bytes, { samples = false } = {}) {
     if (id === 'sign') out.head = new TextDecoder().decode(bytes.subarray(at, at + len));
     if (id === 'data') {
       out.frames = len / (4 * out.channels);
+      out.dataAt = at; out.dataLen = len;
       if (samples) {
         out.data = Array.from({ length: out.channels }, () => new Float32Array(out.frames));
         for (let i = 0; i < out.frames; i++) for (let c = 0; c < out.channels; c++) out.data[c][i] = v.getFloat32(at + (i * out.channels + c) * 4, true);

@@ -6,7 +6,7 @@
 //   strand arc: tap = on/off (stays until changed) · hold = only this strand while held · ↑ its chips · ← hide
 //   chip: hold = record more strands to it (kept solid, new dashed) · ↓ take this context away
 //         · double-tap = sticky on/off: in front, one bubble, a prefix (G4) for every take of the series
-//   live picture: tap = focus · hold = video while held · ← → front/back camera · pinch = zoom
+//   live picture: tap = focus · double-tap = front/back camera (also in a take) · hold = video while held · pinch = form
 //   no settings area (14.11.): form = ↑/↓ on the picture · strands as left · waits = pinch on the point · onboarding
 //   again = hold your own tile in the sharing menu
 //   edges: middle left strands · upper right Similar · middle right share · top: ↑ full, ↓ Similar
@@ -35,8 +35,10 @@ import { saveSimilar } from '../4-save/save-similar.js';
 import { addLine } from '../4-save/add-line.js';
 import { askRemove } from '../8-join/remove-request.js';
 import { deviceKeys } from './device-keys.js';
+const sealKey = async () => (await deviceKeys().catch(() => null))?.device ?? null; // every .sign this device writes gets its y_ (SCHEMA B2)
 import { readName } from '../1-model/filename.js';
 import { openDevices, startTake, browserTap } from '../5-take/recorder.js';
+import { relay } from '../5-take/relay.js';
 import { loadWhisper } from '../5-take/whisper-engine.js';
 import { transcribe, contextOf as wordsRow } from '../5-take/whisper.js';
 import { toMono, resample } from '../5-take/resample.js';
@@ -49,11 +51,11 @@ import { write as writeNotation, parse as parseNotation } from '../1-model/notat
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse } from './state.js';
 import { MANY } from './view/ring.js';
-import { formOf, formBy, snapForm } from './view/shape.js';
+import { formOf, formBy, snapForm, inside as insideWindow } from './view/shape.js';
 import { mountScreen, targetOf } from './screen.js';
 import { normalize, readyStep, choose, CHOICES } from './settings.js';
 import { watch } from './ready.js';
-import { flip, zoomBy, focusAt, torch } from './camera.js';
+import { flip, flipPicture, zoomBy, focusAt, torch } from './camera.js';
 import { bind, edgeZone } from './touch.js';
 import { strandChips, draw } from './panels.js';
 import { filterChips, toggle, filtersOf, EMPTY } from './similar-filter.js';
@@ -123,7 +125,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const setChips = (current = data.chips.filter((c) => !c.stable)) => { data.chips = [...stickyChips(), ...current]; };
   setChips([]);
   let sources = [{ name: 'own', store }];
-  let index = await buildIndex(sources);
+  const ownKeys = await deviceKeys().then((k) => ({ [device]: k.device.public }), () => ({})); // this device's z_: the index checks seals
+  const reindex = () => buildIndex(sources, { keys: ownKeys });
+  let index = await reindex();
   /** The newest version of my newest take: what the chain gestures lay on after a restart. */
   const newestOwnChain = () => {
     const top = new Set([...index.tables.chains.values()].map((c) => c.below).filter(Boolean)); // chains with one on top are older versions
@@ -181,7 +185,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     nameSign: async () => { // the first take of the onboarding goes along with every hello
       try { const p = localStorage.getItem('sign.nameSign'); return p ? await store.read(p) : null; } catch { return null; }
     },
-    onSources: async (list) => { sources = list; index = await buildIndex(sources); },
+    onSources: async (list) => { sources = list; index = await reindex(); },
     onHello: () => learned('hello'), // onboarding: I dragged myself onto the door
     onOwnHold: () => { // my own tile held: the first steps again (there is no settings area)
       settings = choose(settings, 'onboarding', true);
@@ -214,10 +218,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (!engine) return;
     const words = await transcribe(engine, resample(toMono(audio.channels), audio.sampleRate, 16000));
     if (!words.length) return;
-    await addEcho({ own: store, chainPath, from: 'a.1', kind: 'x', row: wordsRow(words), echo: engine.label, device, person });
+    await addEcho({ own: store, chainPath, from: 'a.1', kind: 'x', row: wordsRow(words), echo: engine.label, device, person , deviceKey: await sealKey() });
     setChips(words.map((w) => ({ text: w.text, t: [w.from, w.to] })));
     paint();
-    index = await buildIndex(sources);
+    index = await reindex();
   }
 
   // ---------- always ready: motion or sound starts and stops a take ----------
@@ -267,7 +271,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     take.starting = true; // the microphone takes ~50–300 ms to open; a tap meanwhile = stop right after
     const tap = await browserTap(camera).finally(() => { take.starting = false; });
     if (st.screen !== 'record') { tap.stop(); return; } // undone meanwhile (a second finger came)
-    take.recorder = startTake(camera, { MediaRecorder, tapAudio: () => tap });
+    try { take.relay = relay($('#live')); } catch { take.relay = null; } // the camera may change during the take (14.11.)
+    const source = take.relay ? new MediaStream([take.relay.track, ...camera.getAudioTracks()]) : camera;
+    take.recorder = startTake(source, { MediaRecorder, tapAudio: () => tap });
     navigator.vibrate?.(25); // the take runs: felt, not only seen
     if (take.stopSoon) { take.stopSoon = false; return end(); }
     data.levels = [];
@@ -286,12 +292,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const r = take.recorder;
     take.recorder = null;
     await r.stop().catch(() => {});
+    take.relay?.stop(); take.relay = null;
   }
 
   async function end() {
     if (take.starting) { take.stopSoon = true; return; }
     if (!take.recorder) return;
     const recorded = await take.recorder.stop();
+    take.relay?.stop(); take.relay = null;
     navigator.vibrate?.([15, 60, 15]); // stopped: two short pulses
     data.paused = false;
     take.recorder = null;
@@ -306,7 +314,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         video: kinds.includes('v') ? recorded.video : null,
         picture: kinds.includes('v') ? recorded.picture ?? null : null,
         audio: kinds.includes('a') ? recorded.audio : null,
-        onto, keep,
+        onto, keep, deviceKey: await sealKey(),
       });
     } catch { // could not be saved (storage full, gone): back to ready at once, the point says so
       step('saved');
@@ -316,7 +324,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     take.lastChain = saved.chain.path;
     if (data.double) { // Similar · Doppel: the result is the line underneath, the new take a line on top of it (14.11.)
       const ref = await chainBytes(data.double);
-      if (ref) take.lastChain = (await addLine({ own: store, below: ref.bytes, elements: [{ bytes: await store.read(saved.chain.path) }], device, person })).chain;
+      if (ref) take.lastChain = (await addLine({ own: store, below: ref.bytes, elements: [{ bytes: await store.read(saved.chain.path) }], device, person , deviceKey: await sealKey() })).chain;
     }
     if (take.fromSeries) { series = nextOfSeries(series); showSeries(); } // the series goes one on
     take.lastKinds = [...new Set([...kinds, ...keep])];
@@ -335,7 +343,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     learned(take.began);
     if (settings.flows.includes('a>x') && recorded.audio && kinds.includes('a')) flowAudio(saved.chain.path, recorded.audio).catch((err) => console.warn('whisper', err));
     await menu.afterTake(saved.paths); // (always) rules of the list
-    index = await buildIndex(sources);
+    index = await reindex();
   }
 
   // ---------- replay: the line of my takes, newest first ----------
@@ -354,7 +362,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   let rawShape = null; // the form as the fingers have it; what shows rests at the circle when near (snapForm)
   function reshape(change) {
     rawShape = formOf({ ...(rawShape ?? data.shape), ...change });
-    const was = data.shape, now = snapForm(rawShape);
+    const was = data.shape, now = snapForm(rawShape, was);
     if ((now.round === 1 && now.aspect === 1) && !(was.round === 1 && was.aspect === 1)) navigator.vibrate?.(12); // arrived at the circle: a short tick
     data.shape = now;
     settings = normalize({ ...settings, shape: data.shape });
@@ -399,9 +407,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   async function layOn(keys, together = false) {
     const elements = (await Promise.all(keys.map(chainBytes))).filter(Boolean);
     if (!elements.length) return null;
-    const r = await addLine({ own: store, chainPath: take.lastChain, elements, together, device, person });
+    const r = await addLine({ own: store, chainPath: take.lastChain, elements, together, device, person , deviceKey: await sealKey() });
     take.lastChain = r.chain;
-    index = await buildIndex(sources);
+    index = await reindex();
     const head = readFile(dec.decode(await store.read(r.chain))).head;
     data.versions = Math.max(1, index.versions(writeId(head.id)).length);
     return r.chain;
@@ -548,8 +556,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     // EXTEND(S4, part): a part of a strand ('part') with the moment from the line
     if (names.length && what !== 'part') {
       await askAway(take.lastChain, strands.filter((d) => names.includes(d.name))); // where it was shared: a request there
-      await removeStrands({ own: store, chainPath: take.lastChain, names, chips: { similar: true }, device, person });
-      index = await buildIndex(sources);
+      await removeStrands({ own: store, chainPath: take.lastChain, names, chips: { similar: true }, device, person , deviceKey: await sealKey() });
+      index = await reindex();
       feedback('gone');
     }
     step('done');
@@ -581,7 +589,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (filter === EMPTY) return; // EXTEND(S3, words): words of a held chip into the kept similar
     const f = filtersOf(index, filter);
     const time = f.time ? [...new Set(f.time)].join('_') : null;
-    await saveSimilar(store, { kinds: f.kinds, persons: f.persons, time, sharingPoints: f.sharingPoints.map((label) => ({ label })) }, { device, person });
+    await saveSimilar(store, { kinds: f.kinds, persons: f.persons, time, sharingPoints: f.sharingPoints.map((label) => ({ label })) }, { device, person, deviceKey: await sealKey() });
   }
 
   // ---------- the context field: chips, and writing (one gesture per Enter; the series goes one on per take) ----------
@@ -753,15 +761,24 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         data.photo = !data.photo;
         try { localStorage.setItem('sign.photo', data.photo ? '1' : ''); } catch { /* private mode */ }
         return paint();
-      case 'focus': return focusAt(camera, hit.x, hit.y);
+      case 'focus': { // only inside the visible window (also during a take); the camera wants 0…1 of its picture
+        const v = screen.last?.video, win = screen.last?.window;
+        const r = $('#screen').getBoundingClientRect(), x = hit.x - r.left, y = hit.y - r.top;
+        if (!v || !win || !insideWindow(win, x, y)) return null;
+        data.focus = { x, y };
+        focusAt(camera, (x - (v.cx - v.d / 2)) / v.d, (y - (v.cy - v.d / 2)) / v.d).catch(() => {});
+        await animate('focusT', 0, 1, 900);
+        delete data.focus; delete data.focusT;
+        return paint();
+      }
       case 'zoom': case 'waits': return null; // pinch goes straight to the camera, or on the point to the waits (handlers.pinch)
       case 'form': return null; // a corner dragged: handlers.slide shapes the window as the finger moves
       case 'switch-camera':
-        if (take.recorder) return null;
+        if (take.recorder && !take.relay) return null; // without the canvas the recorder would end
         settings = choose(settings, 'facing', settings.facing === 'user' ? 'environment' : 'user');
         saveSettings();
         unwatch();
-        camera = await flip(camera, settings.facing);
+        camera = take.recorder ? await flipPicture(camera, settings.facing) : await flip(camera, settings.facing); // in a take the sound goes on
         $('#live').srcObject = camera;
         unwatch = watch(camera, onActivity, { video: $('#live') });
         return null;
@@ -850,8 +867,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         if (!chain?.from || chain.from.store !== 'own') return null;
         const strands = [...chain.defs.values()].filter((d) => ['v', 'a', 'x', 'l'].includes(d.kind));
         await askAway(chain.from.path, strands);
-        await removeStrands({ own: store, chainPath: chain.from.path, names: strands.map((d) => d.name), chips: { similar: true }, device, person });
-        index = await buildIndex(sources);
+        await removeStrands({ own: store, chainPath: chain.from.path, names: strands.map((d) => d.name), chips: { similar: true }, device, person , deviceKey: await sealKey() });
+        index = await reindex();
         data.line = { count: (await takeVisuals()).length, at: 0 };
         data.lineThumbs = {}; lineThumbs();
         return paint();
@@ -872,7 +889,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const handlers = {
     down: (e) => {
       const role = screen.roleAt(e);
-      const doubles = role === 'point' || role?.startsWith('chip:') || role === 'sticky' || role === 'line-arc'; // these wait for a second tap
+      const doubles = role === 'point' || role === 'live' || role?.startsWith('chip:') || role === 'sticky' || role === 'line-arc'; // these wait for a second tap
       handlers.doubleTap = doubles ? () => act('double-tap', role) : undefined;
       return role;
     },
@@ -897,6 +914,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         if (data.items?.length && ['line', 'record', 'stream'].includes(st.screen)) { data.timeZoom = Math.max(0.25, Math.min(8, (data.timeZoom ?? 1) * f)); return paint(); }
         return st.ready ? waitsBy(f) : null;
       }
+      const win = screen.last?.window, r = $('#screen').getBoundingClientRect(); // the form only from inside the window; outside a pinch means nothing
+      if (!win || !how.mid || !insideWindow(win, how.mid.x - r.left, how.mid.y - r.top)) return null;
       return reshape(formBy(rawShape ?? data.shape, factor, how));
     },
     slide: (role, dx, dy) => { // a corner of the window: inwards rounder, outwards squarer

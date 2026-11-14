@@ -2,9 +2,10 @@
 //
 // Purpose:   one form between square and ellipse: { round 0…1, aspect }. round = how rounded the corners are (a
 //            corner dragged inwards = rounder, outwards = squarer, continuous); fully round is an ellipse by itself;
-//            aspect = width / height (two fingers pinched across = narrower, along = lower). A superellipse
-//            |x/a|ⁿ + |y/b|ⁿ = 1 does all of it: n = 2 ellipse … n = 40 nearly square (n = 2·20^(1−round)). Outside the window nothing shows
-//            (the whole square can be watched in review). Every side of the screen is placed
+//            aspect = width / height (two fingers pinched across = narrower, along = lower). A rectangle with
+//            elliptical corners of radii round·rx and round·ry does all of it with true arcs: 0 = rectangle,
+//            1 = exactly an ellipse (a circle when even), in between nicely rounded corners. Outside the window
+//            nothing shows (the whole square can be watched in review). Every side of the screen is placed
 //            by DEGREES around the window (0° = top, clockwise), so the arcs sit at the same angles whatever its
 //            shape: line −60…60 · audio 60…140 · context 140…220 · visual 220…300.
 // Depends:   nothing
@@ -24,10 +25,10 @@ export function formOf(x) {
 
 /** The window inside a field of side F around (cx, cy). */
 export function windowOf(shape, { cx, cy, F }) {
-  if (shape && typeof shape === 'object' && shape.shape === 'super') return { ...shape, cx, cy, rx: F / 2 * Math.min(1, shape.aspect ?? 1), ry: F / 2 * Math.min(1, 1 / (shape.aspect ?? 1)) }; // the same form, moved
-  if (shape && typeof shape === 'object') {
+  if (shape && typeof shape === 'object') { // by hand: rectangle … ellipse (also a window passed on: the same form, moved)
     const { round, aspect } = formOf(shape);
-    return { shape: 'super', cx, cy, rx: (F / 2) * Math.min(1, aspect), ry: (F / 2) * Math.min(1, 1 / aspect), n: 2 * 20 ** (1 - round), round, aspect }; // n 2 (ellipse) … 40 (nearly square), even steps for the eye
+    const rx = (F / 2) * Math.min(1, aspect), ry = (F / 2) * Math.min(1, 1 / aspect);
+    return { shape: 'rrect', cx, cy, rx, ry, ax: round * rx, ay: round * ry, round, aspect };
   }
   if (shape === 'ellipse') return { shape, cx, cy, rx: F * 0.4, ry: F / 2 }; // upright: head, hands, the signing space
   if (shape === 'rounded') return { shape, cx, cy, hw: F / 2, hh: F / 2, r: F * 0.18 };
@@ -53,12 +54,18 @@ export function onShape(win, deg, out = 0) {
       [px, py] = [dx * s, dy * s];
       [nx, ny] = [(px - ccx) / r, (py - ccy) / r];
     } else [nx, ny] = Math.abs(px) >= hw - 1e-6 ? [Math.sign(px), 0] : [0, Math.sign(py)];
-  } else if (win.shape === 'super') {
-    const { rx, ry, n } = win;
-    const t = (Math.abs(dx / rx) ** n + Math.abs(dy / ry) ** n) ** (-1 / n);
+  } else if (win.shape === 'rrect') {
+    const { rx, ry, ax, ay } = win;
+    const t = Math.min(Math.abs(dx) > 1e-9 ? rx / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-9 ? ry / Math.abs(dy) : Infinity);
     [px, py] = [dx * t, dy * t];
-    const gx = (Math.sign(px) * Math.abs(px / rx) ** (n - 1)) / rx, gy = (Math.sign(py) * Math.abs(py / ry) ** (n - 1)) / ry, gl = Math.hypot(gx, gy) || 1;
-    [nx, ny] = [gx / gl, gy / gl];
+    if (ax > 1e-6 && ay > 1e-6 && Math.abs(px) > rx - ax && Math.abs(py) > ry - ay) { // in a corner: the ray meets the corner's ellipse
+      const ccx = Math.sign(px) * (rx - ax), ccy = Math.sign(py) * (ry - ay);
+      const A = (dx / ax) ** 2 + (dy / ay) ** 2, B = -2 * ((dx * ccx) / ax ** 2 + (dy * ccy) / ay ** 2), C = (ccx / ax) ** 2 + (ccy / ay) ** 2 - 1;
+      const s = (-B + Math.sqrt(Math.max(0, B * B - 4 * A * C))) / (2 * A);
+      [px, py] = [dx * s, dy * s];
+      const gx = (px - ccx) / ax ** 2, gy = (py - ccy) / ay ** 2, gl = Math.hypot(gx, gy) || 1;
+      [nx, ny] = [gx / gl, gy / gl];
+    } else [nx, ny] = Math.abs(px) >= rx - 1e-6 ? [Math.sign(px), 0] : [0, Math.sign(py)];
   } else {
     const { rx, ry } = win;
     const t = 1 / Math.sqrt((dx / rx) ** 2 + (dy / ry) ** 2);
@@ -82,7 +89,11 @@ export const pathThrough = (pts) => `M ${pts.map(([x, y]) => `${x.toFixed(1)} ${
 
 /** The whole outline as a closed SVG path (for the window and the greyed rest around it). */
 export function outlinePath(win) {
-  if (win.shape === 'super') return `${pathThrough(Array.from({ length: 144 }, (_, i) => onShape(win, i * 2.5)))} Z`;
+  if (win.shape === 'rrect') { // true elliptical arcs in the corners
+    const { cx, cy, rx, ry, ax, ay } = win;
+    const x0 = cx - rx, x1 = cx + rx, y0 = cy - ry, y1 = cy + ry;
+    return `M ${x0 + ax} ${y0} H ${x1 - ax} A ${ax} ${ay} 0 0 1 ${x1} ${y0 + ay} V ${y1 - ay} A ${ax} ${ay} 0 0 1 ${x1 - ax} ${y1} H ${x0 + ax} A ${ax} ${ay} 0 0 1 ${x0} ${y1 - ay} V ${y0 + ay} A ${ax} ${ay} 0 0 1 ${x0 + ax} ${y0} Z`;
+  }
   if (win.shape === 'rounded') {
     const { cx, cy, hw, hh, r } = win;
     const x = cx - hw, y = cy - hh, w = 2 * hw, h = 2 * hh;
@@ -116,9 +127,12 @@ export function formBy(form, factor, { fx = 1, fy = 1, angle = 45 } = {}) {
   return formOf({ round, aspect });
 }
 
-/** Near the circle the form rests there (14.11.): aspect within ±8 %, corners above 92 % round = exactly a circle. */
-export function snapForm(form) {
-  const f = formOf(form);
-  const aspect = Math.abs(f.aspect - 1) < 0.08 ? 1 : f.aspect, round = f.round > 0.92 ? 1 : f.round;
+/** Near the circle the form rests there (14.11.): aspect within ±8 %, corners above 92 % round = exactly a circle; once there, it holds (shown = the form on screen). */
+export function snapForm(form, shown) {
+  const f = formOf(form), s = shown && formOf(shown);
+  const atCircle = s && s.round === 1 && s.aspect === 1, atRect = s && s.round === 0;
+  // a circle holds: to arrive within 8 % / 92 %, to leave only beyond 20 % / 75 % (the fingers must clearly mean it)
+  const aspect = Math.abs(f.aspect - 1) < (atCircle ? 0.2 : 0.08) ? 1 : f.aspect;
+  const round = f.round > (atCircle ? 0.75 : 0.92) ? 1 : f.round < (atRect ? 0.15 : 0.06) ? 0 : f.round; // a rectangle holds the same way
   return { round, aspect };
 }

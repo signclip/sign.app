@@ -41,23 +41,41 @@ import { folders, canPick } from './folders.js';
 import { copy } from './system-share.js';
 import { bringInvitation } from './share-group.js';
 
-async function clipboard() {
+async function clipboard() { // at most 1 s: a clipboard that asks and never answers must not swallow the tap
   const cap = globalThis.Capacitor?.Plugins?.Clipboard;
-  return cap ? (await cap.read()).value : navigator.clipboard.readText();
+  const read = cap ? cap.read().then((r) => r.value) : navigator.clipboard.readText();
+  return Promise.race([read, new Promise((_, no) => setTimeout(() => no(new Error('clipboard')), 1000))]);
 }
 
 /**
  * The one + tile: whatever brings a sharing point in. A link, an address, a server, a cloud id, a group text or an
- * awaited password on the clipboard → bringIn; nothing usable there → choose a folder or disk (pickFolder).
+ * awaited password on the clipboard → bringIn; nothing usable there: the copy sign shakes. Folders and disks come
+ * from a tap on this device's own tile (pickFolder, 14.11.): the + is only for links.
  */
+const usable = (s, text) => Boolean(s.waitSecret || s.giveTo || text.includes('\n') || readPaste(text));
+
+/**
+ * Without a tap (14.11.): is there something the + could take? → 'ready' | 'ghost'. The native app reads the clipboard;
+ * the browser only when reading was allowed before (else it would ask).
+ */
+export async function peek(s) {
+  if (s.waitSecret || s.giveTo) return 'ready';
+  let text = '';
+  try {
+    const cap = globalThis.Capacitor?.Plugins?.Clipboard;
+    const allowed = cap || (await navigator.permissions?.query?.({ name: 'clipboard-read' }).then((p) => p.state === 'granted', () => false));
+    if (allowed) text = (await clipboard()) ?? '';
+  } catch { /* empty or not allowed */ }
+  return usable(s, text) ? 'ready' : 'ghost';
+}
+
 export async function addNew(ctx) {
   let text = '';
   try { text = (await clipboard()) ?? ''; } catch { /* no permission: then a folder */ }
-  if (ctx.s.waitSecret || ctx.s.giveTo || text.includes('\n') || readPaste(text)) return bringIn(ctx);
-  if (canPick()) return pickFolder(ctx);
-  ctx.s.pulse = 'add:new'; // nothing usable on the clipboard: + breathes, and the note says what it wants
-  setTimeout(() => { ctx.s.pulse = null; ctx.draw(); }, 1600);
-  return ctx.say(ctx.t('menu.paste'));
+  if (usable(ctx.s, text)) return bringIn(ctx);
+  ctx.s.clip = 'ghost'; ctx.s.shake = 'add:new'; ctx.draw(); // nothing usable: the copy sign shakes, no words
+  setTimeout(() => { ctx.s.shake = null; ctx.draw(); }, 400);
+  return null;
 }
 
 /** ← paste. ctx: { s, keychain, edit, load, say, t } (share-mount.js). */

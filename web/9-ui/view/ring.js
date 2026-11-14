@@ -123,6 +123,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
     for (let x = 0; x < w; x += other ? 18 * k : w) g.add('sheet', { x, y: 0, w: other ? 12 * k : w, h: 5 * k, r: 0, cls: `from ${other ? 'other' : 'own'}` });
   }
   if (half) similarTiles(g, point.cy - ring - 10 * k); // half: above the line, a result can be dragged onto it
+  if (data.focus && !st.full) g.add('circle', { cx: data.focus.x, cy: data.focus.y, r: (34 - 12 * (data.focusT ?? 0)) * k, fade: 1 - (data.focusT ?? 0) * 0.8, cls: 'focus-mark' }); // where it focuses
   if (data.feedback && !many) { // saved: a green ring going out · gone: a red dashed ring going in (R7); p 0 → 1 over 0.9 s
     const p = data.feedbackP ?? 0;
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (data.feedback === 'saved' ? 4 + 26 * p : 30 - 26 * p) * k, fade: 1 - p, cls: `feedback ${data.feedback}` });
@@ -271,7 +272,7 @@ function similarTiles({ data, w, h, k, add }, bottom = h) {
  */
 function referenceWindow({ data, w, h, k, cx, F, win, ring, add }, point) {
   const cy = point.cy - ring - 4 * k - F / 2;
-  const ref = windowOf(win.shape === 'super' ? win : win.shape, { cx, cy, F });
+  const ref = windowOf(win.shape === 'rrect' ? win : win.shape, { cx, cy, F });
   add('rest', { field: { x: cx - F / 2, y: cy - F / 2, s: F, r: 18 * k }, win: ref, cls: 'field-rest' });
   add('video', { cx, cy, d: F, window: ref, cls: 'video other reference', role: 'reference' });
   return { cx, cy, d: F, radius: 18 * k, window: ref };
