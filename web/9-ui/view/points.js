@@ -58,7 +58,7 @@ function edgeBar(kind, { cx, cy, tw, th }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', admin = null, pulse = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
+export function pointShapes(all, { own = '', admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const tw = 86 * k; // a tile: a rounded rectangle, two layers behind it = much lies inside
   const th = 64 * k;
   const y0 = top + 72 * k; // first row, under the handle
@@ -72,7 +72,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, appear 
     const { cx, cy } = grid(i, { w, k, y0 });
     at.set(role, { cx, cy, r: th / 2 });
     if (stack) for (const d of [8, 4]) add('sheet', { x: cx - tw / 2 + d * k, y: cy - th / 2 - d * k, w: tw, h: th, r: 14 * k, cls: 'tile-behind' });
-    add('sheet', { x: cx - tw / 2, y: cy - th / 2, w: tw, h: th, r: 14 * k, cls: appear ? `${cls} appear a${Math.min(i, 9)}` : cls, role }); // the menu opens: the tiles build up one after another
+    add('sheet', { x: cx - tw / 2, y: cy - th / 2, w: tw, h: th, r: 14 * k, cls: `${cls}${appear ? ` appear a${Math.min(i, 9)}` : ''}${role === flash ? ' flash' : ''}`, role }); // opening: the tiles build up · flash: done (e.g. copied)
     if (label) add('label', { x: cx, y: cy + th / 2 + 18 * k, text: label, cls: 'label' });
     return { cx, cy };
   };

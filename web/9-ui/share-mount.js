@@ -153,7 +153,17 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     draw();
     run().catch(() => {}); // a new copy or backup starts now, not at the next start
   }
-  const say = (text) => { s.note = text; draw(); };
+  const say = (text) => {
+    if (text === t('copied')) { // copied: the touched tile flashes green, no word (14.11.)
+      s.flash = role ?? 'sp:0';
+      s.note = '';
+      draw();
+      setTimeout(() => { s.flash = null; draw(); }, 700);
+      return;
+    }
+    s.note = text;
+    draw();
+  };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
   const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
 
@@ -333,7 +343,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const browse = s.accounts ? accountTiles() : s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const hellos = s.hellos.map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();

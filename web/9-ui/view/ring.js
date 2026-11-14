@@ -76,12 +76,15 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const FL = Math.min(F0, (h - 130 * k - 2 * ring - 8 * k) / 2); // two windows, the point between them
   const F = F0 + (FL - F0) * lowness;
   const cyMid = (st.screen === 'delete' ? 424 : 404) * k, cyLow = h - 60 * k - FL / 2;
-  const cy = cyMid + (cyLow - cyMid) * lowness;
+  const cy0 = cyMid + (cyLow - cyMid) * lowness;
+  const gapOpen = ((data.open ?? 0) > 0.5 ? 72 : 40) * k, room = (data.viewH ?? h) - 34 * k; // the keyboard takes the lower part
+  const bottom0 = onShape(windowOf(data.shape ?? 'circle', { cx: w / 2, cy: cy0, F }), 180, 0)[1];
+  const cy = cy0 - ((data.open ?? 0) > 0.5 ? Math.max(0, bottom0 + gapOpen - room) : 0); // the keyboard is up: the live picture moves up with the field (14.11.)
   const win = windowOf(data.shape ?? 'circle', { cx: w / 2, cy, F });
   const top = h / PHI; // viele ganz (14.11.): the arcs frame the lower 38 %, the upper 62 % stays free (golden ratio): room for A–Z one under the other (26 × ≈ 18 px ≈ 470 px of 520 on a phone)
   const edge = { x0: 14 * k, x1: w - 14 * k, y0: top, y1: h - 14 * k, r: 28 * k }; // an open U: right edge down, along the bottom, left edge up
   const [, winBottom] = onShape(win, 180, 0);
-  const fieldY = Math.min(winBottom + ((data.open ?? 0) > 0.5 ? 72 : 40) * k, (data.viewH ?? h) - 34 * k); // the typing row right under the bottom arc (open: the chip row above it, the box starts under the arc); above the keyboard
+  const fieldY = Math.min(winBottom + gapOpen, room); // the typing row right under the bottom arc (open: the chip row above it, the box starts under the arc); above the keyboard
   const g = { st, data, w, h, k, cx: w / 2, cy, F, win, ring, shapes: [], edge: grow ? edge : null, grow, fieldY };
   g.add = (type, o) => g.shapes.push({ type, ...o });
 
@@ -226,6 +229,7 @@ function chipArea({ st, data, cx, cy, win, k, w, shapes, fieldY }, point) {
   if (st.screen === 'line') return;
   if (st.full && st.mode !== 'line') return;
   const open = (data.open ?? 0) > 0.5; // the context field is open: the chips sit in it, its lowest row stays free to type
+  if (!data.chips?.length && !open && !st.full) return; // nothing written, field closed: no lonely dashed chip (14.11.)
   const y = st.full ? point.cy - 70 * k : open ? fieldY - 42 * k : fieldY; // chips 32 px high, centred: they end 2 px above the typing row
   const held = st.hold?.target === 'chip' ? [`chip:${st.hold.text}`, `gesture:${st.hold.text}`] : [];
   shapes.push(...chipShapes(data.chips, { timeMs: data.timeMs, cx, y, k, w })

@@ -226,7 +226,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     activity.push(e);
     while (activity.length > 100) activity.shift();
     if (take.recorder) { // sound level as bars on the top arc
-      data.levels = [...data.levels.slice(-19), Math.min(1, (e.sound ?? 0) * 8)];
+      data.levels = [...data.levels.slice(-19), Math.max(0, Math.min(1, (20 * Math.log10(Math.max(e.sound ?? 0, 1e-5)) + 60) / 50))]; // in dB: −60 … −10 dB → 0 … 1, so quiet and loud differ (14.11.)
       paint();
     }
     const what = readyStep({ ...settings, ready: st.ready }, activity, Boolean(take.recorder), e.at);
@@ -268,6 +268,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const tap = await browserTap(camera).finally(() => { take.starting = false; });
     if (st.screen !== 'record') { tap.stop(); return; } // undone meanwhile (a second finger came)
     take.recorder = startTake(camera, { MediaRecorder, tapAudio: () => tap });
+    navigator.vibrate?.(25); // the take runs: felt, not only seen
     if (take.stopSoon) { take.stopSoon = false; return end(); }
     data.levels = [];
     const tick = (ts) => {
@@ -291,6 +292,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (take.starting) { take.stopSoon = true; return; }
     if (!take.recorder) return;
     const recorded = await take.recorder.stop();
+    navigator.vibrate?.([15, 60, 15]); // stopped: two short pulses
     data.paused = false;
     take.recorder = null;
     const kinds = toRecord(st); // what this take records, decided before it started
