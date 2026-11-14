@@ -195,7 +195,7 @@ const ORDER = Object.keys(RULE);
  * What share-mount.js holds → the sheet. entries: the list (readList) · rules: rulesOf · open: Map(n → { spec, store }) ·
  * index: the Index or null · admin: { user, server } or null · accounts: atlas summary rows or [] · project: project.json.
  */
-export function sheetData({ person, device, key, paper, date, entries = [], rules = [], open = new Map(), index = null, admin = null, accounts = [], project = null, nameSign = false, gestureSlots = 5, now = Date.now() }) {
+export function sheetData({ person, device, key, paper, signerCode = null, date, entries = [], rules = [], open = new Map(), index = null, admin = null, accounts = [], project = null, nameSign = false, gestureSlots = 5, now = Date.now() }) {
   const stats = index ? tally(index, { now }) : tally({ tables: { chains: new Map(), strands: new Map(), sharingPoints: new Map(), context: new Map(), weave: new Map(), takes: new Set(), similar: new Set() } }, { now });
   const files = new Map(stats.files);
   const points = entries.map((e, i) => ({ e, n: i + 1 })).filter(({ e }) => e.id !== device).map(({ e, n }) => {
@@ -216,6 +216,7 @@ export function sheetData({ person, device, key, paper, date, entries = [], rule
     ...(admin ? [{ label: 'Konto (Admin)', value: `${admin.user}@${String(admin.server).replace(/^https?:\/\//, '')}` }] : []),
     ...(atlas ? [{ label: 'atlas', value: atlas }] : []),
     ...(project?.signer ? [{ label: 'signer des Projekts', value: project.signer, small: true }] : []),
+    ...(signerCode ? [{ label: 'Ersatz-signer (neues Admin-Gerät: kopieren, + antippen)', value: `sign-signer ${signerCode.replace(/(.{4})/g, '$1 ').trim()}` }] : []),
   ];
   return { name: person.label, date, now, roles, paper, ids, points, deviceLabel: person.label, nameSign, gestureSlots, stats, accounts: admin ? accounts : null, atlas };
 }

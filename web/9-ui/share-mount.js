@@ -214,6 +214,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     try { const used = JSON.parse(localStorage.getItem('sign.apps') || '{}'); used[app.pkg] = (used[app.pkg] ?? 0) + 1; localStorage.setItem('sign.apps', JSON.stringify(used)); } catch { /* private mode */ }
   }
 
+  /** Admin: a signer code for the paper, certified by this device into the door (lost phone → the code certifies the new one). */
+  async function paperForDoor() {
+    const { newSignerCode, paperSigner, certify } = await import('../8-join/signers.js');
+    const code = newSignerCode(), paper = await paperSigner(code), me = await deviceKeys();
+    const cert = await certify({ by: { id: device, label: person.label, privateKey: me.device.privateKey }, signer: paper, person });
+    await adminStore().write(cert.path, new TextEncoder().encode(cert.text));
+    return code;
+  }
   /** The emergency sheet (14.11.): a paper password for the backups (kept in the keychain, sealed into each backup), with every
    *  sharing point, the access IDs and what the index adds up to, as PDF (emergency.js). */
   async function emergency() {
@@ -226,7 +234,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     }
     const admin = await findAdmin().catch(() => null); // only user and server reach the sheet, never the password
     const accounts = admin ? [...(await atlasSummary()).values()] : [];
-    const sheet = sheetData({ person, device, key, paper, date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
+    const signerCode = admin && adminStore() ? await paperForDoor().catch(() => null) : null; // admin: the paper becomes a signer too
+    const sheet = sheetData({ person, device, key, paper, signerCode, date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
     const pdf = sheetPdf(sheet);
     return send({ title: 'Sign · Notfallblatt', text: key, files: [new File([pdf], 'sign-notfallblatt.pdf', { type: 'application/pdf' })] }).catch(() => null);
   }
@@ -298,6 +307,11 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'sp' && a === '0') { // this device (14.11.): a tap chooses a new folder or disk on it
       if (canPick()) return pickFolder(ctx);
       s.shake = 'sp:0'; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; // the phone: with the native app (S4)
+    }
+    if (what === 'own') { // my own space still dashed (14.11.): the answer came without an account → ask again (a new hello)
+      const label = ctx.tileOf(Number(a))?.label;
+      if (!label || s.joinStates.get(label) !== 'join') return null;
+      return helloToDoor(ctx, label).then((m) => { if (m) { s.joinStates.set(label, m.state); s.fresh.add(label); } onHello(); draw(); });
     }
     if (what === 'sp' && s.joinStates.get(ctx.tileOf(Number(a))?.label) === 'door') { // onboarding: tap the hello bubble = hello (14.11.)
       const label = ctx.tileOf(Number(a)).label;
@@ -409,6 +423,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   const projectServer = () => { try { return new URL(project?.doors?.[0]?.read ?? project?.read).origin; } catch { return null; } };
   /** The admin's own folder with hello/ join/ within/ quiet/ (the door), or null. */
   const adminStore = () => [...s.open.values()].find((sp) => sp.store && sp.spec?.kind === 'nextcloud' && sp.spec.server === ctx.admin?.server && sp.spec.user === ctx.admin?.user)?.store ?? null;
+  ctx.adminStore = adminStore; // share-add.js (another signer) reaches the door through it
   /** An account looked at (14.11.): its devices (↓ = quiet, "Gerät sperren") and its groups as context chips (tap a faint one = in, ↓ = out). */
   async function openAccount(a) {
     say(t('menu.wait'));

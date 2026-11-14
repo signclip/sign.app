@@ -52,7 +52,8 @@ async function clipboard() { // at most 1 s: a clipboard that asks and never ans
  * awaited password on the clipboard → bringIn; nothing usable there: the copy sign shakes. Folders and disks come
  * from a tap on this device's own tile (pickFolder, 14.11.): the + is only for links.
  */
-const usable = (s, text) => Boolean(s.waitSecret || s.giveTo || text.includes('\n') || readPaste(text));
+const SIGNER_KEY = /^q_[0-9A-Z]{16}\s+z_[0-9A-Z]{40,60}$/i, SIGNER_CODE = /^sign-signer\s+([0-9A-Za-z\s-]{26,40})$/i;
+const usable = (s, text) => Boolean(s.waitSecret || s.giveTo || text.includes('\n') || readPaste(text) || SIGNER_KEY.test(text.trim()) || SIGNER_CODE.test(text.trim()));
 
 /**
  * Without a tap (14.11.): is there something the + could take? → 'ready' | 'ghost'. The native app reads the clipboard;
@@ -116,6 +117,7 @@ export async function bringIn(ctx) {
     return say(t('copied'));
   }
   if (s.giveTo) return giveOut(ctx, s.giveTo, text.trim());
+  if (SIGNER_KEY.test(text.trim()) || SIGNER_CODE.test(text.trim())) return addSigner(ctx, text.trim()); // admin: a second device, or the paper
   const what = readPaste(text);
   if (!what) return say(t('menu.paste'));
   if (what.kind === 'cloud') { // a cloud id brought in: its shares to me are taken in by themselves
@@ -151,6 +153,27 @@ export async function loginAt(ctx, server, id = newSource()) {
     ctx.draw?.();
     return say(t('menu.account'));
   } catch { return say(t('menu.native')); } // the browser is blocked (CORS); the app is not
+}
+
+/**
+ * Admin (14.11.): another signer for the door, so a changed admin device needs no new app.
+ *   "q_… z_…" on the clipboard (the check key of a second device) → this device certifies it.
+ *   "sign-signer CODE" (from the emergency sheet) → the paper certifies THIS device (the admin phone was lost).
+ * Needs the admin's own folder (hold + = log in). The certificate goes to join/signer/ of the door.
+ */
+export async function addSigner(ctx, text) {
+  const store = ctx.adminStore?.();
+  if (!store) return ctx.say(ctx.t('notReachable'));
+  const { deviceKeys } = await import('./device-keys.js');
+  const { certify, paperSigner } = await import('../8-join/signers.js');
+  const me = await deviceKeys();
+  const self = { id: ctx.device, key: me.device.public, label: ctx.person.label, privateKey: me.device.privateKey };
+  const code = SIGNER_CODE.exec(text)?.[1];
+  const [q, z] = text.split(/\s+/);
+  const cert = code ? await certify({ by: await paperSigner(code), signer: self, person: ctx.person })
+    : await certify({ by: self, signer: { id: q, key: z.slice(2), label: 'Gerät' }, person: ctx.person });
+  await store.write(cert.path, new TextEncoder().encode(cert.text));
+  return ctx.say(ctx.t('copied')); // done: the tile flashes
 }
 
 /** Ordner wählen: a folder or disk, read and write, brought into Similar. */

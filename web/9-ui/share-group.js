@@ -19,6 +19,7 @@ import { readDescription, signerKeys } from '../2-storage/sharing-point.js';
 import { readPaste } from '../2-storage/spec.js';
 import { connect } from '../2-storage/connect.js';
 import { SELF } from '../2-storage/layout.js';
+import { trustedSigners, certificatesIn } from '../8-join/signers.js';
 import { makeGroup, renewGroup, invitation, waitingHellos, welcomeToGroup, doorLinks, describeJoin } from '../8-join/group.js';
 import { sayHello, answerFor, join, advance, readHello } from '../8-join/join.js';
 import { honorRemove } from '../8-join/remove-request.js';
@@ -230,7 +231,8 @@ export async function followJoins(ctx) {
       const answer = answerFor(paths, mine.helloPath);
       if (!answer || answer === mine.answer) continue;
       const pinned = mine.door ? signerOfText(ctx.doorSigner) : null; // project.json names the signer: only that seal counts
-      const signers = pinned ?? signerKeys(readDescription(dec.decode(await both.read(mine.door ? `join/${SELF}` : SELF))));
+      const signers = pinned ? await trustedSigners(pinned, await certificatesIn(both)) // the anchor and whoever it certified (second device, paper)
+        : signerKeys(readDescription(dec.decode(await both.read(mine.door ? `join/${SELF}` : SELF))));
       const keys = await deviceKeys();
       const r = await join({ store: both, joinPath: answer, pickupKey: keys.pickup.privateKey, signers, device: { id: ctx.device }, deviceKey: keys.device, person: ctx.person });
       const own = await takeOwn(ctx, r); // an account came along: my own Nextcloud appears (welcome.arrive)
