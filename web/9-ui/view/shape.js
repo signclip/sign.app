@@ -115,3 +115,10 @@ export function formBy(form, factor, { fx = 1, fy = 1, angle = 45 } = {}) {
   if (round > 1 && factor < 1) aspect *= factor ** diag; // past round: on towards an upright ellipse
   return formOf({ round, aspect });
 }
+
+/** Near the circle the form rests there (14.11.): aspect within ±8 %, corners above 92 % round = exactly a circle. */
+export function snapForm(form) {
+  const f = formOf(form);
+  const aspect = Math.abs(f.aspect - 1) < 0.08 ? 1 : f.aspect, round = f.round > 0.92 ? 1 : f.round;
+  return { round, aspect };
+}

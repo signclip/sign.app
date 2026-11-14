@@ -49,7 +49,7 @@ import { write as writeNotation, parse as parseNotation } from '../1-model/notat
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse } from './state.js';
 import { MANY } from './view/ring.js';
-import { formOf, formBy } from './view/shape.js';
+import { formOf, formBy, snapForm } from './view/shape.js';
 import { mountScreen, targetOf } from './screen.js';
 import { normalize, readyStep, choose, CHOICES } from './settings.js';
 import { watch } from './ready.js';
@@ -351,8 +351,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
 
   // ---------- the window's form by hand (14.11.): corners rounder or squarer, narrower or lower ----------
+  let rawShape = null; // the form as the fingers have it; what shows rests at the circle when near (snapForm)
   function reshape(change) {
-    data.shape = formOf({ ...data.shape, ...change });
+    rawShape = formOf({ ...(rawShape ?? data.shape), ...change });
+    const was = data.shape, now = snapForm(rawShape);
+    if ((now.round === 1 && now.aspect === 1) && !(was.round === 1 && was.aspect === 1)) navigator.vibrate?.(12); // arrived at the circle: a short tick
+    data.shape = now;
     settings = normalize({ ...settings, shape: data.shape });
     paint();
     clearTimeout(reshape.soon);
@@ -893,13 +897,13 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         if (data.items?.length && ['line', 'record', 'stream'].includes(st.screen)) { data.timeZoom = Math.max(0.25, Math.min(8, (data.timeZoom ?? 1) * f)); return paint(); }
         return st.ready ? waitsBy(f) : null;
       }
-      return reshape(formBy(data.shape, factor, how));
+      return reshape(formBy(rawShape ?? data.shape, factor, how));
     },
     slide: (role, dx, dy) => { // a corner of the window: inwards rounder, outwards squarer
       const [sx, sy] = { 'corner:tl': [1, 1], 'corner:tr': [-1, 1], 'corner:bl': [1, -1], 'corner:br': [-1, -1] }[role] ?? [0, 0];
-      return reshape({ round: data.shape.round + (dx * sx + dy * sy) / Math.SQRT2 / 160 });
+      return reshape({ round: (rawShape ?? data.shape).round + (dx * sx + dy * sy) / Math.SQRT2 / 160 });
     },
-    slideEnd: () => saveSettings(),
+    slideEnd: () => { rawShape = null; saveSettings(); },
     dragEnd: (el, moved, role) => {
       if (role === spentRole || st.hold) { spentRole = null; return null; } // a property was held, not carried
       const from = targetOf(role);
