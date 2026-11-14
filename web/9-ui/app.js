@@ -62,6 +62,8 @@ import { filterChips, toggle, filtersOf, EMPTY } from './similar-filter.js';
 import { mountShareMenu } from './share-mount.js';
 import { keychain } from './keychain.js';
 import { hintOf, progress, done, NAME_SIGN_STEP, STEPS } from './onboarding.js';
+import { installDavFetch } from '../2-storage/dav-fetch.js';
+installDavFetch(); // native app: PROPFIND, MKCOL, MOVE through the app's own plugin (Android refuses them otherwise)
 
 const $ = (sel) => document.querySelector(sel);
 /** A held chip as context text: every gesture in its own bracket (SCHEMA G-rules). */
@@ -178,6 +180,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const project = await fetch(new URL('../project.json', import.meta.url)).then((r) => r.json()).catch(() => null); // the project's door
   const menu = await mountShareMenu({
     project,
+    onLook: (path, from) => { menu.show(false); return show(path, from).catch(() => {}); }, // tap on a hello: its name sign in the window
     panel: $('#share'), own: store, keychain, person, device, t,
     lastChain: async () => take.shareChain ?? take.lastChain, // an element of the line (↑ on it), else the last take
     selection: () => toRecord(st), // double-tap on a sharing point = these strands always go there

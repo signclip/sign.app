@@ -1,5 +1,5 @@
 {
-  "about": "The project's door: its read link (join/ answers, sealed per device) and its file-drop link (hello/). Empty = no automatic join; a group text works as before. More doors = tried in order (one may be gone). signer: \"q_… z_…\" of the signer device (↑ on its own tile copies it); set = only answers sealed by it count, empty = the description in join/. atlas: the user that reads every Sign/ and counts; admin: the user that gets only the summary.",
+  "about": "The project's door: its read link (join/ answers, sealed per device) and its file-drop link (hello/). Empty = no automatic join; a group text works as before. More doors = tried in order (one may be gone). signer: \"q_… z_…\" of the signer device (↑ on its own tile copies it); set = only answers sealed by it count, empty = the description in join/. atlas: the user that reads every Sign/ and counts; admin: the user that gets only the summary. group: the Nextcloud group every new account joins (Admin and Atlas are not counted as accounts).",
   "label": "Sign",
   "doors": [
     {
@@ -7,7 +7,8 @@
       "drop": "https://nx111767.your-storageshare.de/s/s4Kk6aHL4ftBbGz"
     }
   ],
-  "signer": "q_VKMMQQVZ37NKA7GA z_1D4KP2DXH14YKM5T149CFKB8B5DB80VG80BJZCJ1WFH3FXQNHP6E",
+  "signer": "q_VETNTPR9JRTN1VDV z_0PJVSVECBA6T1R6366K03ZYE5R2DSJWNBCNW2WZ9G0NT3ZVC3P7R",
   "atlas": "Atlas",
-  "admin": "Admin"
+  "admin": "Admin",
+  "group": "Sign"
 }

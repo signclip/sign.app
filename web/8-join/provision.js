@@ -6,7 +6,7 @@
 // Test:      tests/connect.test.mjs (fake server)
 // Limits:    Nextcloud user ids: letters, digits, _ . @ - (we use n_ in lower case, 18 chars) ·
 //            quota as Nextcloud text ("100 GB", "none" = no limit) · one app password per device (revocable) ·
-//            accounts listed per group (Sign), ≤ 500 per look; Nextcloud tells space, not the number of files.
+//            accounts listed per group (Sign, without Admin and Atlas), ≤ 500 per look; Nextcloud tells space, not the number of files.
 
 import { newPassword } from '../1-model/crypto.js';
 
@@ -22,7 +22,9 @@ export const QUOTA = '100 GB';
 /** The steps the admin walks through per account (↑ more, ↓ less); none = no limit. */
 export const QUOTAS = ['10 GB', '25 GB', '50 GB', '100 GB', '250 GB', '500 GB', 'none'];
 
-export async function createAccount(admin, person, { groups = ['Sign'], quota = QUOTA, fetch = globalThis.fetch } = {}) {
+export const GROUP = 'Sign'; // the Nextcloud group of every Sign account (14.11.: Admin, Atlas and the group Sign exist)
+
+export async function createAccount(admin, person, { groups = [GROUP], quota = QUOTA, fetch = globalThis.fetch } = {}) {
   const user = person.id.toLowerCase();
   const password = newPassword() + newPassword(); // 52 chars, never shown, never stored
   const body = new URLSearchParams({ userid: user, password, displayName: person.label });
@@ -66,8 +68,9 @@ export async function isAdmin(login, { fetch = globalThis.fetch } = {}) {
  * The accounts of a group with their space: [{ user, label, used, quota (bytes, -3 = no limit), lastLogin }],
  * the fullest first. Limits: one request per account; ≤ 500.
  */
-export async function listAccounts(admin, { group = 'Sign', max = 500, fetch = globalThis.fetch } = {}) {
-  const users = ((await ocs(admin, `groups/${encodeURIComponent(group)}`, { fetch })).users ?? []).slice(0, max);
+export async function listAccounts(admin, { group = GROUP, skip = [], max = 500, fetch = globalThis.fetch } = {}) {
+  const not = new Set(skip.filter(Boolean).map((u) => u.toLowerCase())); // Admin and Atlas may sit in the group too: they are no person's account
+  const users = ((await ocs(admin, `groups/${encodeURIComponent(group)}`, { fetch })).users ?? []).filter((u) => !not.has(u.toLowerCase())).slice(0, max);
   const out = [];
   for (const user of users) {
     try {

@@ -25,6 +25,8 @@
 //              drag my Nextcloud onto another account's tile = shared to it, read-only (a share, no copy)
 //              drag my Nextcloud onto + = a group: a read link and a drop link (dragged again = new links)
 //              ↓                 out of the list
+//              admin             → on the admin tile = accounts (↓ rests, ↑ wakes, two fingers = space) · a hello: tap = its
+//                                name sign in the window, ← = welcome (join), → = look again
 //            Two dashed tiles at the end bring new ones in: clipboard (link, address, server) · folder.
 //            Every change = one edit of the list (list.js editList → a new chain version).
 // Depends:   nothing (rules come from 2-storage/list.js)

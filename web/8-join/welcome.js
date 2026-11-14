@@ -21,9 +21,9 @@ const dec = new TextDecoder();
  * also: more sharing points for this person [{ path, id, person }] · atlas: user that reads every Sign/ (or null) ·
  * → path of the answer in join/.
  */
-export async function welcome({ door, helloPath, admin, signer, also = [], quota, atlas = null, fetch = globalThis.fetch, now = Date.now() }) {
+export async function welcome({ door, helloPath, admin, signer, also = [], quota, atlas = null, group, fetch = globalThis.fetch, now = Date.now() }) {
   const ask = readHello(dec.decode(await door.read(helloPath)));
-  const account = await createAccount(admin, ask.person, { quota, fetch });
+  const account = await createAccount(admin, ask.person, { quota, fetch, ...(group ? { groups: [group] } : {}) });
   const login = { server: admin.server, ...account };
   await makeFolder(login, FOLDER, { fetch }); // the own Nextcloud of the person is Sign/, not the account's root (14.11.)
   if (atlas) await shareFolder(login, FOLDER, atlas, { fetch }); // read only to atlas: the index over all (SCHEMA B6), the admin sees only its summary

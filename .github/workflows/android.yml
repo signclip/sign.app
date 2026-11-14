@@ -17,6 +17,12 @@ jobs:
       - run: npx cap add android && npx cap sync android
       - name: version = run number (each APK newer than the last, installs over it)
         run: sed -i -E 's/versionCode [0-9]+/versionCode ${{ github.run_number }}/; s/versionName "[^"]*"/versionName "1.${{ github.run_number }}"/' android/app/build.gradle
+      - name: own plugin DavHttp (WebDAV verbs; Android refuses PROPFIND, MKCOL, MOVE through CapacitorHttp)
+        run: |
+          d=android/app/src/main/java/org/signclip/signapp
+          cp native/android/DavHttpPlugin.java native/android/MainActivity.java "$d"/
+          sed -i '0,/^dependencies {/s//dependencies {\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"/' android/app/build.gradle
+          grep -n okhttp android/app/build.gradle
       - name: camera and microphone
         run: sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" /><uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /><uses-permission android:name="android.permission.VIBRATE" />\n    <application#' android/app/src/main/AndroidManifest.xml
       - name: the same signing key every time (secret DEBUG_KEYSTORE), so an update installs over the app and keeps its data

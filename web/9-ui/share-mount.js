@@ -29,6 +29,7 @@ import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { addNew, peek, pickFolder, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
+import { nameSignOf } from '../8-join/join.js';
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
@@ -63,7 +64,7 @@ async function clipboardText() {
  * project: { label, read, drop } the project's door (project.json): the first join, without a group text.
  * → { show(on), afterTake(paths), runRules(), dropKind(n, kind) }
  */
-export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, project = null, onHello = () => {}, onOwnHold = () => {} }) {
+export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {} }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
@@ -172,7 +173,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     draw();
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
+  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
 
   // ---------- doing what a gesture says ----------
   async function shareTo(n, kinds = null) {
@@ -275,9 +276,12 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'confirm') return confirmTap(a); // the first circle
     if (what === 'sp-kind') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'tap-kind'), 'tap-kind', s.rules, { kind: b }));
     if (what === 'add') return addNew(ctx); // the one + tile
-    if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.more?.(+1); } // an account tile: more space
+    if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : null; } // an account: ↓ rests, ↑ wakes, two fingers = space
     if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
-    if (what === 'hello') return welcome(ctx, s.hellos[Number(a)]).then(load).then(draw);
+    if (what === 'hello') { // tap = look: the name sign that came with the hello, in the window (14.11.; ← = welcome)
+      const x = s.hellos[Number(a)], store = s.open.get(x?.n)?.store;
+      return store ? onLook(`hello/${nameSignOf(x.helloPath.slice(x.helloPath.lastIndexOf('/') + 1))}`, store) : null;
+    }
     if (what === 'accept-there') {
       const { url } = s.acceptThere;
       s.acceptThere = null;
@@ -328,12 +332,12 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       return readSummary(new TextDecoder().decode(await store.read(SUMMARY)));
     } catch { return new Map(); }
   }
-  /** → on the admin tile: the accounts with their space as tiles; tap = more space, ↓ = less, the first tile = back. */
+  /** → on the admin tile: the accounts with their space as tiles; ↓ rests, ↑ wakes, two fingers apart / together = more / less space, the first tile = back (14.11.). */
   async function showAccounts() {
     s.accounts = [];
     say(t('menu.wait'));
     try {
-      const [list, counts] = await Promise.all([listAccounts(ctx.admin), atlasSummary()]);
+      const [list, counts] = await Promise.all([listAccounts(ctx.admin, { group: project?.group, skip: [project?.atlas, project?.admin, ctx.admin?.user] }), atlasSummary()]);
       s.accounts = list.map((a) => ({ ...a, counts: counts.get(a.user) ?? null })); // takes and strands from atlas
       say('');
     } catch { s.accounts = null; return say(t('notReachable')); }
@@ -362,7 +366,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   }
 
   // ---------- touch: the role is read when the finger goes down ----------
-  let role = null;
+  let role = null, pinched = 1;
   const roleOf = (el) => el?.closest?.('[data-role]')?.dataset.role ?? null;
   const circleOf = (r) => (r?.startsWith('sp:') ? Number(r.split(':')[1]) : null);
   const handlers = {
@@ -382,8 +386,9 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         const [, a, b] = role.split(':');
         return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
       }
-      if (role?.startsWith('browse:') && s.accounts && (dir === 'down' || dir === 'down-far')) return accountTiles()[Number(role.split(':')[1])]?.more?.(-1); // ↓ on an account: less space
-      if (role?.startsWith('browse:') && s.accounts && (dir === 'left' || dir === 'right')) return accountTiles()[Number(role.split(':')[1])]?.rest?.(dir === 'right'); // ← the account rests (◌), → it is on again
+      if (role?.startsWith('browse:') && s.accounts && ['down', 'down-far', 'up'].includes(dir)) return accountTiles()[Number(role.split(':')[1])]?.rest?.(dir === 'up'); // ↓ the account rests (◌), ↑ it wakes (14.11.)
+      if (role?.startsWith('hello:') && dir === 'left') return welcome(ctx, s.hellos[Number(role.split(':')[1])]).then(load).then(draw); // ← hello → join: welcomed
+      if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → back: look again (new hellos, a failed welcome tried anew)
       const n = circleOf(role);
       if (n && n === s.adminN && dir === 'right') return showAccounts(); // → on the admin tile: who has how much space
       if (n === 0 && dir === 'up') return checkKey(ctx).then((k) => copy(k)).then(() => say(t('copied'))); // ↑ on my own tile: my check key (for project.json)
@@ -393,6 +398,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         return apply({ edits: [Math.max(n, tile.drop), Math.min(n, tile.drop)].map((x) => ({ remove: x })) });
       }
       return apply(gestureOn(n, dir, s.rules));
+    },
+    pinch: (factor) => { // two fingers on an account: apart = more space, together = less (steps of 25 %)
+      if (!role?.startsWith('browse:') || !s.accounts) return null;
+      pinched *= factor;
+      if (pinched > 0.8 && pinched < 1.25) return null;
+      const by = pinched >= 1.25 ? +1 : -1;
+      pinched = 1;
+      return accountTiles()[Number(role.split(':')[1])]?.more?.(by);
     },
     dragEnd: (el, moved) => {
       const from = circleOf(role);
