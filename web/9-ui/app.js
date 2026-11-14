@@ -26,6 +26,7 @@
 // Limits:    Whisper only after a take (live and keywords: EXTEND(S2, live)); one take records at a time; one property
 //            held at a time. Every row of the gesture table has a case below, wired or EXTEND (tests/ui).
 
+import './persons-boot.js'; // first: several persons on this device (persons.js)
 import { translator } from '../0-i18n/t.js';
 import { LocalStore } from '../2-storage/local.js';
 import { buildIndex } from '../3-index/index.js';
@@ -133,7 +134,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   /** The newest version of my newest take: what the chain gestures lay on after a restart. */
   const newestOwnChain = () => {
     const top = new Set([...index.tables.chains.values()].map((c) => c.below).filter(Boolean)); // chains with one on top are older versions
-    const mine = [...index.tables.chains.values()].filter((c) => c.from?.store === 'own' && !top.has(c.key) && c.from.path.startsWith('chain/'));
+    const mine = [...index.tables.chains.values()].filter((c) => c.from?.store === 'own' && !top.has(c.key) && c.from.path.startsWith('chain/') && (!c.head['@'] || c.head['@'] === person.label)); // mine: several persons may share this device
     return mine.sort((a, b) => String(b.head["'t"] ?? '').localeCompare(String(a.head["'t"] ?? '')))[0]?.from.path ?? null; // newest by its time
   };
   take.lastChain = newestOwnChain(); // after a restart the chain gestures go on where they were
@@ -192,7 +193,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     },
     onSources: async (list) => { sources = list; index = await reindex(); },
     onHello: () => learned('hello'), // onboarding: I dragged myself onto the door
-    onOwnHold: () => { // my own tile held: the first steps again (there is no settings area)
+    onOwnHold: () => { // my own tile held (14.11.): a new person on this device; its first steps follow (name, name sign, hello)
+      if (globalThis.signPersons?.add()) return location.reload();
       settings = choose(settings, 'onboarding', true);
       saveSettings();
       onboard.at = 0;
@@ -667,6 +669,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (text && settings.onboarding && STEPS[onboard.at]?.[0] === 'name') { // onboarding: this is my name, and the context of my name sign
       person.label = name;
       try { localStorage.setItem('sign.name', name); } catch { /* private mode */ }
+      globalThis.signPersons?.named(name); // the persons on this device show it
       $('#context').classList.remove('breathe');
       learned('name');
     }
@@ -983,6 +986,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     },
   };
   bind($('#screen'), handlers);
+  { // how this person starts (14.11.): as left (default) · records at once · the persons of this device to choose
+    const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current());
+    if (me?.start === 'choose' && P.persons().length > 1) menu.choose();
+    else if (me?.start === 'record') setTimeout(() => { if (camera && !take.recorder) act('tap', 'point'); }, 900);
+  }
   // Android "back" (14.11.): one step back, never out of the app by surprise: sharing menu → full screen → Similar → context field
   globalThis.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
     if (!$('#share').hidden) return menu.show(false);

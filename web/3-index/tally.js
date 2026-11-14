@@ -9,7 +9,7 @@
 //              weeks      takes per week, the last 26 weeks, oldest first
 //              rooms     ° (room or town) of the take chains, else the o_ cell; people = @ of the chains
 //              files      files per sharing point (store name of the index), also per kind (v a x l m chain)
-//              list       every take { ms, kinds, words } for the context cluster (3-index/clusters.js) ·
+//              list       every take { ms, at, kinds, words } for the context cluster (3-index/clusters.js) ·
 //              tables     size of each index table
 // Depends:   3-index/index.js (the Index it reads), 1-model/ids.js (idKey)
 // Test:      tests/model.test.mjs (emergency sheet)
@@ -57,7 +57,7 @@ export function tally(index, { now = Date.now() } = {}) {
       if (kinds.has('a')) out.hours.a += h;
       if (out.list.length < 200_000) {
         const words = used.filter((d) => d.kind === 'x' && d.id).flatMap((d) => wordsOfStrand.get(idKey(d.id)) ?? []);
-        out.list.push({ ms: time?.ms ?? 0, kinds: [...kinds].filter((k) => KINDS.includes(k)), words: [...new Set(words)] });
+        out.list.push({ ms: time?.ms ?? 0, at: time?.at ?? null, kinds: [...kinds].filter((k) => KINDS.includes(k)), words: [...new Set(words)] });
       }
       if (time) {
         out.first = Math.min(out.first ?? time.at, time.at);

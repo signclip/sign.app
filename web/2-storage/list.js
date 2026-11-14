@@ -104,18 +104,18 @@ export function listPath({ id, person, time }) {
   return `chain/${monthOf(time)}/${buildName({ words: [WORD], person, time, u: shortU(id), kind: 'chain', ext: 'sign' })}`;
 }
 
-/** The list in force: the newest list file in chain/ (by time in its name), or null. */
-export async function findList(store) {
+/** The list in force: the newest list file in chain/ (by time in its name), or null. person: only that person's (14.11.: several on a device). */
+export async function findList(store, person = null) {
   const lists = (await store.list('chain/')).map((f) => f.path)
     .map((path) => ({ path, name: readName(path.slice(path.lastIndexOf('/') + 1)) }))
-    .filter((f) => f.name?.words.includes(WORD))
+    .filter((f) => f.name?.words.includes(WORD) && (!person || f.name.person === person))
     .sort((a, b) => String(a.name.time).localeCompare(String(b.name.time)));
   return lists.at(-1)?.path ?? null;
 }
 
 /** Read, change, write: the list in force → the next version in chain/. → { path, text, entries, rules } */
 export async function changeList(store, edit, meta) {
-  const at = await findList(store);
+  const at = await findList(store, meta.person.label);
   const oldText = at
     ? new TextDecoder().decode(await store.read(at))
     : fileText(headLine('chain', { '@': meta.person.label })); // the very first list

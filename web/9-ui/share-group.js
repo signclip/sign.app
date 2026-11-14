@@ -195,9 +195,17 @@ async function doorAnswers(door) {
   } catch (err) { return /: 401\b/.test(String(err.message)) ? 'password' : false; }
 }
 
+/** A group's drop link, opened for writing: it only takes files in and may refuse to be looked at (403), so it is not probed (14.11.). */
+async function dropStoreOf(ctx, n) {
+  const sp = ctx.s.open.get(n), entry = ctx.s.entries[n - 1], spec = sp?.spec ?? readPaste(entry?.path ?? '');
+  if (spec?.kind !== 'link') return sp?.store ?? null;
+  return connect({ ...spec, write: true, drop: true }, { secret: await ctx.keychain.get(entry.id) }).store;
+}
+
 async function sayHelloTo(ctx, label, { door = false } = {}) {
   const g = groupOf(ctx, label);
-  const open = g && ctx.s.open.get(g.drop.n)?.store;
+  if (!g) return;
+  const open = await dropStoreOf(ctx, g.drop.n);
   if (!open) return;
   const drop = door ? doorLinks(ctx.s.open.get(g.read.n)?.store, open) : open; // a door's drop link is hello/ itself
   const keys = await deviceKeys();
@@ -222,7 +230,7 @@ export async function followJoins(ctx) {
     if (mine.state === 'join-own') await joins.set(t.label, { ...mine, state: 'within' }); // complete once more, then tiles
     if (mine.state !== 'hello') continue; // only a hello still waits for its answer
     const read = ctx.s.open.get(t.n)?.store;
-    const drop = ctx.s.open.get(t.drop)?.store;
+    const drop = await dropStoreOf(ctx, t.drop);
     if (!read || !drop) continue;
     try {
       const both = mine.door ? doorLinks(read, drop) // the door: read link = join/, drop link = hello/

@@ -18,7 +18,7 @@
 
 const MAX_WORDS = 8, ROUNDS = 12;
 
-/** list: takes [{ ms, kinds, words }] → { groups: [{ name, words, chips, takes, ms, dots }], rest, step, total }. */
+/** list: takes [{ ms, at, kinds, words }] → { groups: [{ name, words, chips, takes, ms, dots }], rest, step, total }. */
 export function clusters(list, { keep = 24, dots = 8000 } = {}) {
   const freq = new Map();
   for (const t of list) for (const w of t.words) freq.set(w, (freq.get(w) ?? 0) + 1);
@@ -70,7 +70,7 @@ export function clusters(list, { keep = 24, dots = 8000 } = {}) {
     if (a === b) inside[a] += n; else { across[a] += n; across[b] += n; const k = a < b ? `${a} ${b}` : `${b} ${a}`; links.set(k, (links.get(k) ?? 0) + n); }
   } });
   const all2 = inside.reduce((x, y) => x + y, 0) + across.reduce((x, y) => x + y, 0) / 2;
-  const pick = (takes) => takes.filter((_, i) => i % step === 0).map((t) => ({ ms: t.ms, kinds: t.kinds })).sort((a, b) => b.ms - a.ms);
+  const pick = (takes) => takes.filter((_, i) => i % step === 0).map((t) => ({ ms: t.ms, at: t.at ?? null, kinds: t.kinds })).sort((a, b) => b.ms - a.ms);
   const shape = (g, name) => ({ name, words: g.words.slice(0, 3), chips: g.words.length, takes: g.takes.length, ms: g.takes.reduce((a, t) => a + t.ms, 0), dots: pick(g.takes) });
   const cohesion = (i) => (inside[i] + across[i] ? inside[i] / (inside[i] + across[i]) : 1);
   return {

@@ -60,13 +60,20 @@ function edgeBar(kind, { cx, cy, tw, th }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, clip = 'ready', shake = null, zoom = null, apps = null, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
+export function pointShapes(all, { own = '', admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, clip = 'ready', shake = null, zoom = null, apps = null, outOnly = false, persons = [], choosing = false, selfStart = 'direct', browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const tw = 86 * k; // a tile: a rounded rectangle, two layers behind it = much lies inside
   const th = 64 * k;
   const y0 = top + 72 * k; // first row, under the handle
   const shapes = [];
   const at = new Map();
   const add = (type, o) => shapes.push({ type, ...o });
+  if (outOnly) { // only the way out (14.11.): the sheet folds down to its share row, e.g. for the emergency sheet
+    const low = h - 176 * k;
+    add('sheet', { x: 0, y: low, w, h: h - low + 24 * k, r: 24 * k, cls: 'sheet', role: 'sheet' });
+    add('line', { x1: w / 2 - 20 * k, y1: low + 12 * k, x2: w / 2 + 20 * k, y2: low + 12 * k, cls: 'handle', role: 'sheet' });
+    appRow(apps ?? { list: [] }, { w, h, k, add, at });
+    return { shapes, at };
+  }
   add('sheet', { x: 0, y: top, w, h: h - top + 24 * k, r: 24 * k, cls: 'sheet', role: 'sheet' });
   add('line', { x1: w / 2 - 20 * k, y1: top + 12 * k, x2: w / 2 + 20 * k, y2: top + 12 * k, cls: 'handle', role: 'sheet' }); // pull down = away
 
@@ -119,7 +126,9 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
     for (const m of t.giveTo ?? []) bridge(t.n, m, 'give'); // shared to that account, read-only
   }
 
-  tile(0, 'sp:0', 'sp own-device', own);
+  const me = tile(0, 'sp:0', 'sp own-device', own); // this device, for the current person
+  if (selfStart === 'choose') add('circle', { cx: me.cx + tw / 2 - 4 * k, cy: me.cy - th / 2 + 4 * k, r: 6 * k, cls: 'badge person-start' }); // chooses at start
+  if (selfStart === 'record') add('sheet', { x: me.cx - tw / 2 - 4 * k, y: me.cy - th / 2 - 4 * k, w: tw + 8 * k, h: th + 8 * k, r: 18 * k, cls: 'person-record' }); // records at once
   for (const t of all) {
     if (t.under) continue; // the drop link of a group: drawn as part of its read tile
     if (joining(t)) { joinIcon(slot.get(t.n), t, joinStates.get(t.label)); continue; } // joining: the growing icon
@@ -171,11 +180,21 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   });
   incoming.forEach((x, i) => tile(next++, `incoming:${i}`, 'sp incoming', x.label)); // waiting for me: tap = take in
   if (acceptThere) tile(next++, 'accept-there', 'sp incoming there', acceptThere.label); // tap = their page to accept
+  // the other persons on this device (14.11.): small round tiles upper left, their initial inside; tap = switch,
+  // ↓ = off this device, double-tap = how this person starts (dot: chooses at start · ring: records at once)
+  persons.forEach((p, i) => {
+    const c = { cx: 30 * k + i * 34 * k, cy: top + 20 * k, r: 13 * k }; // above the tiles, beside the handle
+    add('circle', { ...c, cls: `sp person round${choosing ? ' breathe' : ''}${shake === `person:${p.id}` ? ' shake' : ''}`, role: `person:${p.id}` });
+    add('label', { x: c.cx, y: c.cy + 5 * k, text: (p.label || '?').slice(0, 1).toUpperCase(), cls: 'label person-initial' });
+    if (p.start === 'choose') add('circle', { cx: c.cx + 9 * k, cy: c.cy - 9 * k, r: 3.5 * k, cls: 'badge person-start' });
+    if (p.start === 'record') add('circle', { cx: c.cx, cy: c.cy, r: 16 * k, cls: 'person-record' });
+    at.set(`person:${p.id}`, c);
+  });
   // + (14.11.): no tile any more, a small round button in the sheet's upper right corner; faint copy sign = copy a link first
   const ghost = clip !== 'ready' && !waitSecret;
-  const plus = { cx: w - 34 * k, cy: top + 30 * k, r: 18 * k };
+  const plus = { cx: w - 30 * k, cy: top + 20 * k, r: 14 * k }; // above the tiles, beside the handle
   add('circle', { ...plus, cls: `sp add round${waitSecret ? ' now' : ''}${ghost ? ' ghost' : ''}${pulse === 'add:new' ? ' breathe' : ''}${shake === 'add:new' ? ' shake' : ''}`, role: 'add:new' });
-  (ghost ? glyphCopy : glyphPlus)(plus, k * 0.8, add);
+  (ghost ? glyphCopy : glyphPlus)(plus, k * 0.65, add);
   at.set('add:new', plus);
   appRow(apps ?? { list: [] }, { w, h, k, add, at }); // the way out at the bottom: apps (Android), then the system sheet
   return { shapes, at };
@@ -210,6 +229,7 @@ function appRow({ list = [], x = 0 }, { w, h, k, add, at }) {
   items.forEach((a, i) => {
     const cx = first + i * gap + x;
     if (a.icon) add('image', { png: a.icon, x: cx - size / 2, y, s: size, cls: 'app row', role: a.role }); // all drawn: the row slides by CSS, no redraw
+    else if (a.glyph === 'print') { add('circle', { cx, cy: y + size / 2, r: size / 2, cls: 'sp out round row', role: a.role }); glyphPrint({ cx, cy: y + size / 2 }, k, add); }
     else { add('circle', { cx, cy: y + size / 2, r: size / 2, cls: 'sp out round row', role: a.role }); glyphShare({ cx, cy: y + size / 2 }, k, add, ' row'); }
     if (a.label) add('label', { x: cx, y: y + size + 14 * k, text: a.label.length > 10 ? `${a.label.slice(0, 9)}…` : a.label, cls: 'label app-label row' });
     at.set(a.role, { cx, cy: y + size / 2, r: size / 2 });
@@ -217,6 +237,9 @@ function appRow({ list = [], x = 0 }, { w, h, k, add, at }) {
 }
 /** How far the row may slide: 0 … −(its length beyond the screen). */
 export const rowLimit = (n, { w = 390, k = w / 390 } = {}) => Math.min(0, w - (40 * k * 2 + n * 70 * k));
+function glyphPrint({ cx, cy }, k, add) { // a printer: paper in, paper out
+  add('path', { d: `M ${cx - 7 * k} ${cy - 4 * k} V ${cy - 11 * k} H ${cx + 7 * k} V ${cy - 4 * k} M ${cx - 12 * k} ${cy + 6 * k} V ${cy - 4 * k} H ${cx + 12 * k} V ${cy + 6 * k} H ${cx - 12 * k} M ${cx - 7 * k} ${cy + 2 * k} V ${cy + 11 * k} H ${cx + 7 * k} V ${cy + 2 * k}`, cls: 'glyph row' });
+}
 function glyphShare({ cx, cy }, k, add, extra = '') { // three dots, two lines: the share sign every phone knows
   const p = [[cx + 8 * k, cy - 9 * k], [cx - 8 * k, cy], [cx + 8 * k, cy + 9 * k]];
   add('path', { d: `M ${p[0]} L ${p[1]} L ${p[2]}`.replace(/,/g, ' '), cls: `glyph${extra}` });

@@ -38,6 +38,21 @@ export async function targets(mime = '*/*') {
   try { return (await cap().ShareTargets?.list({ mime }))?.targets ?? []; } catch { return []; }
 }
 
+/** Android: the person's own mail and messages apps → { mail, sms } (package names) or {}. */
+export async function defaults() {
+  try { return (await cap().ShareTargets?.defaults()) ?? {}; } catch { return {}; }
+}
+
+/** Android: print a PDF (the emergency sheet) through the print dialog. → true when it opened. */
+export async function printFile(file) {
+  const plugin = cap().ShareTargets;
+  if (!plugin?.print) return false;
+  const [uri] = (await cached([file])) ?? [];
+  if (!uri) return false;
+  await plugin.print({ path: decodeURI(uri.replace(/^file:\/\//, '')), name: file.name.replace(/\.pdf$/, '') });
+  return true;
+}
+
 /** Android: straight to one app (target from targets()), or the system chooser without a target. → true when sent. */
 export async function sendTo(target, { text = '', files = [] }) {
   const plugin = cap().ShareTargets;

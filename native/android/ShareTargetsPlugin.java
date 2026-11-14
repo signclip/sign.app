@@ -1,5 +1,6 @@
 // ShareTargetsPlugin.java — the apps that take a share, right inside Sign's sharing menu (14.11.), and the share itself.
 // list({ mime }) → { targets: [{ label, pkg, cls, icon (PNG Base64, 96 px) }] } · send({ paths, mime, text, pkg, cls })
+// defaults() → the person's mail and messages apps · print({ path, name }) → the print dialog (PDF).
 // paths: files in the app's cache (Filesystem); they leave as content:// through the FileProvider, readable only by
 // the chosen app. Without pkg the system chooser opens. iOS has no list: there the system sheet stays.
 package org.signclip.signapp;
@@ -12,7 +13,19 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Bundle;
+import android.os.CancellationSignal;
+import android.os.ParcelFileDescriptor;
+import android.print.PageRange;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintDocumentInfo;
+import android.print.PrintManager;
 import android.util.Base64;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import androidx.core.content.FileProvider;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -63,6 +76,44 @@ public class ShareTargetsPlugin extends Plugin {
                 call.reject(String.valueOf(e.getMessage()));
             }
         }).start();
+    }
+
+    /** The person's own choices: the default mail app (mailto:) and messages app (smsto:) → { mail, sms } package names or null. */
+    @PluginMethod
+    public void defaults(PluginCall call) {
+        PackageManager pm = getContext().getPackageManager();
+        JSObject out = new JSObject();
+        ResolveInfo mail = pm.resolveActivity(new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:")), PackageManager.MATCH_DEFAULT_ONLY);
+        ResolveInfo sms = pm.resolveActivity(new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:")), PackageManager.MATCH_DEFAULT_ONLY);
+        out.put("mail", mail != null && mail.activityInfo != null && !"android".equals(mail.activityInfo.packageName) ? mail.activityInfo.packageName : null);
+        out.put("sms", sms != null && sms.activityInfo != null && !"android".equals(sms.activityInfo.packageName) ? sms.activityInfo.packageName : null);
+        call.resolve(out);
+    }
+
+    /** Print a PDF from the cache (the emergency sheet): Android's print dialog, any printer or "save as PDF". */
+    @PluginMethod
+    public void print(PluginCall call) {
+        final String path = call.getString("path");
+        final String name = call.getString("name", "Sign");
+        getActivity().runOnUiThread(() -> {
+            try {
+                PrintManager pm = (PrintManager) getActivity().getSystemService(android.content.Context.PRINT_SERVICE);
+                pm.print(name, new PrintDocumentAdapter() {
+                    @Override public void onLayout(PrintAttributes o, PrintAttributes n, CancellationSignal c, LayoutResultCallback cb, Bundle b) {
+                        if (c.isCanceled()) { cb.onLayoutCancelled(); return; }
+                        cb.onLayoutFinished(new PrintDocumentInfo.Builder(name).setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT).build(), true);
+                    }
+                    @Override public void onWrite(PageRange[] pages, ParcelFileDescriptor dest, CancellationSignal c, WriteResultCallback cb) {
+                        try (InputStream in = new FileInputStream(path); OutputStream out = new FileOutputStream(dest.getFileDescriptor())) {
+                            byte[] buf = new byte[16384]; int n;
+                            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                            cb.onWriteFinished(new PageRange[] { PageRange.ALL_PAGES });
+                        } catch (Exception e) { cb.onWriteFailed(e.getMessage()); }
+                    }
+                }, null);
+                call.resolve();
+            } catch (Exception e) { call.reject(String.valueOf(e.getMessage())); }
+        });
     }
 
     @PluginMethod

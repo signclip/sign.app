@@ -38,9 +38,10 @@ export function loginOf(spec, path) {
 /**
  * What share-mount.js holds → the sheet. entries: the list (readList) · rules: rulesOf · open: Map(n → { spec, store,
  * error, waiting }) · index: the Index or null · admin: { user, server } or null · accounts: [{ user, label, state, v, a,
- * x, l, chains, bytes }] · project: project.json.
+ * x, l, chains, bytes }] · project: project.json · joins: [{ label, state, hello, join }] (time labels of the hello and the
+ * answer) · passwordGestures: the words of the gestures one joined with, or null (then fields to write by hand).
  */
-export function sheetData({ person, device, key, paper, signerCode = null, date, entries = [], rules = [], open = new Map(), index = null, admin = null, accounts = [], project = null, nameSign = false, gestureSlots = 5, now = Date.now() }) {
+export function sheetData({ person, device, key, paper, signerCode = null, joins = [], passwordGestures = null, date, entries = [], rules = [], open = new Map(), index = null, admin = null, accounts = [], project = null, nameSign = false, gestureSlots = 5, now = Date.now() }) {
   const stats = tally(index ?? EMPTY, { now });
   const files = new Map(stats.files);
   const countsOf = (store) => { const k = stats.kinds[store]; return k ? { v: k.v, a: k.a, x: k.x, l: k.l + k.m } : null; };
@@ -50,7 +51,8 @@ export function sheetData({ person, device, key, paper, signerCode = null, date,
     return {
       n, label: e.label, kind, path: e.path ?? null, id: e.id ?? null, login: loginOf(spec, e.path ?? null),
       friend: ['link', 'cloud'].includes(spec?.kind), shown: mine.some((r) => r.mark === 'show'), offline: Boolean(sp?.error || sp?.waiting),
-      marks: ORDER.filter((m) => mine.some((r) => r.mark === m)),
+      marks: ORDER.filter((m) => mine.some((r) => r.mark === m)), group: Boolean(e.path && /\/s\//.test(e.path) && !['link', 'cloud'].includes(spec?.kind)),
+      consent: [...new Set(mine.filter((r) => r.mark === 'consent').flatMap((r) => (r.kinds?.length ? r.kinds : ['v', 'a', 'x', 'l'])))],
       always: [...new Set(mine.filter((r) => r.mark === 'always').flatMap((r) => r.kinds ?? []))],
       kinds: mine.some((r) => !r.kinds?.length) ? [] : [...new Set(mine.flatMap((r) => r.kinds ?? []))],
       files: files.get(e.label) ?? 0, counts: countsOf(e.label) ?? undefined,
@@ -67,7 +69,9 @@ export function sheetData({ person, device, key, paper, signerCode = null, date,
   ];
   const own = countsOf('own') ?? { v: stats.strands.v, a: stats.strands.a, x: stats.strands.x, l: stats.strands.l };
   const flows = rules.filter((r) => ['always', 'ask', 'backup', 'show'].includes(r.mark)).map((r) => ({ from: r.from ?? 0, to: r.to, mark: r.mark }));
-  return { name: person.label, date, now, roles, paper, ids, points, flows, own, nameSign, gestureSlots, stats, clusters: clusters(stats.list),
+  const day = (label) => { const m = /^(\d{4})\.(\d\d)\.(\d\d)/.exec(label ?? ''); return m ? `${Number(m[3])}.${Number(m[2])}.` : null; };
+  const joined = joins.map((j) => ({ label: j.label, state: j.state, hello: day(j.hello), join: day(j.join) })).filter((j) => points.some((pt) => pt.label === j.label));
+  return { name: person.label, date, now, roles, paper, ids, points, flows, joins: joined, passwordGestures, own, nameSign, gestureSlots, stats, clusters: clusters(stats.list),
     accounts: admin ? accounts.map((a) => ({ ...a, label: a.label ?? a.user })) : null, atlas, device };
 }
 

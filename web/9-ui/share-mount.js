@@ -24,12 +24,12 @@ import { readFile } from '../1-model/file.js';
 import { sheetPdf, sheetData } from './emergency.js';
 import { partsOf } from '../2-storage/layout.js';
 import { quietIds } from '../4-save/remove.js';
-import { deviceKeys } from './device-keys.js';
+import { deviceKeys, joins } from './device-keys.js';
 import { readPaste } from '../2-storage/spec.js';
 import { copyRoute } from '../2-storage/routes.js';
-import { send, filesOf, targets, sendTo } from './system-share.js';
+import { send, filesOf, targets, sendTo, defaults, printFile } from './system-share.js';
 import { shareTake } from '../4-save/share-take.js';
-import { timeLabel } from '../1-model/filename.js';
+import { timeLabel, readName } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { addNew, peek, pickFolder, loginAt, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
 import { nameSignOf, devicesOf, quietDevice } from '../8-join/join.js';
@@ -94,7 +94,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
 
   let sealWith = null; deviceKeys().then((k) => { sealWith = k.device; }, () => {}); // the list is sealed like every .sign
   const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()), deviceKey: sealWith });
-  const all = () => tiles(s.entries, s.rules, s.open, s.runs).filter((x) => s.entries[x.n - 1]?.id !== device); // this device is the own tile (0), not a second one
+  const all = () => tiles(s.entries, s.rules, s.open, s.runs).filter((x) => { const e = s.entries[x.n - 1]; return e && !(e.key && !e.path); }); // devices (this one and the person's others) are no tiles: their check keys are for the seals // this device is the own tile (0), not a second one
 
   // ---------- upkeep: what is due runs by itself (2-storage/upkeep.js) ----------
   const host = async () => { const { pickup } = await deviceKeys(); return { id: device, pickup: pickup.public, privateKey: pickup.privateKey }; };
@@ -133,7 +133,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   }
 
   async function load() {
-    const at = await findList(own);
+    const at = await findList(own, person.label); // my list: several persons may share this device
     const text = at ? dec.decode(await own.read(at)) : '';
     s.entries = text ? readList(text) : [];
     s.rules = text ? rulesOf(text) : [];
@@ -192,6 +192,12 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
 
   /** The last take through the system share sheet (14.11.): video or picture, sound, text as files. */
   async function outside(target = undefined) {
+    if (s.pending) { // something prepared (the emergency sheet): it goes, then the sheet closes
+      const p = s.pending;
+      if (target?.glyph === 'print') return printFile(p.files[0]).then(() => show(false), () => say(t('notReachable')));
+      const done = target === undefined ? send(p) : sendTo(target, p);
+      return done.then(() => show(false), () => say(t('notReachable')));
+    }
     const chainPath = await lastChain();
     if (!chainPath) return say(t('notReachable'));
     const defs = [...readFile(dec.decode(await own.read(chainPath))).defs.values()].filter((d) => ['v', 'a', 'x'].includes(d.kind) && d.id);
@@ -207,9 +213,13 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (s.apps) return;
     let used = {};
     try { used = JSON.parse(localStorage.getItem('sign.apps') || '{}'); } catch { /* private mode */ }
-    const list = await targets('video/*');
-    const rank = (a) => (used[a.pkg] ?? 0) * 100 + (FIRST_APPS.length - Math.max(-1, FIRST_APPS.findIndex((p) => a.pkg.startsWith(p)))) * (FIRST_APPS.some((p) => a.pkg.startsWith(p)) ? 1 : 0);
-    s.apps = { list: list.sort((a, b) => rank(b) - rank(a)), x: 0 }; // what you use most first; before that the usual ones
+    const [list, mine] = await Promise.all([targets('*/*'), defaults()]);
+    // first what this person uses most here; before that: messenger, the own mail app, save to files, print, the own messages app
+    const usual = ['com.whatsapp', mine.mail, 'com.google.android.apps.nbu.files', 'com.google.android.documentsui', 'com.google.android.apps.docs', mine.sms, 'org.thoughtcrime.securesms', 'org.telegram', 'com.google.android.gms'].filter(Boolean);
+    const rank = (a) => (used[a.pkg] ?? 0) * 1000 + (usual.findIndex((p) => a.pkg.startsWith(p)) + 1 ? 100 - usual.findIndex((p) => a.pkg.startsWith(p)) : 0);
+    const sorted = list.sort((a, b) => rank(b) - rank(a));
+    const print = list.length ? [{ label: 'Drucken', pkg: '__print', glyph: 'print' }] : []; // Android: printing is no share target, Sign offers it itself
+    s.apps = { list: [...sorted.slice(0, 2), ...print, ...sorted.slice(2)], x: 0 };
     if (!panel.hidden) draw();
   }
   function usedApp(app) {
@@ -237,11 +247,24 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const admin = await findAdmin().catch(() => null); // only user and server reach the sheet, never the password
     const accounts = admin ? await sheetAccounts().catch(() => []) : [];
     const signerCode = admin && adminStore() ? await paperForDoor().catch(() => null) : null; // admin: the paper becomes a signer too
-    const sheet = sheetData({ person, device, key, paper, signerCode, date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
+    const sheet = sheetData({ person, device, key, paper, signerCode, joins: await sheetJoins(), date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
     const pdf = sheetPdf(sheet);
-    return send({ title: 'Sign · Notfallblatt', text: key, files: [new File([pdf], 'sign-notfallblatt.pdf', { type: 'application/pdf' })] }).catch(() => null);
+    const p = { title: 'Sign · Notfallblatt', text: key, files: [new File([pdf], 'sign-notfallblatt.pdf', { type: 'application/pdf' })] };
+    if (!s.apps?.list?.length) return send(p).catch(() => null); // no row (iOS, browser): the system sheet
+    s.pending = p; s.apps.x = 0; return draw(); // the menu folds down to its share row: choose where it goes (14.11.)
   }
 
+  /** My joins for the sheet: per group the state and the time labels of my hello and of its answer (from the file names). */
+  async function sheetJoins() {
+    const timeOf = (path) => (path ? readName(path.slice(path.lastIndexOf('/') + 1))?.time ?? null : null);
+    const out = [];
+    for (const [label, state] of s.joinStates ?? []) {
+      if (state === 'door') continue;
+      const mine = await joins.get(label).catch(() => null);
+      out.push({ label, state: state === 'join-own' ? 'within' : state, hello: timeOf(mine?.helloPath), join: timeOf(mine?.answer) });
+    }
+    return out;
+  }
   /** Every account for the sheet (admin): quiet = switched off · within = has logged in or atlas counted it · join = made,
    *  not yet in · hello = a request without an account; numbers from atlas, bytes from the Nextcloud quota. */
   async function sheetAccounts() {
@@ -319,6 +342,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (canPick()) return pickFolder(ctx);
       s.shake = 'sp:0'; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; // the phone: with the native app (S4)
     }
+    if (what === 'person') { globalThis.signPersons?.switchTo(a); return location.reload(); } // another person on this device: in
     if (what === 'own') { // my own space still dashed (14.11.): the answer came without an account → ask again (a new hello)
       const label = ctx.tileOf(Number(a))?.label;
       if (!label || s.joinStates.get(label) !== 'join') return null;
@@ -326,7 +350,12 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     }
     if (what === 'sp' && s.joinStates.get(ctx.tileOf(Number(a))?.label) === 'door') { // onboarding: tap the hello bubble = hello (14.11.)
       const label = ctx.tileOf(Number(a)).label;
-      return helloToDoor(ctx, label).then((m) => { if (m) { s.joinStates.set(label, m.state); s.fresh.add(label); } onHello(); draw(); });
+      s.flash = role; draw(); // seen at once; the hello takes a moment
+      return helloToDoor(ctx, label).catch(() => null).then((m) => {
+        s.flash = null;
+        if (m) { s.joinStates.set(label, m.state); s.fresh.add(label); onHello(); } else s.shake = role; // nothing went out (no name sign yet, door not reachable): it shakes
+        draw(); setTimeout(() => { s.shake = null; draw(); }, 400);
+      });
     }
     if (what === 'sp') {
       const tile = ctx.tileOf(Number(a));
@@ -350,7 +379,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'sp-kind') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'tap-kind'), 'tap-kind', s.rules, { kind: b }));
     if (what === 'add') return addNew(ctx); // the one + tile
     if (what === 'out') return outside(); // the share sign: the last take to other apps (the system sheet)
-    if (what === 'app') { const app = s.apps?.list?.[Number(a)]; if (!app) return null; usedApp(app); return outside(app); } // one app of the row: straight there
+    if (what === 'app') { const app = s.apps?.list?.[Number(a)]; if (!app) return null; if (!app.glyph) usedApp(app); return outside(app); } // one app of the row: straight there
     if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.look ? x.look() : null; } // an account: tap = look at it
     if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
     if (what === 'hello') { // tap = look: the name sign that came with the hello, in the window (14.11.; ← = welcome)
@@ -430,6 +459,9 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       more: (by) => { const q = nextQuota(a.quota, by); return q ? setQuota(ctx.admin, a.user, q).then(showAccounts, () => say(t('notReachable'))) : null; },
     }))];
   }
+  /** The other persons on this device (persons.js), with how each starts. */
+  const others = () => { const p = globalThis.signPersons; return p ? p.persons().filter((x) => x.id !== p.current()) : []; };
+  const START = ['direct', 'record', 'choose']; // straight to the take as left · records at once · the persons to choose at start
   /** The project's own Nextcloud (its door's server), where the admin logs in. */
   const projectServer = () => { try { return new URL(project?.doors?.[0]?.read ?? project?.read).origin; } catch { return null; } };
   /** The admin's own folder with hello/ join/ within/ quiet/ (the door), or null. */
@@ -461,7 +493,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const ws = words().map((w) => w.toLowerCase());
     const hellos = s.hellos.filter((x) => ws.every((w) => x.name.toLowerCase().includes(w))).map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to · context words find hellos too
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.accounts || s.browse ? null : s.apps ?? { list: [] }, browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.accounts || s.browse ? null : s.apps ?? { list: [] }, outOnly: Boolean(s.pending), persons: others(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();
@@ -487,6 +519,11 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     slideEnd: () => { if (!s.apps?.drag) return null; s.apps.x = (s.apps.x ?? 0) + s.apps.drag; s.apps.drag = 0; return draw(); },
     tap: () => tapped(role), // waits 300 ms: it may become a double-tap
     doubleTap: () => { // 14.11.: on a sharing point = encrypted ↔ readable (the line from this device turns double / single)
+      if (role?.startsWith('person:') || role === 'sp:0') { // how a person starts: direct → records at once → chooses
+        const P = globalThis.signPersons, id = role === 'sp:0' ? P?.current() : role.slice(7), now = P?.persons().find((x) => x.id === id)?.start ?? 'direct';
+        P?.setStart(id, START[(START.indexOf(now) + 1) % START.length]);
+        return draw();
+      }
       const n = circleOf(role);
       return n ? apply(gestureOn(n, 'double', s.rules, { private: ctx.tileOf(n)?.private })) : null;
     },
@@ -499,6 +536,10 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
       }
       if (role?.startsWith('browse:') && s.accounts && ['down', 'down-far', 'up'].includes(dir)) { const x = accountTiles()[Number(role.split(':')[1])]; return dir === 'up' ? x?.up?.() : x?.down?.(); } // account: ↓ rests ↑ wakes · device: ↓ quiet · group: ↓ out (14.11.)
+      if (role?.startsWith('person:') && (dir === 'down' || dir === 'down-far')) { // off this device; its files stay
+        if (!globalThis.signPersons?.remove(role.slice(7))) { s.shake = role; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; }
+        return draw();
+      }
       if ((role?.startsWith('app:') || role === 'out:system') && dir === 'up') return outside(); // ↑ on the row: the classic Android / iOS share sheet
       if (role?.startsWith('hello:') && dir === 'left') return welcome(ctx, s.hellos[Number(role.split(':')[1])]).then(load).then(draw); // ← hello → join: welcomed
       if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → back: look again (new hellos, a failed welcome tried anew)
@@ -583,10 +624,13 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   document.addEventListener('visibilitychange', () => { if (!document.hidden && !panel.hidden) look(); }); // back after copying a link
   function show(on) {
     panel.hidden = !on;
+    if (!on) s.pending = null; // closed: nothing prepared waits
     if (on) { s.appear = true; draw(); look(); loadApps().catch(() => {}); }
   }
   return {
     show,
+    /** Start 'choose' (14.11.): the persons of this device breathe, tap = in. */
+    choose: () => { s.choosing = true; show(true); },
     async afterTake(paths) {
       const files = await Promise.all(paths.map(async (path) => ({ path, bytes: await own.read(path) })));
       const result = await afterTake(s.rules, s.open, files);

@@ -94,6 +94,11 @@ export class Page {
     this.raw(`${pre} ${p(cx + r, cy)} m ${p(cx + r, cy + k)} ${p(cx + k, cy + r)} ${p(cx, cy + r)} c ${p(cx - k, cy + r)} ${p(cx - r, cy + k)} ${p(cx - r, cy)} c ` +
       `${p(cx - r, cy - k)} ${p(cx - k, cy - r)} ${p(cx, cy - r)} c ${p(cx + k, cy - r)} ${p(cx + r, cy - k)} ${p(cx + r, cy)} c h ${paint}`);
   }
+  /** A curve from (x0, y0) to (x1, y1) bent towards (cx, cy) — the quadratic Bézier the app draws (written as cubic). */
+  curve(x0, y0, cx, cy, x1, y1, st = {}) {
+    const { pre } = this.style({ stroke: '#222222', ...st }), c1 = [x0 + (2 / 3) * (cx - x0), y0 + (2 / 3) * (cy - y0)], c2 = [x1 + (2 / 3) * (cx - x1), y1 + (2 / 3) * (cy - y1)];
+    this.raw(`${pre} ${num(x0)} ${this.y(y0)} m ${num(c1[0])} ${this.y(c1[1])} ${num(c2[0])} ${this.y(c2[1])} ${num(x1)} ${this.y(y1)} c S`);
+  }
   /** Many small dots of one colour: [[x, y, diameter]] as round-capped zero-length lines (~35 B per dot, not ~180). */
   dots(list, color) {
     if (!list.length) return;

@@ -262,7 +262,9 @@ function similarTiles({ data, w, h, k, add }, bottom = h) {
   const x0 = gap, y0 = top - (1 - (data.reveal ?? 1)) * (bottom - top); // coming in: the tiles slide down from the top
   add('sheet', { x: 0, y: top - gap, w, h: bottom - top + gap, r: 0, cls: 'similar-band', role: 'similar-band' });
   keys.slice(0, Math.min(MANY, cols * rows)).forEach((key, i) => {
-    add('thumb', { x: x0 + (i % cols) * (size + gap), y: y0 + Math.floor(i / cols) * (size + gap), s: size, href: data.thumbs?.[key], cls: 'thumb other', role: `similar:${i}` });
+    const x = x0 + (i % cols) * (size + gap), y = y0 + Math.floor(i / cols) * (size + gap);
+    const path = outlinePath(windowOf(data.shape, { cx: x + size / 2, cy: y + size / 2, F: size })); // the form of my window (14.11.)
+    add('thumb', { x, y, s: size, path, id: `st${i}`, href: data.thumbs?.[key], cls: 'thumb other', role: `similar:${i}` });
   });
 }
 
@@ -326,7 +328,9 @@ const SVG = {
   image: (s) => `<image href="data:image/png;base64,${s.png}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" class="${s.cls}"${roleOf(s)}/>`, // an app's icon (share row)
   label: (s) => `<text x="${s.x}" y="${s.y}" text-anchor="middle" class="${s.cls}">${esc(s.text)}</text>`,
   video: (s) => (s.window ? `<path d="${outlinePath(s.window)}" class="${s.cls}"${roleOf(s)}/>` : `<circle cx="${s.cx}" cy="${s.cy}" r="${s.d / 2}" class="${s.cls}"${roleOf(s)}/>`),
-  thumb: (s) => `${s.href ? `<image href="${esc(s.href)}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" preserveAspectRatio="xMidYMid slice" style="clip-path: inset(0 round ${s.round ? s.s / 2 : 12}px)"/>` : ''}<rect x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" rx="${s.round ? s.s / 2 : 12}" class="${s.cls}${s.href ? ' seen' : ''}"${roleOf(s)}/>`,
+  thumb: (s) => (s.path // in the form of my window (14.11.)
+    ? `<clipPath id="${s.id}"><path d="${s.path}"/></clipPath>${s.href ? `<image href="${esc(s.href)}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${s.id})"/>` : ''}<path d="${s.path}" class="${s.cls}${s.href ? ' seen' : ''}"${roleOf(s)}/>`
+    : `${s.href ? `<image href="${esc(s.href)}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" preserveAspectRatio="xMidYMid slice" style="clip-path: inset(0 round ${s.round ? s.s / 2 : 12}px)"/>` : ''}<rect x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" rx="${s.round ? s.s / 2 : 12}" class="${s.cls}${s.href ? ' seen' : ''}"${roleOf(s)}/>`),
   chip: (s) => `<g class="${s.cls}"${roleOf(s)}>`
     + `<rect x="${s.x}" y="${s.y - s.h / 2}" width="${s.w}" height="${s.h}" rx="${s.h / 2}"/>`
     + `<text x="${s.x + s.w / 2}" y="${s.y + 5}" text-anchor="middle">${esc(s.text)}</text></g>`,

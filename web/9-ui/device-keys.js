@@ -10,6 +10,7 @@
 //            joins again with a new hello).
 
 import { newDeviceKey, newPickupKey } from '../1-model/crypto.js';
+import { personal } from './persons.js';
 
 const DB = 'sign-keys', STORE = 'keys';
 
@@ -51,6 +52,6 @@ export function deviceKeys() {
 
 /** Remember small things about joins (the path of my hello per group). */
 export const joins = {
-  get: (label) => run('readonly', (s) => s.get(`hello:${label}`)),
-  set: (label, value) => run('readwrite', (s) => s.put(value, `hello:${label}`)),
+  get: (label) => run('readonly', (s) => s.get(personal(`hello:${label}`))), // each person on the device says its own hello
+  set: (label, value) => run('readwrite', (s) => s.put(value, personal(`hello:${label}`))),
 };
