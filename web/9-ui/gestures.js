@@ -46,6 +46,7 @@ export const TABLE = [
   ['chips-in', 'up', 'strand', 'any', 'show the chips of this strand (camera: light, exposure; audio: stereo, Whisper)'],
   ['chips-out', 'down', 'strand', 'any', 'hide the chips of this strand'],
   ['hide-strand', 'left', 'strand', 'any', 'hide this field (it still records when on)'],
+  ['photo', 'tap', 'photo', 'any', 'picture instead of video: the point becomes a photo button (tap again = video)'],
   ['focus', 'tap', 'live', 'any', 'focus where tapped'],
   ['zoom', 'pinch', 'live', 'any', 'zoom the camera'],
   ['switch-camera', 'left', 'live', 'any', 'front / back camera'],

@@ -38,7 +38,7 @@ import { addEcho } from '../4-save/add-echo.js';
 import { similar } from '../7-similar/filter.js';
 import { newPerson, newSource } from '../1-model/ids.js';
 import { readFile } from '../1-model/file.js';
-import { withSticky, afterTake as nextOfSeries, readContext } from '../1-model/context.js';
+import { withSticky, afterTake as nextOfSeries, readContext, fromField } from '../1-model/context.js';
 import { write as writeNotation, parse as parseNotation } from '../1-model/notation.js';
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse } from './state.js';
@@ -51,10 +51,19 @@ import { ownChips, strandChips, draw } from './panels.js';
 import { filterChips, toggle, filtersOf, EMPTY } from './similar-filter.js';
 import { mountShareMenu } from './share-mount.js';
 import { keychain } from './keychain.js';
-import { hintOf, progress, done, NAME_SIGN_STEP } from './onboarding.js';
+import { hintOf, progress, done, NAME_SIGN_STEP, STEPS } from './onboarding.js';
 
 const $ = (sel) => document.querySelector(sel);
 /** A held chip as context text: every gesture in its own bracket (SCHEMA G-rules). */
+/** One picture from the live video: the middle square, 1080 × 1080 (as the video), PNG = lossless. → bytes */
+async function snapshot(video, side = 1080) {
+  const s = Math.min(video.videoWidth, video.videoHeight) || side;
+  const c = Object.assign(document.createElement('canvas'), { width: side, height: side });
+  c.getContext('2d').drawImage(video, (video.videoWidth - s) / 2, (video.videoHeight - s) / 2, s, s, 0, 0, side, side);
+  const blob = await new Promise((done) => c.toBlob(done, 'image/png'));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
 const contextOf = (text) => (!text ? '' : text.startsWith('(') ? text : `(${text})`);
 /** A role held by a finger → the property of a parallel gesture, or null if it cannot be one. */
 function propertyOf(role) {
@@ -96,7 +105,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // ---------- what is going on ----------
   let st = startState(settings.auto); // one strand selection for everything, kept until changed
   if (settings.ready) st = next(st, { action: 'ready' });
-  const data = { chips: [], levels: [], similar: [], line: { count: 0, at: 0 }, versions: 1, timeMs: null, hidden: [], words: [], flows: settings.flows, shape: settings.shape };
+  const data = { chips: [], levels: [], similar: [], line: { count: 0, at: 0 }, versions: 1, timeMs: null, hidden: [], words: [], flows: settings.flows, shape: settings.shape, photo: kept('sign.photo', () => '') === '1' };
   let series = ''; // written context, one gesture per entry: each take takes the first one (context.afterTake)
   const take = { recorder: null, lastChain: null, lastKinds: [], replayAt: -1, began: null, context: '', shareOnce: null, starting: false, stopSoon: false };
   const onboard = { at: Number(kept('sign.onboard', () => '0')) || 0 };
@@ -134,7 +143,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   });
   /** A new line arrives on the chain: it slides in from above, the older ones move one level down. */
   const arrive = async () => { data.push = 0; await animate('push', 0, 1, 380); delete data.push; paint(); };
-  const takesCount = async () => (await store.list('take/')).filter((f) => f.path.endsWith('.v.mp4')).length;
+  const takesCount = async () => (await store.list('take/')).filter((f) => /\.v\.(mp4|png)$/.test(f.path)).length;
   data.line.count = await takesCount().catch(() => 0);
 
   const project = await fetch(new URL('../project.json', import.meta.url)).then((r) => r.json()).catch(() => null); // the project's door
@@ -148,6 +157,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       try { const p = localStorage.getItem('sign.nameSign'); return p ? await store.read(p) : null; } catch { return null; }
     },
     onSources: async (list) => { sources = list; index = await buildIndex(sources); },
+    onHello: () => learned('hello'), // onboarding: I dragged myself onto the door
   });
   menu.runRules().catch(() => {}); // copies and backups of the list, quietly in the background
 
@@ -198,6 +208,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const first = parseNotation(series).find((n) => n.t !== 'sym'); // written context: the next gesture of the series
     take.context = action === 'take-with-context' ? contextOf(st.hold?.text) : first ? writeNotation([first]) : '';
     take.fromSeries = action !== 'take-with-context' && Boolean(first);
+    if (data.photo && toRecord(st).includes('v')) { // the picture point is on: one picture, no sound, saved at once
+      const picture = await snapshot($('#live'));
+      take.recorder = { stop: async () => ({ lengthMs: 0, picture, video: null, audio: null }), frame() {} };
+      return end();
+    }
     take.starting = true; // the microphone takes ~50–300 ms to open; a tap meanwhile = stop right after
     const tap = await browserTap(camera).finally(() => { take.starting = false; });
     if (st.screen !== 'record') { tap.stop(); return; } // undone meanwhile (a second finger came)
@@ -233,6 +248,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const saved = await saveTake({
       device, person, store, now: Date.now(), lengthMs: recorded.lengthMs, context: withSticky(sticky.map((w) => `(${w})`).join(' '), take.context),
       video: kinds.includes('v') ? recorded.video : null,
+      picture: kinds.includes('v') ? recorded.picture ?? null : null,
       audio: kinds.includes('a') ? recorded.audio : null,
       onto, keep,
     });
@@ -319,18 +335,44 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     data.timeMs = 0;
     paint();
   }
-  const openContext = (on) => {
-    $('#context').hidden = !on;
-    if (on) say.focus(); else say.blur();
+  /** Open or close the context field: the bottom arc straightens into the field (or bends back), ~300 ms. */
+  const openContext = (on, ms = 300) => {
+    const field = $('#context');
+    if (!on) { field.hidden = true; field.classList.remove('shown'); say.blur(); }
+    else { field.hidden = false; say.focus(); } // there at once but unseen, so the keyboard may open inside the touch
+    const from = data.open ?? 0, to = on ? 1 : 0, t0 = performance.now();
+    const frame = (now) => {
+      const t = Math.min(1, (now - t0) / ms);
+      data.open = from + (to - from) * t;
+      paint();
+      if (t < 1) return requestAnimationFrame(frame);
+      if (on) field.classList.add('shown'); // the arc has become the field: it shows
+      else delete data.open;
+    };
+    requestAnimationFrame(frame);
   };
   say.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
-    const text = say.value.replace(/[()[\]{}]/g, ' ').trim().replace(/\s+/g, ' ');
+    const text = fromField(say.value); // ( ) nest, [ ] spells, missing brackets are closed
+    const name = say.value.replace(/[()[\]{}]/g, '').replace(/\s+/g, ' ').trim();
     say.value = '';
+    if (text && settings.onboarding && STEPS[onboard.at]?.[0] === 'name') { // onboarding: this is my name, and the context of my name sign
+      person.label = name;
+      try { localStorage.setItem('sign.name', name); } catch { /* private mode */ }
+      $('#context').classList.remove('breathe');
+      learned('name');
+    }
     if (!text) return openContext(false);
-    series = `${series} (${text})`.trim();
+    series = `${series} ${text}`.trim();
     showSeries();
   });
+
+  if (settings.onboarding && STEPS[onboard.at]?.[0] === 'name') { // onboarding starts with the name: write it right away
+    $('#context').classList.add('breathe');
+    say.value = person.label; // a preset to change (as chosen beforehand): typing replaces it
+    openContext(true);
+    setTimeout(() => say.select(), 320);
+  }
 
   /** Fly one Similar tile into the line, then the new line slides in on the chain. */
   async function intoLine(tileRole, ms = 420) {
@@ -423,6 +465,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'chips-out': return panel('#chips', false);
       case 'hide-strand': data.hidden = [...new Set([...data.hidden, kind])]; return paint();
       case 'strands-in': data.hidden = []; return paint();
+      case 'photo': // the picture point on the visual arc: on = the point takes one picture
+        data.photo = !data.photo;
+        try { localStorage.setItem('sign.photo', data.photo ? '1' : ''); } catch { /* private mode */ }
+        return paint();
       case 'focus': return focusAt(camera, hit.x, hit.y);
       case 'zoom': return null; // pinch goes straight to the camera (handlers.pinch)
       case 'switch-camera':

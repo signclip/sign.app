@@ -9,25 +9,33 @@
 //            Own settings (upper left) can switch it off or start it again (settings.onboarding).
 // Depends:   gestures.js, screen.js (targetOf)
 // Test:      tests/ui.test.mjs
-// Limits:    7 steps; the step number is kept on the device (localStorage), never shared.
+//            14.11.: it starts with the name (the context field is open, Enter = name, it becomes the context
+//            of the name sign), and after the name sign the door waits in the sharing menu as a hello bubble:
+//            drag yourself onto it = hello. Steps without a gesture of the table ('write', 'drag') are hinted where they happen.
+// Limits:    9 steps; the step number is kept on the device (localStorage), never shared.
 
 import { TABLE } from './gestures.js';
 import { targetOf } from './screen.js';
 
-/** [action, role on the screen]: in this order, the first one records the name sign. */
+/** [action, role on the screen]: in this order; the name first, then the name sign. */
 export const STEPS = [
-  ['take', 'point'], // name sign
+  ['name', 'field'], // write the name: the context field is open and breathes
+  ['take', 'point'], // name sign (the name is its context)
+  ['share-last', 'point'], // the sharing menu: the door breathes as a hello bubble
+  ['hello', 'panel'], // drag yourself onto it
   ['replay-back', 'point'], // watch it
   ['strand-while-held', 'strand:v'], // only one strand while held
   ['take-while-held', 'point'], // all switched-on strands while held
-  ['share-last', 'point'], // the sharing points (groups are joined there)
   ['similar-in', 'upper-right'], // Similar
   ['own-in', 'upper-left'], // own settings: here the onboarding can start again
 ];
-export const NAME_SIGN_STEP = 0;
+export const NAME_SIGN_STEP = 1;
+/** Steps hinted where they happen (field, sharing menu) instead of by the pale point: their gesture. */
+const IN_PLACE = { field: 'write', panel: 'drag' };
 
 /** The gesture of the table for this action on this role, or null. */
 export function gestureFor(action, role) {
+  if (IN_PLACE[role]) return IN_PLACE[role];
   const target = targetOf(role).target;
   return TABLE.find(([a, , t]) => a === action && t === target)?.[1] ?? null;
 }

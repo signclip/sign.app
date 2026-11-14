@@ -16,7 +16,7 @@
   "kind.x": "text",
   "kind.l": "landmarks",
   "kind.m": "mask",
-  "take.name": "name",
+  "take.name": "Name",
   "take.password": "password gestures",
   "join.waiting": "waiting for join",
   "join.done": "join done",

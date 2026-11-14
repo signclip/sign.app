@@ -5,7 +5,7 @@
 // Test:      tests/ui.test.mjs
 // Limits:    the point is at least 44 px (touch target); size is the viewBox edge in px.
 
-const CORAL = '#D85A30', BLUE = '#378ADD', GREY = '#888780';
+const CORAL = '#f5a08a', BLUE = '#8fb6e0', GREY = '#888780';
 
 /** shapes (glyph()) → '<svg …>' for a square of size px. */
 export function glyphSvg(shapes, size = 88) {

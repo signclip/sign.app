@@ -26,24 +26,24 @@ const enc = new TextEncoder();
 
 /**
  * device: q_ id · person: { id: n_…, label } · cell: H3 cell or null · where: label of the room or town, or null
- * now: start in ms · lengthMs · context: text of the gestures · video: Uint8Array or null
+ * now: start in ms · lengthMs · context: text of the gestures · video: Uint8Array or null · picture: PNG bytes (lossless) or null
  * audio: { channels: [Float32Array], sampleRate } or null · store: storage adapter
  * deviceKey: from crypto.newDeviceKey(); if given, every text file gets its witness y_
  * onto: path of the chain it adds to · keep: kinds taken over from there by reference (state.toKeep)
  * Returns { chain: { path, id }, paths }.
  */
-export async function saveTake({ device, person, cell = null, where = null, now = Date.now(), lengthMs = 0, context = '', video = null, audio = null, store, deviceKey = null, onto = null, keep = [] }) {
+export async function saveTake({ device, person, cell = null, where = null, now = Date.now(), lengthMs = 0, context = '', video = null, picture = null, audio = null, store, deviceKey = null, onto = null, keep = [] }) {
   const time = timeLabel(now, lengthMs);
   const words = context ? flatWords(context) : [];
   const base = { words, person: person.label, time };
-  const make = () => newId({ q: device, n: person.id, e: cell, now });
+  const make = () => newId({ q: device, n: person.id, o: cell, now });
   const head = (kind, id) => headLine(kind, { '!': writeId(id), '@': person.label, "'t": time });
   const files = [];
   const defs = [];
   const used = [];
 
-  const add = async (kind, id, bytes, { json = null } = {}) => {
-    const path = pathOf({ ...base, kind, u: shortU(id) });
+  const add = async (kind, id, bytes, { json = null, ext } = {}) => {
+    const path = pathOf({ ...base, kind, u: shortU(id), ...(ext ? { ext } : {}) });
     files.push({ path, bytes });
     if (json) files.push({ path: jsonPath(path), bytes: enc.encode(json) });
     const n = used.filter((u) => u.startsWith(`${kind}.`)).length + 1;
@@ -52,6 +52,7 @@ export async function saveTake({ device, person, cell = null, where = null, now 
   };
 
   if (video) { const id = make(); await add('v', id, video); }
+  else if (picture) { const id = make(); await add('v', id, picture, { ext: 'png' }); } // one picture (14.11.): the visual strand as .v.png, lossless
   if (audio) { const id = make(); await add('a', id, encodeWav(audio.channels, audio.sampleRate, head('a', id))); }
   if (context) {
     const id = make();

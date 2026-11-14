@@ -105,11 +105,7 @@ export async function joinProject(ctx, project, { reachable = doorAnswers, memor
   const label = project.label || 'Sign';
   if (await memory.get(label)) return false; // the hello went out already
   if (!(await ctx.nameSign?.())) return false; // the hello carries the name sign: it comes first
-  if (ctx.s.entries.some((e) => e.label === label)) { // the door is there, the hello not yet (its password came later)
-    if (await ctx.keychain.get(ctx.s.entries.find((e) => e.label === label).id) == null && ctx.s.waitSecret) return false;
-    await sayHelloTo(ctx, label, { door: true });
-    return true;
-  }
+  if (ctx.s.entries.some((e) => e.label === label)) return false; // the door is there: it waits as a hello bubble (helloToDoor)
   let door = null, locked = false;
   for (const d of doors) {
     const answer = await reachable(d); // true · 'password' · false (a door may be gone: revoked, moved)
@@ -126,8 +122,13 @@ export async function joinProject(ctx, project, { reachable = doorAnswers, memor
     ctx.say(ctx.t('menu.secret'));
     return false;
   }
+  return true; // the door came in: drawn as a hello bubble; the own tile dragged onto it says hello (helloToDoor)
+}
+
+/** Onboarding (14.11.): the own tile dragged onto the door's hello bubble = hello, with the name sign. */
+export async function helloToDoor(ctx, label) {
   await sayHelloTo(ctx, label, { door: true });
-  return true;
+  return joins.get(label);
 }
 
 /** Does a door answer? → true · 'password' (it asks for one: 401) · false (revoked or moved). */
@@ -152,11 +153,13 @@ async function sayHelloTo(ctx, label, { door = false } = {}) {
 
 /**
  * Member: for every group I said hello to, look for my join in join/ (through the read link); take it
- * and follow renewed links. → Map(label → 'hello' | 'join' | 'join-own' | 'within'), drawn as the growing
+ * and follow renewed links. → Map(label → 'door' | 'hello' | 'join' | 'join-own' | 'within'), drawn as the growing
  * sharing icon (view/points.js): join-own = my own sharing point came along; shown complete once, then 'within'.
  */
 export async function followJoins(ctx) {
   const states = new Map();
+  const door = ctx.doorLabel && ctx.s.entries.some((e) => e.label === ctx.doorLabel);
+  if (door && !(await joins.get(ctx.doorLabel))) states.set(ctx.doorLabel, 'door'); // in the list, no hello yet: a bubble to drag onto
   for (const t of ctx.all().filter((x) => x.drop)) {
     const mine = await joins.get(t.label);
     if (!mine) continue;

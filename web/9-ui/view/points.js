@@ -110,7 +110,7 @@ export function pointShapes(all, { own = '', focus = null, waitSecret = false, b
   }
 
   tile(0, 'sp:0', 'sp own-device', own);
-  const joining = (t) => ['hello', 'join', 'join-own'].includes(joinStates.get(t.label));
+  const joining = (t) => ['door', 'hello', 'join', 'join-own'].includes(joinStates.get(t.label));
   for (const t of all) {
     if (t.under) continue; // the drop link of a group: drawn as part of its read tile
     if (joining(t)) { joinIcon(slot.get(t.n), t, joinStates.get(t.label)); continue; } // joining: the growing icon
@@ -134,6 +134,13 @@ export function pointShapes(all, { own = '', focus = null, waitSecret = false, b
     const { cx, cy } = grid(i, { w, k, y0 });
     const r = 13 * k, me = [cx - 34 * k, cy], group = [cx + 30 * k, cy - 22 * k], mine = [cx + 30 * k, cy + 22 * k];
     const line = ([x1, y1], [x2, y2], cls) => add('path', { d: `M ${x1} ${y1} L ${x2} ${y2}`, cls: `join-line ${cls}` });
+    if (state === 'door') { // onboarding: the door as a hello bubble, breathing; drag yourself (your tile or this circle) onto it
+      add('circle', { cx: me[0], cy: me[1], r, cls: 'join-me', role: 'sp:0' });
+      add('circle', { cx: group[0], cy: group[1], r: r * 1.4, cls: 'join-group door breathe', role: `sp:${t.n}` });
+      add('label', { x: cx, y: cy + th / 2 + 18 * k, text: t.label, cls: 'label' });
+      at.set(`sp:${t.n}`, { cx: group[0], cy: group[1], r: r * 1.4 });
+      return;
+    }
     line(me, group, state === 'hello' ? 'hello' : 'join');
     if (state !== 'hello') line(me, mine, state === 'join-own' ? 'join own' : 'hello own');
     add('circle', { cx: me[0], cy: me[1], r, cls: 'join-me' });

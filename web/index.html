@@ -8,11 +8,11 @@
   <title>Sign</title>
   <style>
     :root {
-      --bg: #faf9f7; --fg: #222; --mut: #8a8984; --card: #fff; --line: #e8e6e1;
-      --rc: #f5c6b8; --rc-stroke: #C8644A; --sc: #b9d4ee; --sc-stroke: #3F78C4;
+      --bg: #faf9f7; --rest: #e4e2dd; --fg: #222; --mut: #8a8984; --card: #fff; --line: #e8e6e1;
+      --rc: #f5c6b8; --rc-stroke: #f5a08a; --sc: #b9d4ee; --sc-stroke: #8fb6e0;
       --hold: #5fbf92; --hl: #ffe9a0; --video: #2F323A;
     }
-    @media (prefers-color-scheme: dark) { :root { --bg: #171716; --fg: #eeece7; --card: #222; --line: #333; --hl: #5f5010; } }
+    @media (prefers-color-scheme: dark) { :root { --bg: #171716; --fg: #eeece7; --card: #222; --line: #333; --hl: #5f5010; --rest: #2b2b29; } }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, sans-serif; overflow: hidden; touch-action: none; }
     #screen { position: absolute; inset: 0; }
     #screen video { position: absolute; object-fit: cover; background: transparent; opacity: 0; transition: opacity .45s ease-out; }
@@ -25,9 +25,10 @@
     #overlay [data-role] { cursor: pointer; }
     /* the view's classes (view/ring.js, chips.js, timeline.js): colour never alone, dashed / filled say it too */
     .layer { fill: none; stroke: var(--rc-stroke); stroke-width: 2; opacity: .25; }
-    .field-rest { fill: var(--bg); opacity: .62; pointer-events: none; } /* the rest of the 1080 field: visible, greyed */
+    .field-rest { fill: var(--rest); opacity: .72; pointer-events: none; } /* the rest of the 1080 field: visible, greyed in the background's grey */
+    #screen { background: var(--rest); } /* 14.11.: the grey around the window is the whole background */
     .strand { fill: none; stroke-width: 7; stroke-linecap: round; }
-    .strand.new { stroke: var(--rc-stroke); stroke-dasharray: 10 8; }
+    .strand.new { stroke: var(--rc-stroke); opacity: .55; } /* will be recorded: pale, solid (14.11.) */
     .strand.keep, .strand.own { stroke: var(--rc-stroke); }
     .strand.off { stroke: var(--mut); stroke-width: 3; opacity: .5; }
     .chip.hold rect, .bubble.hold { stroke: var(--hold); stroke-width: 4; }
@@ -53,6 +54,8 @@
     .arriving { opacity: .6; } .thumb.flying { stroke-width: 3; }
     .now-mark { stroke: var(--fg); stroke-width: 2; opacity: .5; }
     .point .ring { fill: none; stroke: var(--rc-stroke); stroke-width: 3; } .point .core { fill: var(--rc-stroke); }
+    .point.photo .core { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 6; } /* photo button: a white disc in a ring */
+    .photo { fill: var(--card); stroke: var(--mut); stroke-width: 2; } .photo.on { fill: var(--rc); stroke: var(--rc-stroke); stroke-width: 3; }
     .point.waiting .ring { stroke-dasharray: 8 6; } .point.line .core { opacity: .55; }
     .point.with .ring { stroke: var(--hold); stroke-width: 5; } /* the point acts on the held property */
     /* panels slide in from the edges */
@@ -78,7 +81,10 @@
     @keyframes hint-tap { 0% { opacity: 0; transform: scale(1.6); } 30% { opacity: .6; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
     @keyframes hint-hold { 0% { opacity: 0; transform: scale(1.4); } 20% { opacity: .6; transform: scale(1); } 75% { opacity: .6; transform: scale(1); } 100% { opacity: 0; transform: scale(.6); } }
     @keyframes hint-move { 0% { opacity: 0; transform: none; } 20% { opacity: .6; transform: none; } 80% { opacity: .6; transform: translate(var(--dx), var(--dy)); } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)); } }
-    .hinted { animation: breathe 1.6s ease-in-out infinite; } @keyframes breathe { 50% { opacity: .55; } }
+    .join-group.door { fill: var(--sc); fill-opacity: .35; stroke: var(--sc-stroke); stroke-width: 2.5; stroke-dasharray: 6 4; }
+    #context { opacity: 0; transition: opacity .15s; } #context.shown { opacity: 1; }
+    #context.breathe input { animation: breathe 1.6s ease-in-out infinite; }
+    .hinted, .breathe { animation: breathe 1.6s ease-in-out infinite; } @keyframes breathe { 50% { opacity: .55; } }
     .tile-behind { fill: var(--card); stroke: var(--line); pointer-events: none; }
     .sheet { fill: var(--card); stroke: var(--line); filter: drop-shadow(0 -2px 8px rgba(0,0,0,.08)); }
     .handle { stroke: var(--mut); stroke-width: 4; stroke-linecap: round; }

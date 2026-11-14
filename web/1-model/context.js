@@ -93,3 +93,29 @@ function removeFirstGesture(items) {
   if (i >= 0) items.splice(i, 1);
   return i >= 0;
 }
+
+/**
+ * What someone typed into the context field → gestures in our notation. Without "(" it is one gesture as
+ * before; "[ ]" spells letters; brackets nest; a word without its bracket gets one; missing ")" or "]" at the
+ * end are closed; a prefix gets its own bracket (G4). Unreadable → one gesture without brackets.
+ * "Obst Banane" → (Obst Banane) · "[LISA]" → ([LISA]) · "(Obst (Banane" → ((Obst) (Banane)) · "Obst(Banane)" → ((Obst)(Banane))
+ */
+export function fromField(text) {
+  const s = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  const plain = () => `(${s.replace(/[()[\]{}]/g, ' ').replace(/\s+/g, ' ').trim()})`;
+  const open = s.includes('(') ? s : `(${s})`;
+  const stack = [];
+  for (const ch of open) {
+    if (ch === '(' || ch === '[') stack.push(ch === '(' ? ')' : ']');
+    else if (ch === ')' || ch === ']') { if (stack.pop() !== ch) return plain(); }
+  }
+  const fix = (n) => (n.t === 'text' ? { ...n, t: 'value' }
+    : n.t === 'group' ? { ...n, items: n.items.map(fix) }
+      : n.t === 'prefix' ? { ...n, head: fix(n.head), body: fix(n.body) } : n);
+  try {
+    const items = parse(open + stack.reverse().join('')).map(fix).map((n) => (n.t === 'prefix' ? { t: 'group', items: [n], meta: [] } : n));
+    const out = write(items);
+    return readContext(out).errors.length ? plain() : out;
+  } catch { return plain(); }
+}
