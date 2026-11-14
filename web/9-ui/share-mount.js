@@ -31,12 +31,12 @@ import { send, filesOf } from './system-share.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
-import { addNew, peek, pickFolder, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
-import { nameSignOf } from '../8-join/join.js';
+import { addNew, peek, pickFolder, loginAt, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
+import { nameSignOf, devicesOf, quietDevice } from '../8-join/join.js';
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
-import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled } from '../8-join/provision.js';
+import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled, groupsOf, setGroup, matchAccounts } from '../8-join/provision.js';
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
@@ -67,7 +67,7 @@ async function clipboardText() {
  * project: { label, read, drop } the project's door (project.json): the first join, without a group text.
  * → { show(on), afterTake(paths), runRules(), dropKind(n, kind) }
  */
-export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {} }) {
+export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {}, words = () => [] }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
@@ -302,7 +302,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'sp-kind') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'tap-kind'), 'tap-kind', s.rules, { kind: b }));
     if (what === 'add') return addNew(ctx); // the one + tile
     if (what === 'out') return outside(); // the share sign: the last take to other apps
-    if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : null; } // an account: ↓ rests, ↑ wakes, two fingers = space
+    if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.look ? x.look() : null; } // an account: tap = look at it
     if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
     if (what === 'hello') { // tap = look: the name sign that came with the hello, in the window (14.11.; ← = welcome)
       const x = s.hellos[Number(a)], store = s.open.get(x?.n)?.store;
@@ -372,18 +372,45 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   const gb = (b) => (b < 0 ? '∞' : `${Math.round(b / 2 ** 30)}`);
   function accountTiles() {
     if (!s.accounts) return null;
-    return [{ label: '←', go: () => { s.accounts = null; draw(); } }, ...s.accounts.map((a) => ({
+    if (s.account) return lookTiles(s.account);
+    return [{ label: '←', go: () => { s.accounts = null; s.account = null; draw(); } }, ...matchAccounts(s.accounts, words()).map((a) => ({ // the context words find accounts, like Similar
       label: `${a.enabled ? '' : '◌ '}${a.label}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
-      rest: (on) => setEnabled(ctx.admin, a.user, on).then(showAccounts, () => say(t('notReachable'))), // ← rests, → wakes
+      look: () => openAccount(a), // tap = look at it: its devices and groups
+      down: () => setEnabled(ctx.admin, a.user, false).then(showAccounts, () => say(t('notReachable'))), // ↓ rests (◌)
+      up: () => setEnabled(ctx.admin, a.user, true).then(showAccounts, () => say(t('notReachable'))), // ↑ wakes
       more: (by) => { const q = nextQuota(a.quota, by); return q ? setQuota(ctx.admin, a.user, q).then(showAccounts, () => say(t('notReachable'))) : null; },
     }))];
+  }
+  /** The project's own Nextcloud (its door's server), where the admin logs in. */
+  const projectServer = () => { try { return new URL(project?.doors?.[0]?.read ?? project?.read).origin; } catch { return null; } };
+  /** The admin's own folder with hello/ join/ within/ quiet/ (the door), or null. */
+  const adminStore = () => [...s.open.values()].find((sp) => sp.store && sp.spec?.kind === 'nextcloud' && sp.spec.server === ctx.admin?.server && sp.spec.user === ctx.admin?.user)?.store ?? null;
+  /** An account looked at (14.11.): its devices (↓ = quiet, "Gerät sperren") and its groups as context chips (tap a faint one = in, ↓ = out). */
+  async function openAccount(a) {
+    say(t('menu.wait'));
+    const store = adminStore();
+    const [devices, groups] = await Promise.all([store ? devicesOf(store, a.user).catch(() => []) : [], groupsOf(ctx.admin, a.user).catch(() => ({ all: [], mine: [] }))]);
+    s.account = { a, devices, groups, store };
+    say('');
+    return draw();
+  }
+  function lookTiles({ a, devices, groups, store }) {
+    const again = () => openAccount(a), fail = () => say(t('notReachable'));
+    return [
+      { label: `← ${a.label}`, go: () => { s.account = null; draw(); } },
+      ...devices.map((d) => ({ label: d.device.label, down: () => quietDevice(store, d.helloPath).then(again, fail) })),
+      ...groups.all.map((g) => (groups.mine.includes(g)
+        ? { label: `(${g})`, down: () => setGroup(ctx.admin, a.user, g, false).then(again, fail) } // in this group: ↓ = out
+        : { label: `(${g})`, faint: true, look: () => setGroup(ctx.admin, a.user, g, true).then(again, fail) })), // tap = in
+    ];
   }
 
   function draw() {
     const { width: w, height: h } = panel.getBoundingClientRect();
     const browse = s.accounts ? accountTiles() : s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
-    const hellos = s.hellos.map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to
+    const ws = words().map((w) => w.toLowerCase());
+    const hellos = s.hellos.filter((x) => ws.every((w) => x.name.toLowerCase().includes(w))).map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to · context words find hellos too
     const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
@@ -412,7 +439,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         const [, a, b] = role.split(':');
         return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
       }
-      if (role?.startsWith('browse:') && s.accounts && ['down', 'down-far', 'up'].includes(dir)) return accountTiles()[Number(role.split(':')[1])]?.rest?.(dir === 'up'); // ↓ the account rests (◌), ↑ it wakes (14.11.)
+      if (role?.startsWith('browse:') && s.accounts && ['down', 'down-far', 'up'].includes(dir)) { const x = accountTiles()[Number(role.split(':')[1])]; return dir === 'up' ? x?.up?.() : x?.down?.(); } // account: ↓ rests ↑ wakes · device: ↓ quiet · group: ↓ out (14.11.)
       if (role?.startsWith('hello:') && dir === 'left') return welcome(ctx, s.hellos[Number(role.split(':')[1])]).then(load).then(draw); // ← hello → join: welcomed
       if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → back: look again (new hellos, a failed welcome tried anew)
       const n = circleOf(role);
@@ -447,6 +474,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       requestAnimationFrame(step);
     },
     dragEnd: (el, moved) => {
+      if (role === 'add:new' && !moved) return projectServer() ? loginAt(ctx, projectServer()) : null; // + held still: the admin's way in, at the project's own server (14.11.)
       const from = circleOf(role);
       if (!moved && from === 0) return onOwnHold(); // my own tile held still: the onboarding again
       if (!moved) return from ? apply(gestureOn(targetFor(ctx.tileOf(from), 'hold'), 'hold', s.rules, { selection: selection(), private: ctx.tileOf(from)?.private })) : null; // held still: new goes there

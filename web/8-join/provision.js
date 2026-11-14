@@ -75,15 +75,41 @@ export async function listAccounts(admin, { group = GROUP, skip = [], max = 500,
   for (const user of users) {
     try {
       const d = await ocs(admin, `users/${encodeURIComponent(user)}`, { fetch });
-      out.push({ user, label: d.displayname || user, used: d.quota?.used ?? 0, quota: d.quota?.quota ?? -3, lastLogin: d.lastLogin ?? 0, enabled: d.enabled !== false });
-    } catch { out.push({ user, label: user, used: 0, quota: -3, lastLogin: 0 }); }
+      out.push({ user, label: d.displayname || user, used: d.quota?.used ?? 0, quota: d.quota?.quota ?? -3, lastLogin: d.lastLogin ?? 0, enabled: d.enabled !== false, groups: (d.groups ?? []).filter((g) => g !== 'admin') });
+    } catch { out.push({ user, label: user, used: 0, quota: -3, lastLogin: 0, groups: [] }); }
   }
   return out.sort((a, b) => b.used - a.used);
+}
+
+/**
+ * Find accounts like Similar finds takes (14.11.): every context word must match the name or one of its groups
+ * (case and accents ignored, a word may be the start). No words = all.
+ */
+export function matchAccounts(accounts, words = []) {
+  const norm = (x) => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const ws = words.map(norm).filter(Boolean);
+  return accounts.filter((a) => ws.every((w) => [a.label, a.user, ...(a.groups ?? [])].some((x) => norm(x).split(/\s+/).some((part) => part.startsWith(w)) || norm(x).startsWith(w))));
 }
 
 /** Let an account rest (no login, no sync; its files stay) or wake it again (OCS disable / enable). */
 export async function setEnabled(admin, user, on, { fetch = globalThis.fetch } = {}) {
   await ocs(admin, `users/${encodeURIComponent(user)}/${on ? 'enable' : 'disable'}`, { method: 'PUT', fetch });
+}
+
+/**
+ * Groups as context of an account (14.11.: "Gruppe zuordnen = context hinzufügen"): all groups of the instance and
+ * the ones the account is in. Limits: ≤ 200 groups per look; Admin's own group "admin" is never offered.
+ */
+export async function groupsOf(admin, user, { fetch = globalThis.fetch } = {}) {
+  const [all, mine] = await Promise.all([ocs(admin, 'groups?limit=200', { fetch }), ocs(admin, `users/${encodeURIComponent(user)}/groups`, { fetch })]);
+  return { all: (all.groups ?? []).filter((g) => g !== 'admin'), mine: (mine.groups ?? []).filter((g) => g !== 'admin') };
+}
+
+/** Put an account into a group (on = true) or take it out. */
+export async function setGroup(admin, user, group, on, { fetch = globalThis.fetch } = {}) {
+  const q = new URLSearchParams({ groupid: group }).toString();
+  if (on) await ocs(admin, `users/${encodeURIComponent(user)}/groups`, { method: 'POST', body: q, fetch });
+  else await ocs(admin, `users/${encodeURIComponent(user)}/groups?${q}`, { method: 'DELETE', fetch }); // DELETE: in the address, not a body
 }
 
 /** Change an account's space: one of QUOTAS ("none" = the limit lifted). */

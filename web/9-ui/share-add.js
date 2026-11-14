@@ -124,24 +124,33 @@ export async function bringIn(ctx) {
   }
   const id = newSource();
   if (secret) await keychain.set(id, secret); // came with the link: the folder opens at once
-  if (what.kind === 'login') {
-    try {
-      const { login, poll } = await startLogin(what.server);
-      say(t('menu.wait'));
-      await openPage(login); // the native app: the system browser (window.open does nothing in its web view)
-      const got = await waitLogin(poll);
-      globalThis.Capacitor?.Plugins?.Browser?.close?.().catch?.(() => {}); // logged in: back to the app by itself
-      await keychain.set(id, got.appPassword);
-      const account = { kind: 'nextcloud', server: got.server, user: got.user, folder: '' };
-      const { store } = connect(account, { secret: got.appPassword });
-      s.browse = { id, server: got.server, user: got.user, store, at: '', inside: await store.folders('') };
-      return say(t('menu.account'));
-    } catch { return say(t('menu.native')); } // the browser is blocked (CORS); the app is not
-  }
+  if (what.kind === 'login') return loginAt(ctx, what.server, id);
   await edit({ add: { path: what.path, id }, marks: ['show'] });
   const sp = [...s.open.values()].find((x) => x.entry.id === id);
   try { await sp.store.list('chain/'); } catch { s.waitSecret = id; return say(t('menu.secret')); }
   await makeSharingPoint(ctx, id); // a new, writable folder becomes a sharing point (sealed by this device)
+}
+
+/**
+ * Log in at a Nextcloud (Login Flow v2): its page opens in the system browser, the server makes an app password for
+ * this device, the app waits for it (every 2 s), keeps it in the keychain, then shows the account's folders to pick.
+ * Also the admin's own way (14.11.): hold the copy sign / + = log in at the project's server, no clipboard needed.
+ */
+export async function loginAt(ctx, server, id = newSource()) {
+  const { s, keychain, say, t } = ctx;
+  try {
+    const { login, poll } = await startLogin(server);
+    say(t('menu.wait'));
+    await openPage(login); // the native app: the system browser (window.open does nothing in its web view)
+    const got = await waitLogin(poll);
+    globalThis.Capacitor?.Plugins?.Browser?.close?.().catch?.(() => {}); // logged in: back to the app by itself
+    await keychain.set(id, got.appPassword);
+    const account = { kind: 'nextcloud', server: got.server, user: got.user, folder: '' };
+    const { store } = connect(account, { secret: got.appPassword });
+    s.browse = { id, server: got.server, user: got.user, store, at: '', inside: await store.folders('') };
+    ctx.draw?.();
+    return say(t('menu.account'));
+  } catch { return say(t('menu.native')); } // the browser is blocked (CORS); the app is not
 }
 
 /** Ordner wählen: a folder or disk, read and write, brought into Similar. */

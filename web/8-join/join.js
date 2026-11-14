@@ -135,6 +135,29 @@ export async function advance({ store, person }) {
 }
 const answersIn = async (store, asks) => { const ps = (await store.list('join/')).map((f) => f.path); return asks.map((a) => answerFor(ps, a)).filter(Boolean); };
 
+/**
+ * Signer, an account looked at (14.11.): its devices, from the hellos in within/ → [{ device: { label, id, key }, helloPath }].
+ * user: the account (n_…, any case). Limits: one listing of within/ + one read per hello.
+ */
+export async function devicesOf(store, user) {
+  const mark = `!(${user.toLowerCase()})/`;
+  const paths = (await store.list('within/')).map((f) => f.path).filter((p) => p.toLowerCase().includes(mark) && p.endsWith('.chain.sign'));
+  const out = [];
+  for (const helloPath of paths) {
+    try { out.push({ device: readHello(dec.decode(await store.read(helloPath))).device, helloPath }); } catch { /* the join marker, a consent: no device */ }
+  }
+  return out;
+}
+
+/** Signer: one device goes quiet (↓, "Gerät sperren"): its hello, name sign and answer move to quiet/; its seals count until now. */
+export async function quietDevice(store, helloPath) {
+  const folder = helloPath.split('/')[1], u = readName(nameOf(helloPath))?.u;
+  const mine = (await store.list(`within/${folder}/`)).map((f) => f.path).filter((p) => { const n = readName(nameOf(p)); return n?.u === u || n?.words?.includes(u); });
+  const moved = [];
+  for (const p of mine) { const to = `quiet/${folder}/${withState(nameOf(p), 'quiet')}`; await store.move(p, to); moved.push(to); }
+  return moved;
+}
+
 /** 5 · Signer: quiet. Every file of the account moves to quiet/ with the state word changed. */
 export async function goQuiet({ store, person }) {
   const folder = accountFolder(person);
