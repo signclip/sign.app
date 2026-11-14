@@ -81,7 +81,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const top = h / PHI; // viele ganz (14.11.): the arcs frame the lower 38 %, the upper 62 % stays free (golden ratio): room for A–Z one under the other (26 × ≈ 18 px ≈ 470 px of 520 on a phone)
   const edge = { x0: 14 * k, x1: w - 14 * k, y0: top, y1: h - 14 * k, r: 28 * k }; // an open U: right edge down, along the bottom, left edge up
   const [, winBottom] = onShape(win, 180, 0);
-  const fieldY = Math.min(winBottom + 40 * k, (data.viewH ?? h) - 34 * k); // the context field right under the bottom arc (14.11.); above the keyboard when it is open
+  const fieldY = Math.min(winBottom + ((data.open ?? 0) > 0.5 ? 72 : 40) * k, (data.viewH ?? h) - 34 * k); // the typing row right under the bottom arc (open: the chip row above it, the box starts under the arc); above the keyboard
   const g = { st, data, w, h, k, cx: w / 2, cy, F, win, ring, shapes: [], edge: grow ? edge : null, grow, fieldY };
   g.add = (type, o) => g.shapes.push({ type, ...o });
 
@@ -218,10 +218,12 @@ function soundBars({ data, win, w, k, add }) {
 }
 
 /** Chips under the window (the context arc); in full-screen replay above the point; in a plain line none. */
-function chipArea({ st, data, cx, cy, win, k, w, shapes }, point) {
+function chipArea({ st, data, cx, cy, win, k, w, shapes, fieldY }, point) {
   if (st.screen === 'line') return;
   if (st.full && st.mode !== 'line') return;
-  const y = st.full ? point.cy - 70 * k : cy + extentOf(win)[1] + 34 * k;
+  const open = (data.open ?? 0) > 0.5; // the context field is open: the chips sit in it, its lowest row stays free to type
+  const y = st.full ? point.cy - 70 * k : open ? fieldY - 42 * k : fieldY; // chips 32 px high, centred: they end 2 px above the typing row
+  if (open && !st.full) shapes.push({ type: 'sheet', x: 12 * k, y: fieldY - 64 * k, w: w - 24 * k, h: 88 * k, r: 22 * k, cls: 'field-box' });
   const held = st.hold?.target === 'chip' ? [`chip:${st.hold.text}`, `gesture:${st.hold.text}`] : [];
   shapes.push(...chipShapes(data.chips, { timeMs: data.timeMs, cx, y, k, w })
     .map((s) => (held.includes(s.role) ? { ...s, cls: `${s.cls} hold` } : s))); // the held context, as property
@@ -306,7 +308,7 @@ const rounded = ({ x, y, s, r }) => `M ${x + r} ${y} H ${x + s - r} A ${r} ${r} 
 const SVG = {
   rect: (s) => `<rect x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" rx="${s.r}" class="${s.cls}"${roleOf(s)}/>`,
   edge: (s) => `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" class="${s.cls}"${roleOf(s)}/>`,
-  rest: (s) => `<path d="${rounded(s.field)} ${outlinePath(s.win)}" fill-rule="evenodd" class="${s.cls}"/>`,
+  rest: (s) => `<path d="${rounded({ x: s.field.x - 3, y: s.field.y - 3, s: s.field.s + 6, r: s.field.r + 3 })} ${outlinePath(s.win)}" fill-rule="evenodd" class="${s.cls}"/>`, // 3 px over the field's edge: no seam
   bubble: (s) => `<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="${s.h / 2}" class="${s.cls}"${roleOf(s)}/>`,
   circle: (s) => `<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" class="${s.cls}"${s.fade != null ? ` style="opacity:${s.fade.toFixed(2)}"` : ''}${roleOf(s)}/>`,
   arc: (s) => `<path d="${arcPath(s)}" class="${s.cls}"${roleOf(s)}/>`,

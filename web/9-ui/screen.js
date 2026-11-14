@@ -13,6 +13,7 @@
 //            while playing at most every animation frame.
 
 import { layout, toSvg } from './view/ring.js';
+import { outlinePath } from './view/shape.js';
 
 /** Fit a <video> into its square (the field, a small round template, or the whole screen). */
 function fit(video, box, full) {
@@ -23,6 +24,8 @@ function fit(video, box, full) {
   Object.assign(video.style, full
     ? { left: '0px', top: '0px', width: '100%', height: '100%', borderRadius: '0' }
     : { left: `${box.cx - box.d / 2}px`, top: `${box.cy - box.d / 2}px`, width: `${box.d}px`, height: `${box.d}px`, borderRadius: box.radius != null ? `${box.radius}px` : '50%' });
+  // the picture is cut to the window itself (14.11.): no pixel of the field shows at its edges
+  video.style.clipPath = !full && box.window ? `path('${outlinePath({ ...box.window, cx: box.d / 2, cy: box.d / 2 })}')` : '';
 }
 
 /**

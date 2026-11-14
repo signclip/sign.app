@@ -99,3 +99,19 @@ export function inside(win, x, y) {
   const [bx, by] = onShape(win, deg, 0);
   return Math.hypot(x - win.cx, y - win.cy) <= Math.hypot(bx - win.cx, by - win.cy) + 1e-6 && ex > 0;
 }
+
+/**
+ * Two fingers on the picture change the form (14.11.), in proportion to how they lie: side by side = width,
+ * one above the other = height, slanted = corners (apart = squarer, together = rounder; already round and still
+ * together = narrower, an upright ellipse). A slant between shares both by cos² / sin² of its angle and by how
+ * diagonal it is. factor = change of the fingers' distance · fx, fy = change across and up-down. → new form
+ */
+export function formBy(form, factor, { fx = 1, fy = 1, angle = 45 } = {}) {
+  const a = (angle * Math.PI) / 180, wx = Math.cos(a) ** 2, wy = Math.sin(a) ** 2;
+  const diag = 1 - Math.abs(Math.cos(2 * a)); // 1 at 45°, 0 side by side or one above the other
+  const f = formOf(form);
+  let aspect = f.aspect * fx ** (wx * (1 - diag)) / fy ** (wy * (1 - diag));
+  let round = f.round - Math.log(factor) * 1.8 * diag;
+  if (round > 1 && factor < 1) aspect *= factor ** diag; // past round: on towards an upright ellipse
+  return formOf({ round, aspect });
+}

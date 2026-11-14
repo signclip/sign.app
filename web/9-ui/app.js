@@ -49,7 +49,7 @@ import { write as writeNotation, parse as parseNotation } from '../1-model/notat
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse } from './state.js';
 import { MANY } from './view/ring.js';
-import { formOf } from './view/shape.js';
+import { formOf, formBy } from './view/shape.js';
 import { mountScreen, targetOf } from './screen.js';
 import { normalize, readyStep, choose, CHOICES } from './settings.js';
 import { watch } from './ready.js';
@@ -856,10 +856,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (st.held) end(); else if (st.sub === 'scrub') step('release');
     },
     swipe: (dir, role) => act(dir, role),
-    pinch: (factor, role, axis) => { // on the point while always ready: the waits · side by side / one above the other: the window · slanted: zoom
-      if (role === 'point' && st.ready) return waitsBy(factor);
-      if (axis === 'x' || axis === 'y') return reshape({ aspect: data.shape.aspect * (axis === 'x' ? factor : 1 / factor) });
-      return zoomBy(camera, factor);
+    pinch: (factor, role, how = {}) => { // on the point: the waits (always ready) or the camera zoom · on the picture: the window's form
+      if (role === 'point') return st.ready ? waitsBy(factor) : zoomBy(camera, factor);
+      return reshape(formBy(data.shape, factor, how));
     },
     slide: (role, dx, dy) => { // a corner of the window: inwards rounder, outwards squarer
       const [sx, sy] = { 'corner:tl': [1, 1], 'corner:tr': [-1, 1], 'corner:bl': [1, -1], 'corner:br': [-1, -1] }[role] ?? [0, 0];
