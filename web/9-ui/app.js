@@ -875,6 +875,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         }
         if (st.similar && !data.double) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); } // half → full: the arcs bend out
         return openMany();
+      case 'from-top-far': // a long pull from the top (14.11.): viele full at once; in full screen it just ends it
+        if (st.full) return act('down', 'top-middle');
+        if (!st.similar) await openMany();
+        if (!data.double && !data.manyFull) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); }
+        return null;
       case 'context-open': return openContext(true);
       case 'context-close': return openContext(false);
       // ---------- in the table, not wired yet: each says where it docks ----------

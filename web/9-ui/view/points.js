@@ -90,7 +90,12 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
 
   // positions: this device first, then every drawn tile in order; a group's drop link sits under its read tile
   const slot = new Map([[0, 0]]);
-  for (const t of all.filter((x) => !x.under)) slot.set(t.n, slot.size);
+  const joining = (t) => ['door', 'hello', 'join', 'join-own'].includes(joinStates.get(t.label));
+  let extra = 0; // the joining icon's own space takes one more tile (14.11.: three big tiles)
+  for (const t of all.filter((x) => !x.under)) {
+    slot.set(t.n, slot.size + extra);
+    if (joining(t) && ['join', 'join-own'].includes(joinStates.get(t.label))) extra++;
+  }
   for (const t of all.filter((x) => x.under)) slot.set(t.n, slot.get(t.under));
   const centre = (n) => grid(slot.get(n) ?? n, { w, k, y0 });
   // bridges first, so the tiles lie on top of them; their chevrons come after the tiles
@@ -115,7 +120,6 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   }
 
   tile(0, 'sp:0', 'sp own-device', own);
-  const joining = (t) => ['door', 'hello', 'join', 'join-own'].includes(joinStates.get(t.label));
   for (const t of all) {
     if (t.under) continue; // the drop link of a group: drawn as part of its read tile
     if (joining(t)) { joinIcon(slot.get(t.n), t, joinStates.get(t.label)); continue; } // joining: the growing icon
@@ -136,29 +140,26 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
     }
   }
   for (const [a, b, cls] of bridges) chevron(a, b, k, add, cls); // on top: which way it runs
-  /** The growing sharing icon in the group's spot: me · group · my own space. */
+  /**
+   * The growing sharing icon (14.11.): three big tiles — me (this device, first), the group, my own space — joined by
+   * lines. door: the group tile breathes, tap = hello · hello: a dotted line, the group waits · join: the group is
+   * there, a dotted line to my own space · join-own: all three solid, the icon complete.
+   */
   function joinIcon(i, t, state) {
-    const { cx, cy } = grid(i, { w, k, y0 });
-    const r = 19 * k, me = [cx - 38 * k, cy], group = [cx + 32 * k, cy - 25 * k], mine = [cx + 32 * k, cy + 25 * k]; // big, like a tile (14.11.)
-    const line = ([x1, y1], [x2, y2], cls) => add('path', { d: `M ${x1} ${y1} L ${x2} ${y2}`, cls: `join-line ${cls}` });
-    if (state === 'door') { // onboarding: the door as a hello bubble, breathing; tap it = hello (or drag yourself onto it)
-      add('circle', { cx: me[0], cy: me[1], r, cls: 'join-me', role: 'sp:0' });
-      add('circle', { cx: group[0], cy: group[1], r: r * 1.4, cls: 'join-group door breathe', role: `sp:${t.n}` });
-      add('label', { x: cx, y: cy + th / 2 + 18 * k, text: t.label, cls: 'label' });
-      at.set(`sp:${t.n}`, { cx: group[0], cy: group[1], r: r * 1.4 });
-      return;
-    }
+    const me = grid(0, { w, k, y0 });
     const grow = (n) => (fresh.has(t.label) ? ` appear a${n}` : ''); // a new state: the symbol builds up, me → line → group → own
-    line(me, group, `${state === 'hello' ? 'hello' : 'join'}${grow(2)}`);
-    if (state !== 'hello') line(me, mine, `${state === 'join-own' ? 'join own' : 'hello own'}${grow(4)}`);
-    add('circle', { cx: me[0], cy: me[1], r, cls: `join-me${grow(1)}` });
-    add('circle', { cx: group[0], cy: group[1], r, cls: `join-group${state === 'hello' ? ' waiting' : ''}${grow(3)}`, role: `sp:${t.n}` });
-    if (state !== 'hello') add('circle', { cx: mine[0], cy: mine[1], r, cls: `join-own${state === 'join-own' ? '' : ' waiting'}${grow(5)}` });
-    add('label', { x: cx, y: cy + th / 2 + 18 * k, text: t.label, cls: 'label' });
-    at.set(`sp:${t.n}`, { cx: group[0], cy: group[1], r });
+    const line = (b, cls) => shapes.splice(2, 0, { type: 'path', d: `M ${me.cx} ${me.cy} L ${b.cx} ${b.cy}`, cls: `join-line ${cls}` }); // under the tiles
+    const group = grid(i, { w, k, y0 });
+    if (state !== 'door') line(group, `${state === 'hello' ? 'hello' : 'join'}${grow(2)}`);
+    tile(i, `sp:${t.n}`, `sp join-group${state === 'door' ? ' door breathe' : state === 'hello' ? ' waiting' : ''}${grow(3)}`, t.label, { stack: false });
+    if (state === 'join' || state === 'join-own') {
+      const mine = grid(i + 1, { w, k, y0 });
+      line(mine, `${state === 'join-own' ? 'join own' : 'hello own'}${grow(4)}`);
+      tile(i + 1, `own:${t.n}`, `sp join-own${state === 'join-own' ? '' : ' waiting'}${grow(5)}`, own, { stack: false });
+    }
   }
 
-  let next = slot.size;
+  let next = slot.size + extra;
   hellos.forEach((x, i) => { // signer: someone said hello: a circle on a line from its group (the sharing icon); tap = welcome
     const { cx, cy } = grid(next++, { w, k, y0 });
     at.set(`hello:${i}`, { cx, cy, r: 26 * k });

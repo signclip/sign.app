@@ -282,8 +282,9 @@ export async function askAccount(ctx, n) {
   const cloudId = entry.path.slice(6);
   if (ctx.all().some((t) => t.giveTo?.includes(n))) return openPage(acceptPage(cloudId)); // I shared to it: accept there
   const mine = [...ctx.s.open.values()].find((sp) => sp.spec?.kind === 'nextcloud' && !sp.store?.readOnly);
-  if (mine) await copy(myCloudId(mine.spec.server, mine.spec.user));
-  return openPage(`${cloudIdParts(entry.path.slice(6)).remote}/index.php/apps/files/`);
+  if (!mine) return loginAt(ctx, cloudIdParts(cloudId).remote); // no own Nextcloud yet (14.11.): log in there, not just its page
+  await copy(myCloudId(mine.spec.server, mine.spec.user));
+  return openPage(`${cloudIdParts(cloudId).remote}/index.php/apps/files/`);
 }
 
 /** Waiting shares from accounts I brought in (cloud:…) → taken in without a tap (native app). */

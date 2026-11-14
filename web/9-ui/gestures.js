@@ -58,6 +58,8 @@ export const TABLE = [
   ['full', 'up', 'top-middle', 'any', 'full screen: only picture and point'],
   ['from-top', 'down', 'top-middle', 'any', 'pulled down from the top: in full screen = everything again, else Similar comes in at the top'],
   ['similar-less', 'up', 'similar-band', 'any', 'push Similar · viele up: full → half → closed'],
+  ['from-top-far', 'down-far', 'top-middle', 'any', 'pulled down from the top all the way: Similar · viele over the whole screen at once (14.11.)'],
+  ['from-top-far', 'down-far', 'top-zone', 'any', 'pulled down far from above the point: Similar · viele full at once; a short pull = half'],
   ['from-top', 'down', 'top-zone', 'any', 'pulled down anywhere above the point: Similar comes in (Android keeps its own strip at the very top)'],
   ['similar-all', 'down', 'similar-band', 'any', 'all of Similar onto the chain: the tiles fly into the line one after another'],
   ['line-full', 'double-tap', 'line-arc', 'any', 'this line (a take to review, or from Similar) in full screen'],

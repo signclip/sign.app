@@ -41,5 +41,8 @@ jobs:
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk sign.apk
+          v=sign-1.${{ github.run_number }}.apk; cp sign.apk "$v" # a name per version: no phone can open an older cached download by mistake
+          "$(ls -d $ANDROID_HOME/build-tools/* | tail -1)/apksigner" verify --print-certs sign.apk | grep -m1 'SHA-256' || true
           gh release view apk >/dev/null 2>&1 || gh release create apk --title "Sign APK" --notes "Die neueste APK aus main: sign.apk antippen." --prerelease
-          gh release upload apk sign.apk --clobber
+          for old in $(gh release view apk --json assets --jq '.assets[].name' | grep '^sign-1\.' || true); do gh release delete-asset apk "$old" -y; done
+          gh release upload apk sign.apk "$v" --clobber
