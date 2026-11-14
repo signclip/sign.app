@@ -6,7 +6,9 @@
 // Test:      tests/connect.test.mjs
 // Limits:    the secret travels only sealed (join.js); keychain = { set(q_, secret) } given by the app.
 
-import { createAccount, appPasswordFor } from './provision.js';
+import { createAccount, appPasswordFor, makeFolder, shareFolder } from './provision.js';
+/** Each person's own folder in her account. */
+export const FOLDER = 'Sign';
 import { helloBack, readHello } from './join.js';
 import { connect } from '../2-storage/connect.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
@@ -16,13 +18,17 @@ const dec = new TextDecoder();
 
 /**
  * Signer app. door: store with hello/ join/ · admin: { server, user, password } of the instance ·
- * also: more sharing points for this person [{ path, id, person }] · → path of the answer in join/.
+ * also: more sharing points for this person [{ path, id, person }] · atlas: user that reads every Sign/ (or null) ·
+ * → path of the answer in join/.
  */
-export async function welcome({ door, helloPath, admin, signer, also = [], quota, fetch = globalThis.fetch, now = Date.now() }) {
+export async function welcome({ door, helloPath, admin, signer, also = [], quota, atlas = null, fetch = globalThis.fetch, now = Date.now() }) {
   const ask = readHello(dec.decode(await door.read(helloPath)));
   const account = await createAccount(admin, ask.person, { quota, fetch });
-  const appPassword = await appPasswordFor({ server: admin.server, ...account }, { fetch });
-  const own = { label: ask.person.label, path: webdavUrl(admin.server, account.user), id: newSource() };
+  const login = { server: admin.server, ...account };
+  await makeFolder(login, FOLDER, { fetch }); // the own Nextcloud of the person is Sign/, not the account's root (14.11.)
+  if (atlas) await shareFolder(login, FOLDER, atlas, { fetch }); // read only to atlas: the index over all (SCHEMA B6), the admin sees only its summary
+  const appPassword = await appPasswordFor(login, { fetch });
+  const own = { label: ask.person.label, path: webdavUrl(admin.server, account.user, FOLDER), id: newSource() };
   const secret = JSON.stringify({ server: admin.server, user: account.user, appPassword, id: own.id });
   return helloBack({ store: door, helloPath, secret, sharingPoints: [own, ...also], signer, now });
 }

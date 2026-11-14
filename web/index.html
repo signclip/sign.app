@@ -25,7 +25,9 @@
     #overlay [data-role] { cursor: pointer; }
     /* the view's classes (view/ring.js, chips.js, timeline.js): colour never alone, dashed / filled say it too */
     .layer { fill: none; stroke: var(--rc-stroke); stroke-width: 2; opacity: .25; }
-    .field-rest { fill: var(--rest); opacity: .72; pointer-events: none; } /* the rest of the 1080 field: visible, greyed in the background's grey */
+    .field-rest { fill: var(--rest); pointer-events: none; } /* outside the window nothing shows (14.11.): the whole square in review */
+    .corner { fill: transparent; } /* a corner of the window to drag */
+    * { -webkit-tap-highlight-color: transparent; } [data-role]:focus { outline: none; } /* the arcs answer themselves, no blue box */
     #screen { background: var(--rest); } /* 14.11.: the grey around the window is the whole background */
     .strand { fill: none; stroke-width: 7; stroke-linecap: round; }
     .strand.new { stroke: var(--rc-stroke); opacity: .55; } /* will be recorded: pale, solid (14.11.) */
@@ -68,7 +70,7 @@
     #similar { position: absolute; top: 8px; left: 8px; right: 8px; height: 44px; white-space: nowrap; overflow-x: auto; overflow-y: hidden; } /* metadata and strand choice above the tiles */
     #similar .chip { background: var(--sc); color: #0C447C; } #similar .chip.on { outline: 2px solid var(--sc-stroke); }
     .similar-band { fill: var(--sc); opacity: .18; }
-    #context { position: absolute; left: 12px; right: 12px; bottom: 16px; } /* the context field, pulled open or on: write */
+    #context { position: absolute; left: 12px; right: 12px; top: calc(var(--field-y, 640px) - 24px); } /* right under the bottom arc; Android's buttons stay free */
     #context input { width: 100%; box-sizing: border-box; font: 500 17px Inter, system-ui, sans-serif; padding: 12px 16px; border-radius: 22px; border: 1.5px solid var(--rc-stroke); background: var(--card); color: var(--fg); outline: none; }
     /* sharing points after ↑ on the point (view/points.js): a layer over the screen, only the shapes take touches */
     #share { position: absolute; inset: 0; pointer-events: none; }

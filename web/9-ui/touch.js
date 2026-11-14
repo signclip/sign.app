@@ -41,7 +41,9 @@ export function edgeZone(x, y, w, h) {
  *   down(event) → role       a finger goes down, before anything is known
  *   tap(x, y, role)          x, y are 0–1 inside el · doubleTap(role)
  *   hold(role)               the finger stayed HOLD_MS · holdEnd(role) · dragEnd(element, moved, role)
- *   swipe(dir, role)         · pinch(factor, role): two fingers, neither held yet; role of the first
+ *   swipe(dir, role)         · pinch(factor, role, axis): two fingers, neither held yet; role of the first;
+ *                              axis 'x' side by side · 'y' one above the other · 'xy' slanted (at the start)
+ *   slide(role, dx, dy) · slideEnd(role): one finger on a role starting with 'corner', moved (the window's form)
  *   parallel(heldRole, role) a second finger went down while the first one is held: from now on the first
  *                            finger is a property (DESIGN principle 4), the second does the action
  * Without a held finger, a second finger is a pinch (as before). A third finger is ignored.
@@ -50,6 +52,7 @@ export function bind(el, h) {
   const touches = new Map(); // pointerId → { x, y, at, role, held, timer, pinch }
   let lastTap = 0;
   let spread = null; // distance between two fingers while pinching
+  let axis = 'xy', axisSpread = null; // which way the two fingers lie, and their distance along it
 
   const pinchers = () => [...touches.values()].filter((t) => t.pinch);
   const distance = () => {
@@ -66,6 +69,9 @@ export function bind(el, h) {
       others[0].pinch = true;
       touches.set(e.pointerId, { x: e.clientX, y: e.clientY, pinch: true });
       spread = distance();
+      const [p, q] = pinchers(), ax = Math.abs(p.x - q.x), ay = Math.abs(p.y - q.y);
+      axis = ax > 2 * ay ? 'x' : ay > 2 * ax ? 'y' : 'xy'; // fixed for this pinch
+      axisSpread = axis === 'x' ? ax : axis === 'y' ? ay : null;
       return;
     }
     const role = h.down?.(e) ?? null;
@@ -85,9 +91,18 @@ export function bind(el, h) {
       Object.assign(t, { x: e.clientX, y: e.clientY });
       if (spread && pinchers().length === 2) {
         const d = distance();
-        h.pinch?.(d / spread, pinchers()[0]?.role); // where the first finger went down: the point or the picture
+        const [p, q] = pinchers();
+        const along = axis === 'x' ? Math.abs(p.x - q.x) : axis === 'y' ? Math.abs(p.y - q.y) : d;
+        h.pinch?.((axis === 'xy' ? d : along) / (axis === 'xy' ? spread : axisSpread || along), pinchers()[0]?.role, axis); // where the first finger went down: the point or the picture
+        axisSpread = along;
         spread = d;
       }
+      return;
+    }
+    if (String(t.role).startsWith('corner')) { // the window's corner follows the finger
+      clearTimeout(t.timer);
+      h.slide?.(t.role, e.clientX - (t.lx ?? t.x), e.clientY - (t.ly ?? t.y));
+      Object.assign(t, { lx: e.clientX, ly: e.clientY });
       return;
     }
     const moved = Math.hypot(e.clientX - t.x, e.clientY - t.y) > 10;
@@ -100,9 +115,10 @@ export function bind(el, h) {
     touches.delete(e.pointerId);
     clearTimeout(t.timer);
     if (t.pinch) {
-      if (!pinchers().length) spread = null;
+      if (!pinchers().length) { spread = null; axisSpread = null; }
       return;
     }
+    if (String(t.role).startsWith('corner')) return h.slideEnd?.(t.role);
     if (t.held) {
       const moved = Math.hypot(e.clientX - t.x, e.clientY - t.y) > 30; // held and carried = a drag
       h.holdEnd?.(t.role);

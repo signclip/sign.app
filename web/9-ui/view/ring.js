@@ -72,12 +72,17 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const half = many && !data.manyFull, low = double || many; // the take window moves down, the upper half is free
   const grow = many && !half ? data.grow ?? 1 : 0; // viele ganz: the arcs bend out to the screen's edges (0 → 1, animated)
   const F0 = Math.min(w - 16 * k, 2 * ((w / 2 - 6 * k) / Math.sin(Math.PI / 3) - ring)) - 12 * k; // the line's ends stay on screen; 12 px more room at the sides for the sound (14.11.)
-  const F = low ? Math.min(F0, (h - 130 * k - 2 * ring - 8 * k) / 2) : F0; // two windows, the point between them
-  const cy = low ? h - 60 * k - F / 2 : (st.screen === 'delete' ? 424 : 404) * k;
+  const lowness = data.lowT ?? (low ? 1 : 0); // 0 = the take window in the middle, 1 = moved down (animated, 14.11.)
+  const FL = Math.min(F0, (h - 130 * k - 2 * ring - 8 * k) / 2); // two windows, the point between them
+  const F = F0 + (FL - F0) * lowness;
+  const cyMid = (st.screen === 'delete' ? 424 : 404) * k, cyLow = h - 60 * k - FL / 2;
+  const cy = cyMid + (cyLow - cyMid) * lowness;
   const win = windowOf(data.shape ?? 'circle', { cx: w / 2, cy, F });
   const top = h / PHI; // viele ganz (14.11.): the arcs frame the lower 38 %, the upper 62 % stays free (golden ratio): room for A–Z one under the other (26 × ≈ 18 px ≈ 470 px of 520 on a phone)
-  const edge = { shape: 'rounded', cx: w / 2, cy: (top + h) / 2, hw: w / 2 - 14 * k, hh: (h - top) / 2 - 14 * k, r: 28 * k };
-  const g = { st, data, w, h, k, cx: w / 2, cy, F, win, ring, shapes: [], edge: grow ? edge : null, grow };
+  const edge = { x0: 14 * k, x1: w - 14 * k, y0: top, y1: h - 14 * k, r: 28 * k }; // an open U: right edge down, along the bottom, left edge up
+  const [, winBottom] = onShape(win, 180, 0);
+  const fieldY = Math.min(winBottom + 40 * k, (data.viewH ?? h) - 34 * k); // the context field right under the bottom arc (14.11.); above the keyboard when it is open
+  const g = { st, data, w, h, k, cx: w / 2, cy, F, win, ring, shapes: [], edge: grow ? edge : null, grow, fieldY };
   g.add = (type, o) => g.shapes.push({ type, ...o });
 
   const video = st.full ? { cx: g.cx, cy: h / 2, d: Math.max(w, h), radius: 0 } : { cx: g.cx, cy, d: F, radius: 18 * k, window: win };
@@ -88,7 +93,10 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const [, pyLow] = onShape(win, 0, ring);
   if (many && !half) similarTiles(g, pyLow - ring - 10 * k + (h - pyLow + ring + 10 * k) * grow); // full: down to the bottom, only arcs and context on top
   if (!st.full) {
-    if (!many || half) g.add('rest', { field: { x: g.cx - F / 2, y: cy - F / 2, s: F, r: 18 * k }, win, cls: 'field-rest' }); // greyed outside the window
+    if (!many || half) g.add('rest', { field: { x: g.cx - F / 2, y: cy - F / 2, s: F, r: 18 * k }, win, cls: 'field-rest' }); // nothing shows outside the window (14.11.)
+    if (!many && !double) for (const [c, sx, sy] of [['bl', -1, 1], ['br', 1, 1]]) { // the lower corners (the line lies over the upper ones): drag = rounder / squarer
+      g.add('circle', { cx: g.cx + sx * (win.rx ?? win.hw) * 0.86, cy: cy + sy * (win.ry ?? win.hh) * 0.86, r: 30 * k, cls: 'corner', role: `corner:${c}` });
+    }
     strandArcs(g);
     if (!many || half) { photoPoint(g); soundBars(g); }
     if (!grow) flowArcs(g);
@@ -114,11 +122,11 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   }
   if (!many || half) g.add('point', { ...point, cls: `${pointClass(st)}${data.photo ? ' photo' : ''}`, role: 'point' });
 
-  return { video, template, point, window: win, hideLive: many && !half, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
+  return { video, template, point, window: win, fieldY, hideLive: many && !half, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
 }
 
 /** One arc per strand, 2° short of its neighbours: new (dashed) · keep (solid) · off (grey); recording turns new solid. */
-function strandArcs({ st, data, win, k, w, h, add, edge, grow }) {
+function strandArcs({ st, data, win, k, w, h, add, edge, grow, fieldY }) {
   for (const kind of KINDS) {
     if (data.hidden?.includes(kind) || !ARCS[kind]) continue; // hidden: still records when on
     const looks = look(st, kind);
@@ -126,11 +134,11 @@ function strandArcs({ st, data, win, k, w, h, add, edge, grow }) {
     const [from, to] = ARCS[kind];
     const out = 6 * k; // every arc close around the window (14.11.)
     const along = (wn) => (kind === 'l' ? wave(wn, from, to, out, k) : pointsOn(wn, from + GAP, to - GAP, out));
-    const squash = (d) => (Math.atan2(Math.sin((d * Math.PI) / 180) * edge.hw, Math.cos((d * Math.PI) / 180) * edge.hh) * 180) / Math.PI;
-    const onEdge = () => (kind === 'l' ? wave(edge, from, to, out, k, squash) : pointsOn(win, from + GAP, to - GAP, out).map((_, i, all) => onShape(edge, squash(from + GAP + Math.min(i * 3, to - from - 2 * GAP)), out))); // the same share of each side, not the same angle
+    const onEdge = () => (kind === 'l' ? topWave(edge, pts.length, k) // landmarks: as long as before (60 of 240°), on top of the U
+      : pts.map((_, i) => onU(edge, (from + GAP + Math.min(i * 3, to - from - 2 * GAP) - 60) / 240))); // 60…300° → the U from its right top to its left top: each arc keeps its share and order
     let pts = along(win);
     if (edge) { const e = grow * grow * (3 - 2 * grow); pts = onEdge().map(([x, y], i) => [pts[i][0] + (x - pts[i][0]) * e, pts[i][1] + (y - pts[i][1]) * e]); } // bent out to the edges
-    if (kind === 'x' && data.open) pts = straighten(pts, data.open, { w, h, k }); // opening: the arc becomes the field
+    if (kind === 'x' && data.open) pts = straighten(pts, data.open, { w, k, y: fieldY }); // opening: the arc becomes the field
     const dd = pathThrough(pts);
     const mid = onShape(win, (from + to) / 2, out); // for hints (hint.js)
     add('path', { d: dd, mid, cls: `strand ${live ? 'own' : looks}${kind === 'l' ? ' wave' : ''}`, role: `strand:${kind}` });
@@ -139,15 +147,41 @@ function strandArcs({ st, data, win, k, w, h, add, edge, grow }) {
 }
 
 /** Landmarks: a short arc, one and a half gentle waves (±3 px), so it reads as points in motion. */
-function wave(win, from, to, out, k, at = (d) => d) {
+function wave(win, from, to, out, k) {
   const pts = [];
-  for (let d = from; d <= to; d += 1) pts.push(onShape(win, at(d), out + 3 * k * Math.sin(((d - from) / (to - from)) * 3 * Math.PI)));
+  for (let d = from; d <= to; d += 1) pts.push(onShape(win, d, out + 3 * k * Math.sin(((d - from) / (to - from)) * 3 * Math.PI)));
   return pts;
 }
 
+/**
+ * Viele ganz (14.11., consistency): the arcs keep their order and their share of length. Around the window audio,
+ * context and visual take 80° each of 60…300°; on the open U (right edge down, bottom, left edge up) each takes a
+ * third, the gaps as before. s 0 → 1 = from the U's right top to its left top. → [x, y]
+ */
+export function onU({ x0, x1, y0, y1, r }, s) {
+  const H = y1 - y0 - r, W = x1 - x0 - 2 * r, C = (Math.PI * r) / 2, L = 2 * H + W + 2 * C;
+  let d = Math.max(0, Math.min(1, s)) * L;
+  if (d <= H) return [x1, y0 + d];
+  d -= H;
+  if (d <= C) { const a = d / r; return [x1 - r + r * Math.cos(a), y1 - r + r * Math.sin(a)]; }
+  d -= C;
+  if (d <= W) return [x1 - r - d, y1];
+  d -= W;
+  if (d <= C) { const a = Math.PI / 2 + d / r; return [x0 + r + r * Math.cos(a), y1 - r + r * Math.sin(a)]; }
+  d -= C;
+  return [x0, y1 - r - d];
+}
+
+/** Landmarks on top of the U: a quarter of the U's length (60 of 240°), centred, gently waving; n points. */
+function topWave({ x0, x1, y0, y1, r }, n, k) {
+  const L = 2 * (y1 - y0 - r) + (x1 - x0 - 2 * r) + Math.PI * r;
+  const len = Math.min(x1 - x0 - 2 * r, L / 4), cx = (x0 + x1) / 2;
+  return Array.from({ length: n }, (_, i) => { const t = i / (n - 1); return [cx - len / 2 + len * t, y0 - 12 * k + 3 * k * Math.sin(t * 3 * Math.PI)]; });
+}
+
 /** The context arc on its way to the field (t 0 → 1): each point slides to a straight line where the field opens. */
-function straighten(pts, t, { w, h, k }) {
-  const y = h - 40 * k, x0 = 12 * k, x1 = w - 12 * k; // the field: 12 px in from both sides, at the bottom
+function straighten(pts, t, { w, k, y }) {
+  const x0 = 12 * k, x1 = w - 12 * k; // the field: 12 px in from both sides, right under the window
   const e = t * t * (3 - 2 * t); // ease in and out
   return pts.map(([x, yy], i) => {
     const tx = x1 - ((x1 - x0) * i) / (pts.length - 1); // the arc runs clockwise: right to left at the bottom
@@ -228,7 +262,7 @@ function similarTiles({ data, w, h, k, add }, bottom = h) {
  */
 function referenceWindow({ data, w, h, k, cx, F, win, ring, add }, point) {
   const cy = point.cy - ring - 4 * k - F / 2;
-  const ref = windowOf(win.shape, { cx, cy, F });
+  const ref = windowOf(win.shape === 'super' ? win : win.shape, { cx, cy, F });
   add('rest', { field: { x: cx - F / 2, y: cy - F / 2, s: F, r: 18 * k }, win: ref, cls: 'field-rest' });
   add('video', { cx, cy, d: F, window: ref, cls: 'video other reference', role: 'reference' });
   return { cx, cy, d: F, radius: 18 * k, window: ref };

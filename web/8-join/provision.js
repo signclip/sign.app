@@ -92,3 +92,27 @@ export function nextQuota(bytes, by) {
   const i = Math.max(0, Math.min(QUOTAS.length - 1, at < 0 ? QUOTAS.length - 1 : exact ? at + by : by > 0 ? at : at - 1));
   return by < 0 && gb(QUOTAS[i]) > now ? null : QUOTAS[i]; // below the lowest step: no change (null)
 }
+
+/** A folder in someone's own files (WebDAV MKCOL; there already = fine). */
+export async function makeFolder({ server, user, password }, folder, { fetch = globalThis.fetch } = {}) {
+  const res = await fetch(`${base(server)}/remote.php/dav/files/${encodeURIComponent(user)}/${encodeURIComponent(folder)}/`, { method: 'MKCOL', headers: { Authorization: basic(user, password) } });
+  if (![201, 405].includes(res.status)) throw new Error(`folder: ${res.status}`);
+}
+
+/** Share a folder of mine with another user of the same Nextcloud; permissions 1 = read only. → share id */
+export async function shareFolder({ server, user, password }, folder, withUser, { permissions = 1, fetch = globalThis.fetch } = {}) {
+  const body = new URLSearchParams({ path: `/${folder}`, shareType: '0', shareWith: withUser, permissions: String(permissions) });
+  const res = await fetch(`${base(server)}/ocs/v2.php/apps/files_sharing/api/v1/shares?format=json`, {
+    method: 'POST', headers: { ...ocsHeaders(basic(user, password)), 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok && d.ocs?.meta?.statuscode !== 403) throw new Error(`share: ${d.ocs?.meta?.message ?? res.status}`); // 403 = shared already
+  return d.ocs?.data?.id ?? null;
+}
+
+/** What others shared with me: [{ owner, label, folder (where it sits in my files) }]. */
+export async function sharedWithMe({ server, user, password }, { fetch = globalThis.fetch } = {}) {
+  const res = await fetch(`${base(server)}/ocs/v2.php/apps/files_sharing/api/v1/shares?shared_with_me=true&format=json`, { headers: ocsHeaders(basic(user, password)) });
+  if (!res.ok) throw new Error(`shares: ${res.status}`);
+  return ((await res.json()).ocs?.data ?? []).filter((x) => x.item_type === 'folder').map((x) => ({ owner: x.uid_owner, label: x.displayname_owner || x.uid_owner, folder: String(x.file_target ?? x.path).replace(/^\//, '') }));
+}

@@ -32,7 +32,10 @@ import { addNew, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, 
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders } from './folders.js';
 import { bind } from './touch.js';
-import { isAdmin, listAccounts, setQuota, nextQuota } from '../8-join/provision.js';
+import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder } from '../8-join/provision.js';
+import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
+import { WebDavStore } from '../2-storage/webdav.js';
+import { webdavUrl } from '../2-storage/nextcloud.js';
 import { pointShapes } from './view/points.js';
 import { toSvg } from './view/ring.js';
 
@@ -147,7 +150,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   }
   const say = (text) => { s.note = text; draw(); };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, doorLabel, doorSigner: project?.signer ?? null, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
+  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
 
   // ---------- doing what a gesture says ----------
   async function shareTo(n) {
@@ -235,22 +238,52 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     for (const [n, sp] of s.open) {
       if (sp.spec?.kind !== 'nextcloud') continue;
       const login = { server: sp.spec.server, user: sp.spec.user, password: await keychain.get(sp.entry.id) };
-      if (login.password && await isAdmin(login)) { ctx.admin = login; s.adminN = n; break; }
+      if (!login.password) continue;
+      if (project?.atlas && login.user.toLowerCase() === project.atlas.toLowerCase()) atlasCount(login).catch(() => {}); // this device also holds the atlas login
+      if (!ctx.admin && await isAdmin(login)) { ctx.admin = login; s.adminN = n; }
     }
     return ctx.admin;
+  }
+  /**
+   * atlas (14.11.): every account's Sign/ is shared read only with atlas; atlas counts what lies there and writes
+   * only the summary (summary/accounts.json), shared read only with the admin (project.json admin). ≤ once an hour.
+   */
+  async function atlasCount(login) {
+    let last = 0;
+    try { last = Number(localStorage.getItem('sign.atlasAt') || 0); } catch { /* private mode */ }
+    if (Date.now() - last < EVERY_MS) return;
+    const root = (folder = '') => new WebDavStore({ base: webdavUrl(login.server, login.user, folder), user: login.user, password: login.password, name: 'atlas' });
+    const shares = (await sharedWithMe(login)).filter((x) => x.folder !== 'summary').map((x) => ({ ...x, store: root(x.folder) }));
+    await makeFolder(login, 'summary');
+    const store = root();
+    try { await store.remove?.(SUMMARY); } catch { /* first time */ }
+    await store.write(SUMMARY, new TextEncoder().encode(await summarize(shares)));
+    if (project?.admin) await shareFolder(login, 'summary', project.admin); // only the summary goes to the admin
+    try { localStorage.setItem('sign.atlasAt', String(Date.now())); } catch { /* private mode */ }
+  }
+  /** The admin reads atlas's summary (shared into the admin's files as summary/) → Map(user → counts). */
+  async function atlasSummary() {
+    try {
+      const store = new WebDavStore({ base: webdavUrl(ctx.admin.server, ctx.admin.user), user: ctx.admin.user, password: ctx.admin.password, name: 'admin' });
+      return readSummary(new TextDecoder().decode(await store.read(SUMMARY)));
+    } catch { return new Map(); }
   }
   /** → on the admin tile: the accounts with their space as tiles; tap = more space, ↓ = less, the first tile = back. */
   async function showAccounts() {
     s.accounts = [];
     say(t('menu.wait'));
-    try { s.accounts = await listAccounts(ctx.admin); say(''); } catch { s.accounts = null; return say(t('notReachable')); }
+    try {
+      const [list, counts] = await Promise.all([listAccounts(ctx.admin), atlasSummary()]);
+      s.accounts = list.map((a) => ({ ...a, counts: counts.get(a.user) ?? null })); // takes and strands from atlas
+      say('');
+    } catch { s.accounts = null; return say(t('notReachable')); }
     return draw();
   }
   const gb = (b) => (b < 0 ? '∞' : `${Math.round(b / 2 ** 30)}`);
   function accountTiles() {
     if (!s.accounts) return null;
     return [{ label: '←', go: () => { s.accounts = null; draw(); } }, ...s.accounts.map((a) => ({
-      label: `${a.label} ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
+      label: `${a.label}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
       more: (by) => { const q = nextQuota(a.quota, by); return q ? setQuota(ctx.admin, a.user, q).then(showAccounts, () => say(t('notReachable'))) : null; },
     }))];
   }

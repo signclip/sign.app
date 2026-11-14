@@ -9,6 +9,7 @@
 // Limits:    waits 300–10,000 ms; pre-roll 0–3,000 ms (kept in memory while ready).
 
 import { KINDS } from '../1-model/symbols.js';
+import { formOf } from './view/shape.js';
 
 const STRANDS = ['v', 'a', 'x', 'l'].filter((k) => k in KINDS);
 
@@ -22,7 +23,7 @@ export const DEFAULTS = Object.freeze({
   similarFrom: ['x', 'a'], // strands that feed the combined Similar (a via its text)
   facing: 'user', // camera: 'user' (front) or 'environment' (back)
   onboarding: true,
-  shape: 'circle', // the window: 'circle' (as large as fits) · 'ellipse' · 'rounded' (view/shape.js)
+  shape: { round: 1, aspect: 1 }, // the window by hand: round 0 square … 1 ellipse · aspect width/height (view/shape.js)
   flows: [], // connections drawn between sides: 'a>x' audio → context (Whisper), 'v>x' visual → context (later)
 });
 export const FLOW_KINDS = ['a>x', 'v>x'];
@@ -44,7 +45,7 @@ export function normalize(input = {}) {
     facing: ['user', 'environment'].includes(input.facing) ? input.facing : d.facing,
     onboarding: typeof input.onboarding === 'boolean' ? input.onboarding : d.onboarding,
     flows: subset(input.flows, FLOW_KINDS, d.flows),
-    shape: ['circle', 'ellipse', 'rounded'].includes(input.shape) ? input.shape : d.shape,
+    shape: formOf(input.shape ?? d.shape),
   };
 }
 

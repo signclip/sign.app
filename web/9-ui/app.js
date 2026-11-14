@@ -49,6 +49,7 @@ import { write as writeNotation, parse as parseNotation } from '../1-model/notat
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse } from './state.js';
 import { MANY } from './view/ring.js';
+import { formOf } from './view/shape.js';
 import { mountScreen, targetOf } from './screen.js';
 import { normalize, readyStep, choose, CHOICES } from './settings.js';
 import { watch } from './ready.js';
@@ -112,7 +113,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // ---------- what is going on ----------
   let st = startState(settings.auto); // one strand selection for everything, kept until changed
   if (settings.ready) st = next(st, { action: 'ready' });
-  const data = { chips: [], levels: [], similar: [], line: { count: 0, at: 0 }, versions: 1, timeMs: null, hidden: [], words: [], flows: settings.flows, shape: settings.shape, photo: kept('sign.photo', () => '') === '1' };
+  const data = { chips: [], levels: [], similar: [], line: { count: 0, at: 0 }, versions: 1, timeMs: null, hidden: [], words: [], flows: settings.flows, shape: formOf(settings.shape), photo: kept('sign.photo', () => '') === '1' };
   let series = ''; // written context, one gesture per entry: each take takes the first one (context.afterTake)
   const take = { recorder: null, lastChain: null, lastKinds: [], replayAt: -1, began: null, context: '', shareOnce: null, starting: false, stopSoon: false };
   const onboard = { at: Number(kept('sign.onboard', () => '0')) || 0 };
@@ -153,7 +154,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     paint();
   };
   /** Animate one value of the view from a to b (ms, eased), painting every frame; resolves at the end. */
+  const still = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches; // the phone asks for less motion: jump to the end
   const animate = (key, a, b, ms = 320) => new Promise((done) => {
+    if (still) ms = 1;
     const t0 = performance.now();
     const frame = (now) => {
       const t = Math.min(1, (now - t0) / ms), e = 1 - (1 - t) ** 3;
@@ -322,6 +325,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     step(st.mode === 'line' ? (by > 0 ? 'before' : 'next') : 'replay-back');
   }
 
+  // ---------- the window's form by hand (14.11.): corners rounder or squarer, narrower or lower ----------
+  function reshape(change) {
+    data.shape = formOf({ ...data.shape, ...change });
+    settings = normalize({ ...settings, shape: data.shape });
+    paint();
+    clearTimeout(reshape.soon);
+    reshape.soon = setTimeout(saveSettings, 400); // kept when the fingers rest
+  }
+
   // ---------- always ready: the waits, pinched on the point (14.11., no settings) ----------
   let pinched = 1, waitsShown = null;
   function waitsBy(factor) {
@@ -431,9 +443,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   async function openMany() {
     data.manyFull = false;
     data.reveal = 0;
+    data.lowT = 0;
     step('similar-in');
     showSimilar(true);
-    return animate('reveal', 0, 1);
+    await Promise.all([animate('reveal', 0, 1), animate('lowT', 0, 1)]); // the tiles come down while the take window moves down
+    delete data.lowT;
   }
 
   /** Similar · Doppel: result i of the tiles plays above in the same window as the live picture (loop, muted). */
@@ -590,6 +604,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   takeVisuals().then((all) => { data.line = { count: all.length, at: 0 }; return lineThumbs(); }).catch(() => {}); // the line is there from the start
   setTimeout(() => askAgain().catch(() => {}), 5000); // remove requests that could not go out before (the sharing points open first)
 
+  globalThis.visualViewport?.addEventListener('resize', () => { data.viewH = globalThis.visualViewport.height; paint(); }); // the keyboard: the field stays above it
+
   if (settings.onboarding && STEPS[onboard.at]?.[0] === 'name') { // onboarding starts with the name: write it right away
     $('#context').classList.add('breathe');
     say.value = person.label; // a preset to change (as chosen beforehand): typing replaces it
@@ -705,14 +721,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         return paint();
       case 'focus': return focusAt(camera, hit.x, hit.y);
       case 'zoom': case 'waits': return null; // pinch goes straight to the camera, or on the point to the waits (handlers.pinch)
-      case 'shape': { // ↑ / ↓ on the live picture: the window's form, right where it is (no settings needed)
-        const forms = ['circle', 'ellipse', 'rounded'];
-        const at = forms.indexOf(settings.shape) + (gesture === 'up' ? 1 : -1);
-        settings = choose(settings, 'shape', forms[(at + forms.length) % forms.length]);
-        data.shape = settings.shape;
-        saveSettings();
-        return paint();
-      }
+      case 'form': return null; // a corner dragged: handlers.slide shapes the window as the finger moves
       case 'switch-camera':
         if (take.recorder) return null;
         settings = choose(settings, 'facing', settings.facing === 'user' ? 'environment' : 'user');
@@ -724,13 +733,13 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         return null;
       case 'similar-in': return openMany(); // first the upper half, sliding down
       case 'similar-out':
-        if (st.similar && !data.double && (data.reveal ?? 1) > 0) await animate('reveal', data.reveal ?? 1, 0); // the tiles slide up
+        if (st.similar && !data.double && (data.reveal ?? 1) > 0) await Promise.all([animate('reveal', data.reveal ?? 1, 0), animate('lowT', 1, 0)]); // the tiles slide up, the take window back to the middle
         await keepSimilar();
         step('similar-out');
         data.words = [];
         data.double = null; // Doppel ends with Similar
         data.manyFull = false;
-        delete data.reveal; delete data.grow;
+        delete data.reveal; delete data.grow; delete data.lowT;
         $('#template').removeAttribute('src');
         return showSimilar(false);
       case 'share-last': take.shareOnce = null; take.shareChain = null; step('share-last'); return menu.show(true); // ↑ on the point: the sharing points as circles
@@ -847,7 +856,16 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (st.held) end(); else if (st.sub === 'scrub') step('release');
     },
     swipe: (dir, role) => act(dir, role),
-    pinch: (factor, role) => (role === 'point' && st.ready ? waitsBy(factor) : zoomBy(camera, factor)), // on the point while always ready: the waits
+    pinch: (factor, role, axis) => { // on the point while always ready: the waits · side by side / one above the other: the window · slanted: zoom
+      if (role === 'point' && st.ready) return waitsBy(factor);
+      if (axis === 'x' || axis === 'y') return reshape({ aspect: data.shape.aspect * (axis === 'x' ? factor : 1 / factor) });
+      return zoomBy(camera, factor);
+    },
+    slide: (role, dx, dy) => { // a corner of the window: inwards rounder, outwards squarer
+      const [sx, sy] = { 'corner:tl': [1, 1], 'corner:tr': [-1, 1], 'corner:bl': [1, -1], 'corner:br': [-1, -1] }[role] ?? [0, 0];
+      return reshape({ round: data.shape.round + (dx * sx + dy * sy) / Math.SQRT2 / 160 });
+    },
+    slideEnd: () => saveSettings(),
     dragEnd: (el, moved, role) => {
       if (role === spentRole || st.hold) { spentRole = null; return null; } // a property was held, not carried
       const from = targetOf(role);
