@@ -856,8 +856,13 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (st.held) end(); else if (st.sub === 'scrub') step('release');
     },
     swipe: (dir, role) => act(dir, role),
-    pinch: (factor, role, how = {}) => { // on the point: the waits (always ready) or the camera zoom · on the picture: the window's form
-      if (role === 'point') return st.ready ? waitsBy(factor) : zoomBy(camera, factor);
+    pinch: (factor, role, how = {}) => { // on the point: one above the other = camera zoom, side by side = time (line zoom, or the waits) · on the picture: the window's form
+      if (role === 'point') {
+        if ((how.angle ?? 90) >= 45) return zoomBy(camera, how.fy ?? factor); // up and down: the picture
+        const f = how.fx ?? factor; // across: time
+        if (data.items?.length && ['line', 'record', 'stream'].includes(st.screen)) { data.timeZoom = Math.max(0.25, Math.min(8, (data.timeZoom ?? 1) * f)); return paint(); }
+        return st.ready ? waitsBy(f) : null;
+      }
       return reshape(formBy(data.shape, factor, how));
     },
     slide: (role, dx, dy) => { // a corner of the window: inwards rounder, outwards squarer

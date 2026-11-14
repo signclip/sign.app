@@ -19,13 +19,13 @@ export const ZOOM = { play: 0.12, spread: 0.3, scrub: 0.8 };
 
 /**
  * items: [{ ms, own: true|false, levels: [0–1 per 100 ms], words: [{ text, t: [from, to], g: gesture n }] }]
- * (t inside the element) · timeMs: "now" on the whole line · sub: play | spread | scrub · cx, y (picture
+ * (t inside the element) · timeMs: "now" on the whole line · sub: play | spread | scrub · zoom (× px/ms, 0.25–8) · cx, y (picture
  * thread), k, w. → shapes
  */
-export function timelineShapes(items = [], { timeMs = 0, sub = 'play', cx, y, k = 1, w = 390 }) {
+export function timelineShapes(items = [], { timeMs = 0, sub = 'play', zoom = 1, cx, y, k = 1, w = 390 }) {
   const t = {
     k, y, w, timeMs,
-    px: (ZOOM[sub] ?? ZOOM.play) * k, // pixels per millisecond
+    px: (ZOOM[sub] ?? ZOOM.play) * k * zoom, // pixels per millisecond; zoom = two fingers side by side on the point (14.11.)
     X: (ms) => cx + (ms - timeMs) * t.px, // where a moment of the line is on the screen
     seen: (x, width = 0) => x + width >= 0 && x <= w, // draw only what is on the screen
     out: [],

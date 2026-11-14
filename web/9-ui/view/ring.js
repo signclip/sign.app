@@ -104,7 +104,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   if (!many || half) g.add('video', { ...video, cls: st.screen === 'delete' ? 'video faded' : 'video' });
   if (!stretched) chipArea(g, point);
   const template = double ? referenceWindow(g, point) : templateVideo(g);
-  if (stretched) g.shapes.push(...timelineShapes(data.items, { timeMs: data.timeMs ?? 0, sub: st.sub ?? 'play', cx: g.cx, y: point.cy, k, w }));
+  if (stretched) g.shapes.push(...timelineShapes(data.items, { timeMs: data.timeMs ?? 0, sub: st.sub ?? 'play', zoom: data.timeZoom ?? 1, cx: g.cx, y: point.cy, k, w }));
   else if (!st.full && !double && (!many || half)) g.shapes.push(...arcShapes(win, ring, { ...data, bend: data.bend ?? (st.sub === 'spread' ? 0 : 1) }, { k, w }));
   if (st.screen === 'delete') deleteChips(g);
   if (data.waits && !st.full) { // pinching the waits: inner ring = start, outer = stop (1 s ≈ 8 px)
