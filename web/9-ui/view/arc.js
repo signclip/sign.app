@@ -93,7 +93,7 @@ export function arcShapes(win, ring, data = {}, { k = 1, w = 390 } = {}) {
 
   const fade = push < 1 ? ' arriving' : data.levelAt ? ' back' : ''; // an earlier line chosen: the current one steps back
   const d = linePath(win, ring, win.cx, bend, w);
-  res.push({ type: 'path', d, cls: `thread own line-arc${fade}`, role: 'line-arc' });
+  // no drawn arc through the point (14.11.): the line shows by its elements; the arc stays as a hit area
   res.push({ type: 'path', d, cls: 'hit', role: 'line-arc' });
   for (const p of lineSpots(win, { ring, k, count, at: current, bend, w })) {
     res.push({ type: 'thumb', x: p.x, y: p.y, s: p.s, round: true, href: data.lineThumbs?.[current + p.i], cls: `thumb own${Math.abs(p.i) === 1 ? ' near' : ''}${fade}`, role: `line:${p.i}` });

@@ -24,9 +24,11 @@ function db() {
 async function run(mode, fn) {
   const d = await db();
   return new Promise((resolve, reject) => {
-    const r = fn(d.transaction(STORE, mode).objectStore(STORE));
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
+    const tx = d.transaction(STORE, mode);
+    let result;
+    try { const r = fn(tx.objectStore(STORE)); r.onsuccess = () => { result = r.result; }; } catch (err) { reject(err); return; }
+    tx.oncomplete = () => resolve(result); // written for sure only when the transaction is complete
+    tx.onerror = tx.onabort = () => reject(tx.error);
   });
 }
 
@@ -35,12 +37,16 @@ async function kept(name, make) {
   if (have) return have;
   const made = await make();
   await run('readwrite', (s) => s.put(made, name));
-  return made;
+  const back = await run('readonly', (s) => s.get(name)); // read back: some web views lose keys silently
+  if (!back) throw new Error(`keys not kept (${name})`);
+  return back;
 }
 
+let once = null; // one promise for everyone: two callers at the start must not make two different keys (14.11.)
 /** → { device: { privateKey, publicKey, public }, pickup: { privateKey, public } } */
-export async function deviceKeys() {
-  return { device: await kept('device', newDeviceKey), pickup: await kept('pickup', newPickupKey) };
+export function deviceKeys() {
+  once ??= (async () => ({ device: await kept('device', newDeviceKey), pickup: await kept('pickup', newPickupKey) }))().catch((err) => { once = null; throw err; });
+  return once;
 }
 
 /** Remember small things about joins (the path of my hello per group). */

@@ -34,7 +34,8 @@ export function specOf({ label, id, path, key }) {
  * Pasted text (clipboard instead of typing) → what to do with it:
  *   lena@uni.sciebo.de          { kind: 'cloud', cloudId }      give a folder to it (routes.give)
  *   https://host/s/AbC123       { kind: 'link', path }          a read-only link
- *   https://host                { kind: 'login', server }       one-click login (native app)
+ *   https://host                { kind: 'login', server }       one-click login (native app); also any page of a
+ *   https://host/apps/files/…                                    Nextcloud copied from the browser (…/apps/…, …/login)
  *   https://host/remote.php/…   { kind: 'nextcloud', path, … }  · any other https: { kind: 'webdav', path }
  */
 export function readPaste(text) {
@@ -45,6 +46,6 @@ export function readPaste(text) {
   const u = new URL(s);
   const share = /^(.*?)\/(?:index\.php\/)?s\/([A-Za-z0-9]+)\/?$/.exec(u.origin + u.pathname);
   if (share) return { kind: 'link', server: share[1], token: share[2], path: publicWebdavUrl(share[1], share[2]) };
-  if (u.pathname.replace(/\/$/, '') === '') return { kind: 'login', server: u.origin };
+  if (u.pathname.replace(/\/$/, '') === '' || /^\/(index\.php\/)?(apps|login|settings)(\/|$)/.test(u.pathname)) return { kind: 'login', server: u.origin }; // the address bar of a Nextcloud page = log in there
   return { ...specOf({ path: s }), path: s };
 }
