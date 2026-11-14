@@ -1,10 +1,11 @@
 {
-  "about": "The project's door: its read link (join/ answers, sealed per device) and its file-drop link (hello/). Empty = no automatic join; a group text works as before. More doors = tried in order (one may be gone).",
+  "about": "The project's door: its read link (join/ answers, sealed per device) and its file-drop link (hello/). Empty = no automatic join; a group text works as before. More doors = tried in order (one may be gone). signer: \"q_… z_…\" of the signer device (↑ on its own tile copies it); set = only answers sealed by it count, empty = the description in join/.",
   "label": "Sign",
   "doors": [
     {
       "read": "https://nx111767.your-storageshare.de/s/d89sxc5eGc8Yc9Q",
       "drop": "https://nx111767.your-storageshare.de/s/s4Kk6aHL4ftBbGz"
     }
-  ]
+  ],
+  "signer": ""
 }

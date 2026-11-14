@@ -27,6 +27,7 @@ export const TABLE = [
   ['take', 'tap', 'point', 'any', 'all switched-on strands start / stop together'],
   ['take-while-held', 'hold', 'point', 'any', 'all switched-on strands record while held'],
   ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait'],
+  ['waits', 'pinch', 'point', 'any', 'always ready: spread = wait longer before start and stop, pinch = shorter (rings show it)'],
   ['share-last', 'up', 'point', 'any', 'the sharing points as circles: tap = share there, double-tap = always, mini arcs = which strands (share-menu.js)'],
   ['aside-last', 'down', 'point', 'any', 'set the last take aside (it stays, dashed)'],
   ['remove-last', 'down-far', 'point', 'any', 'delete: chips take · strand · part, then share-first · out of similar · out of training'],
@@ -49,10 +50,10 @@ export const TABLE = [
   ['photo', 'tap', 'photo', 'any', 'picture instead of video: the point becomes a photo button (tap again = video)'],
   ['focus', 'tap', 'live', 'any', 'focus where tapped'],
   ['zoom', 'pinch', 'live', 'any', 'zoom the camera'],
+  ['shape', 'up', 'live', 'any', 'the window: circle → ellipse → rounded rectangle'],
+  ['shape', 'down', 'live', 'any', 'the window: back (rounded rectangle → ellipse → circle)'],
   ['switch-camera', 'left', 'live', 'any', 'front / back camera'],
   ['switch-camera', 'right', 'live', 'any', 'front / back camera'],
-  ['own-in', 'edge-in', 'upper-left', 'any', 'own settings: waits, strands, camera, consent'],
-  ['own-out', 'edge-out', 'upper-left', 'any', 'push the own settings off'],
   ['strands-in', 'edge-in', 'middle-left', 'any', 'show the strand fields (hidden ones come back)'],
   ['similar-in', 'edge-in', 'upper-right', 'any', 'pull Similar onto the display'],
   ['similar-out', 'edge-out', 'upper-right', 'any', 'push Similar off'],
@@ -98,7 +99,7 @@ export const TABLE = [
 /** Intent × keyword (Initial §4.2): saying it does the same as the gesture. */
 export const VOICE = {
   take: 'Start', next: 'Weiter', before: 'Zurück', scrub: 'Marker', after: 'Zusammenfügen',
-  'remove-last': 'Alle löschen', 'share-last': 'Senden', share: 'Senden', full: 'Vollbild', 'own-in': 'Einstellungen',
+  'remove-last': 'Alle löschen', 'share-last': 'Senden', share: 'Senden', full: 'Vollbild',
 };
 
 const rows = TABLE.map(([action, gesture, target, mode, what, held = null]) => ({ action, gesture, target, mode, what, held }));

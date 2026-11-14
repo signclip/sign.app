@@ -2,7 +2,7 @@
 //
 // Purpose:   ready (always ready) on/off · which strands record by themselves · wait times for quick
 //            automatic takes · which strands feed the combined Similar · camera front/back ·
-//            onboarding shown or not. Shown as chips from the upper left edge (own sharing point).
+//            onboarding shown or not. No settings area (14.11.): each is set by a gesture where it acts, kept on the device.
 //            Settings live on the device only; they are no data and never shared.
 // Depends:   1-model/symbols (KINDS)
 // Test:      tests/ui.test.mjs
@@ -48,7 +48,7 @@ export function normalize(input = {}) {
   };
 }
 
-/** Chips for the own settings: each a choice of a few values, no number fields (decision 07.11.: chips). */
+/** The steps of each choice (pinch on the point walks the waits): each a choice of a few values, no number fields (decision 07.11.: chips). */
 export const CHOICES = {
   waitStartMs: [300, 500, 1000, 2000],
   waitStopMs: [1000, 1500, 3000, 5000],

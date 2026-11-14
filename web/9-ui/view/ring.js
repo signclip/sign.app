@@ -2,15 +2,16 @@
 // arrangement (later glasses.js); state and gestures stay.
 //
 // Purpose:   state (state.js) + what is there (chips, levels, Similar, line) → shapes → SVG. Decided 13.11.:
-//              window   a circle, as large as fits (or an ellipse / a rounded rectangle, own settings; shape.js);
+//              window   a circle, as large as fits (or an ellipse / a rounded rectangle: ↑/↓ on the picture; shape.js);
 //                       the rest of the 1080 × 1080 field stays visible, greyed
 //              arcs     by degrees around the window, 0° = top, clockwise (ARCS):
 //                         line     −60 … 60   through the point (arc.js); earlier lines of a chain under it
-//                         audio     60 … 140  the audio strand, out at the screen's edge (14.11.); level ticks inward,
-//                                             in the room between window and arc
+//                         audio     60 … 140  the audio strand, close around the window like the others; the
+//                                             sound pulses outward in the room up to the screen's edge (14.11.)
 //                         context  140 … 220  the context field below it (chips; pulled down = open, writing:
 //                                             the arc straightens into the field, animated)
-//                         visual   220 … 300  video without sound (landmarks get their track with S5); on it a small
+//                         landmarks −30 … 30 close around the window under the point, slightly wavy (14.11.)
+//                         visual   220 … 300  video without sound; on it a small
 //                                              point: picture (14.11.): on = the point becomes a photo button
 //                       look: new = pale (will be recorded) · keep = solid · off = thin grey (state.look); 5° apart
 //                       · hold = thick green: held by one finger as the property for the other (parallel)
@@ -38,13 +39,11 @@ import { arcShapes } from './arc.js';
 import { windowOf, onShape, pointsOn, pathThrough, outlinePath, extentOf } from './shape.js';
 
 /** The four arcs around the window in degrees (0 = top, clockwise); the line is the upper one. */
-export const ARCS = Object.freeze({ line: [-60, 60], a: [60, 140], x: [140, 220], v: [220, 300] }); // fixed by the user (13.11.), keep
+export const ARCS = Object.freeze({ line: [-60, 60], a: [60, 140], x: [140, 220], v: [220, 300], l: [-30, 30] }); // fixed by the user (13.11.), keep; l (14.11.): short, wavy, at the top
 /** Space between two arcs: this many degrees off each end. */
 const GAP = 5;
 /** Where each strand sits on a tile of the sharing menu: the same sides as on the field. */
-export const SIDES = Object.freeze({ v: 'left', l: 'left', a: 'right', x: 'bottom' });
-/** A second track on the same arc sits a little further out. */
-const TRACK = Object.freeze({ l: 1 });
+export const SIDES = Object.freeze({ v: 'left', l: 'top', a: 'right', x: 'bottom' });
 /** Flows (settings.flows): the angle where the two arcs meet. */
 export const FLOWS = Object.freeze({ 'a>x': 140, 'v>x': 220 });
 
@@ -66,7 +65,7 @@ const POINT_D = 62, RING = 1.35; // the point; toSvg draws its ring at 1.35 × i
 export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const k = w / 390; // everything is drawn for a 390 px phone and scaled
   const d = POINT_D * k, ring = (d / 2) * RING;
-  const F = Math.min(w - 16 * k, 2 * ((w / 2 - 6 * k) / Math.sin(Math.PI / 3) - ring)); // the line's ends stay on screen
+  const F = Math.min(w - 16 * k, 2 * ((w / 2 - 6 * k) / Math.sin(Math.PI / 3) - ring)) - 12 * k; // the line's ends stay on screen; 12 px more room at the sides for the sound (14.11.)
   const cy = (st.screen === 'delete' ? 424 : 404) * k;
   const win = windowOf(data.shape ?? 'circle', { cx: w / 2, cy, F });
   const g = { st, data, w, h, k, cx: w / 2, cy, F, win, ring, shapes: [] };
@@ -91,6 +90,10 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   else if (!st.full) g.shapes.push(...arcShapes(win, ring, { ...data, bend: data.bend ?? (st.sub === 'spread' ? 0 : 1) }, { k, w }));
   if (st.similar) similarTiles(g, point);
   if (st.screen === 'delete') deleteChips(g);
+  if (data.waits && !st.full) { // pinching the waits: inner ring = start, outer = stop (1 s ≈ 8 px)
+    g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (4 + data.waits.startMs / 125) * k, cls: 'wait-ring start' });
+    g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (4 + data.waits.stopMs / 125) * k, cls: 'wait-ring stop' });
+  }
   g.add('point', { ...point, cls: `${pointClass(st)}${data.photo ? ' photo' : ''}`, role: 'point' });
 
   return { video, template, point, window: win, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
@@ -103,14 +106,21 @@ function strandArcs({ st, data, win, k, w, h, add }) {
     const looks = look(st, kind);
     const live = st.screen === 'record' && looks === 'new';
     const [from, to] = ARCS[kind];
-    const out = kind === 'a' ? audioOut({ win, w, k }) : (6 + 9 * (TRACK[kind] ?? 0)) * k;
-    let pts = pointsOn(win, from + GAP, to - GAP, out);
+    const out = 6 * k; // every arc close around the window (14.11.)
+    let pts = kind === 'l' ? wave(win, from, to, out, k) : pointsOn(win, from + GAP, to - GAP, out);
     if (kind === 'x' && data.open) pts = straighten(pts, data.open, { w, h, k }); // opening: the arc becomes the field
     const dd = pathThrough(pts);
     const mid = onShape(win, (from + to) / 2, out); // for hints (hint.js)
-    add('path', { d: dd, mid, cls: `strand ${live ? 'own' : looks}${TRACK[kind] ? ' thin' : ''}`, role: `strand:${kind}` });
+    add('path', { d: dd, mid, cls: `strand ${live ? 'own' : looks}${kind === 'l' ? ' wave' : ''}`, role: `strand:${kind}` });
     add('path', { d: dd, cls: 'hit', role: `strand:${kind}` }); // a wider, unseen line to hit
   }
+}
+
+/** Landmarks: a short arc, one and a half gentle waves (±3 px), so it reads as points in motion. */
+function wave(win, from, to, out, k) {
+  const pts = [];
+  for (let d = from; d <= to; d += 1) pts.push(onShape(win, d, out + 3 * k * Math.sin(((d - from) / (to - from)) * 3 * Math.PI)));
+  return pts;
 }
 
 /** The context arc on its way to the field (t 0 → 1): each point slides to a straight line where the field opens. */
@@ -139,18 +149,15 @@ function flowArcs({ data, win, k, add }) {
   }
 }
 
-/** How far out the audio arc lies: at its widest point 5 px from the screen's right edge. */
-const audioOut = ({ win, w, k }) => Math.max(6 * k, w - 5 * k - onShape(win, 90, 0)[0]);
-
-/** The sound level as ticks inward from the audio arc: the room between it and the window. */
+/** The sound pulsing outward from the audio arc, up to 3 px before the screen's edge: the newest level the longest. */
 function soundBars({ data, win, w, k, add }) {
   const [from, to] = ARCS.a;
-  const out = audioOut({ win, w, k });
-  (data.levels ?? []).slice(0, 20).forEach((level, i) => {
+  const room = Math.max(4 * k, w - 3 * k - onShape(win, 90, 0)[0] - 12 * k); // from the arc's outer side to the edge
+  (data.levels ?? []).slice(-20).forEach((level, i, all) => {
     const deg = from + 3 + ((to - from - 6) * i) / 19;
-    const [x1, y1] = onShape(win, deg, out - 6 * k);
-    const [x2, y2] = onShape(win, deg, Math.max(2 * k, out - 6 * k - (out - 8 * k) * level));
-    add('line', { x1, y1, x2, y2, cls: 'bar own' });
+    const [x1, y1] = onShape(win, deg, 12 * k);
+    const [x2, y2] = onShape(win, deg, 12 * k + room * Math.min(1, level));
+    add('line', { x1, y1, x2, y2, cls: `bar own${i === all.length - 1 ? ' now' : ''}` });
   });
 }
 

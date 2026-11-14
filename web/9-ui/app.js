@@ -7,8 +7,10 @@
 //   chip: hold = record more strands to it (kept solid, new dashed) · ↓ take this context away
 //         · double-tap = sticky on/off: in front, one bubble, a prefix (G4) for every take of the series
 //   live picture: tap = focus · hold = video while held · ← → front/back camera · pinch = zoom
-//   edges: upper left own · middle left strands · upper right Similar · middle right share · top: ↑ full, ↓ Similar
-//   window: a circle as large as fits, or ellipse / rounded rectangle (own settings); arcs by degrees: line −60…60 ·
+//   no settings area (14.11.): form = ↑/↓ on the picture · strands as left · waits = pinch on the point · onboarding
+//   again = hold your own tile in the sharing menu
+//   edges: middle left strands · upper right Similar · middle right share · top: ↑ full, ↓ Similar
+//   window: a circle as large as fits, or ellipse / rounded rectangle (↑/↓ on the picture); arcs by degrees: line −60…60 ·
 //          audio 60…140 · context 140…220 · visual 220…300 · Similar as tiles at the top: one onto the line or the
 //          point, or ↓ on them = all onto the chain · line double-tap = full screen · context ↓ = open and write
 //   line (an arc of pictures over the point, view/arc.js): ↓ on it = straight, ↑ = arc again · older lines of the
@@ -30,24 +32,26 @@ import { buildIndex } from '../3-index/index.js';
 import { saveTake } from '../4-save/save-take.js';
 import { removeStrands } from '../4-save/remove.js';
 import { saveSimilar } from '../4-save/save-similar.js';
+import { addLine } from '../4-save/add-line.js';
+import { readName } from '../1-model/filename.js';
 import { openDevices, startTake, browserTap } from '../5-take/recorder.js';
 import { loadWhisper } from '../5-take/whisper-engine.js';
 import { transcribe, contextOf as wordsRow } from '../5-take/whisper.js';
 import { toMono, resample } from '../5-take/resample.js';
 import { addEcho } from '../4-save/add-echo.js';
 import { similar } from '../7-similar/filter.js';
-import { newPerson, newSource } from '../1-model/ids.js';
+import { newPerson, newSource, shortU, writeId } from '../1-model/ids.js';
 import { readFile } from '../1-model/file.js';
 import { withSticky, afterTake as nextOfSeries, readContext, fromField } from '../1-model/context.js';
 import { write as writeNotation, parse as parseNotation } from '../1-model/notation.js';
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse } from './state.js';
 import { mountScreen, targetOf } from './screen.js';
-import { normalize, readyStep, choose } from './settings.js';
+import { normalize, readyStep, choose, CHOICES } from './settings.js';
 import { watch } from './ready.js';
 import { flip, zoomBy, focusAt, torch } from './camera.js';
 import { bind, edgeZone } from './touch.js';
-import { ownChips, strandChips, draw } from './panels.js';
+import { strandChips, draw } from './panels.js';
 import { filterChips, toggle, filtersOf, EMPTY } from './similar-filter.js';
 import { mountShareMenu } from './share-mount.js';
 import { keychain } from './keychain.js';
@@ -129,7 +133,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (done(at)) { settings = choose(settings, 'onboarding', false); saveSettings(); }
     paint();
   };
-  const step = (action, extra = {}) => { st = next(st, { action, ...extra }); paint(); };
+  const step = (action, extra = {}) => {
+    const before = st.fields;
+    st = next(st, { action, ...extra });
+    if (action === 'strand-on-off' && st.fields !== before) { // strands are remembered: on next start as left (14.11.)
+      settings = normalize({ ...settings, auto: Object.keys(st.fields).filter((k) => st.fields[k] === 'on') });
+      saveSettings();
+    }
+    paint();
+  };
   /** Animate one value of the view from a to b (ms, eased), painting every frame; resolves at the end. */
   const animate = (key, a, b, ms = 320) => new Promise((done) => {
     const t0 = performance.now();
@@ -158,6 +170,17 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     },
     onSources: async (list) => { sources = list; index = await buildIndex(sources); },
     onHello: () => learned('hello'), // onboarding: I dragged myself onto the door
+    onOwnHold: () => { // my own tile held: the first steps again (there is no settings area)
+      settings = choose(settings, 'onboarding', true);
+      saveSettings();
+      onboard.at = 0;
+      try { localStorage.setItem('sign.onboard', '0'); } catch { /* private mode */ }
+      menu.show(false);
+      $('#context').classList.add('breathe');
+      say.value = person.label;
+      openContext(true);
+      setTimeout(() => say.select(), 320);
+    },
   });
   menu.runRules().catch(() => {}); // copies and backups of the list, quietly in the background
 
@@ -272,15 +295,87 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
 
   // ---------- replay: the line of my takes, newest first ----------
   async function replay(by) {
-    const videos = (await store.list('take/')).map((f) => f.path).filter((p) => p.endsWith('.v.mp4')).sort().reverse();
+    const videos = await takeVisuals(); // videos and pictures, newest first
     take.replayAt = Math.max(-1, Math.min(videos.length - 1, take.replayAt + by));
-    const video = $('#replay');
-    video.hidden = take.replayAt < 0;
+    $('#replay').hidden = take.replayAt < 0;
     if (take.replayAt < 0) return step('done');
     data.line = { count: videos.length, at: take.replayAt }; // newest first: the one playing sits at the top of the arc
-    video.src = URL.createObjectURL(new Blob([await store.read(videos[take.replayAt])], { type: 'video/mp4' }));
-    video.play();
+    await show(videos[take.replayAt]);
     step(st.mode === 'line' ? (by > 0 ? 'before' : 'next') : 'replay-back');
+  }
+
+  // ---------- always ready: the waits, pinched on the point (14.11., no settings) ----------
+  let pinched = 1, waitsShown = null;
+  function waitsBy(factor) {
+    pinched *= factor;
+    if (pinched > 0.8 && pinched < 1.25) return null; // a step every 25 %
+    const by = pinched >= 1.25 ? 1 : -1;
+    pinched = 1;
+    const stepIn = (list, now) => list[Math.max(0, Math.min(list.length - 1, list.indexOf(now) + by))] ?? now;
+    settings = normalize({ ...settings, waitStartMs: stepIn(CHOICES.waitStartMs, settings.waitStartMs), waitStopMs: stepIn(CHOICES.waitStopMs, settings.waitStopMs) });
+    saveSettings();
+    data.waits = { startMs: settings.waitStartMs, stopMs: settings.waitStopMs }; // two rings around the point
+    clearTimeout(waitsShown);
+    waitsShown = setTimeout(() => { delete data.waits; paint(); }, 1500);
+    return paint();
+  }
+
+  // ---------- the chain: elements laid on it, earlier versions played ----------
+  const takeVisuals = async () => (await store.list('take/')).map((f) => f.path).filter((p) => /\.v\.(mp4|png)$/.test(p)).sort().reverse();
+  /** The bytes of a chain in the index (a strand: the take that holds it). */
+  async function chainBytes(key) {
+    const t = index.tables;
+    const entry = t.chains.get(key) ?? [...(t.weave.get(key) ?? [])].map((k) => t.chains.get(k)).find((c) => c && t.takes.has(c.key));
+    const from = entry?.from;
+    const src = from && sources.find((x) => x.name === from.store);
+    return src ? { bytes: await src.store.read(from.path) } : null;
+  }
+  /** The take chain of a picture or video file, found by its u_ (newest version). Limits: walks all chains, fine to ~10⁴. */
+  function chainOfVisual(path) {
+    const u = readName(path.slice(path.lastIndexOf('/') + 1))?.u;
+    const hits = [...index.tables.chains.values()].filter((c) => index.tables.takes.has(c.key) && [...c.defs.values()].some((d) => d.kind === 'v' && d.id && shortU(d.id) === u));
+    return hits.sort((a, b) => String(b.head["'t"] ?? '').localeCompare(String(a.head["'t"] ?? '')))[0]?.key ?? null;
+  }
+  /** Lay elements (index keys) on the current chain: a new line on top (add-line.js). */
+  async function layOn(keys, together = false) {
+    const elements = (await Promise.all(keys.map(chainBytes))).filter(Boolean);
+    if (!elements.length) return null;
+    const r = await addLine({ own: store, chainPath: take.lastChain, elements, together, device, person });
+    take.lastChain = r.chain;
+    index = await buildIndex(sources);
+    const head = readFile(dec.decode(await store.read(r.chain))).head;
+    data.versions = Math.max(1, index.versions(writeId(head.id)).length);
+    return r.chain;
+  }
+  /** An element of the line (its position beside the point) → the key of its take. */
+  async function keyOfItem(i) {
+    const all = await takeVisuals();
+    const path = all[Math.max(0, Math.min(all.length - 1, (data.line?.at ?? 0) + i))];
+    return path ? chainOfVisual(path) : null;
+  }
+  /** Play an earlier version of the current chain (level j, 0 = newest): its first picture or video. */
+  async function playVersion(j) {
+    if (!take.lastChain) return null;
+    const head = readFile(dec.decode(await store.read(take.lastChain))).head;
+    const version = index.versions(writeId(head.id))[j];
+    if (!version) return null;
+    const refs = [...version.defs.values()];
+    const visual = refs.find((d) => d.kind === 'v') ?? refs.filter((d) => d.kind === 'chain' && d.name !== 'chain.1').map((d) => index.chain(writeId(d.id))).flatMap((c) => (c ? [...c.defs.values()] : [])).find((d) => d.kind === 'v');
+    const where = visual && index.sharingPoints(writeId(visual.id)).find((x) => /\.v\.(mp4|png)$/.test(x));
+    if (!where) return null;
+    const [name, ...rest] = where.split(':');
+    const src = sources.find((x) => x.name === name);
+    return src ? show(rest.join(':'), src.store) : null;
+  }
+  /** Show one picture or video in the replay element (a picture as its poster). */
+  async function show(path, from = store) {
+    const video = $('#replay');
+    const blob = new Blob([await from.read(path)], { type: path.endsWith('.png') ? 'image/png' : 'video/mp4' });
+    video.hidden = false;
+    if (path.endsWith('.png')) { video.removeAttribute('src'); video.poster = URL.createObjectURL(blob); video.load(); return; }
+    video.poster = '';
+    video.src = URL.createObjectURL(blob);
+    video.play();
   }
 
   // ---------- deleting the last take (chips take · strand · part) ----------
@@ -302,14 +397,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     $(id).hidden = !on;
     if (on) draw($(id), chips, onChip);
   };
-  const showOwn = (on) => panel('#own', on, ownChips(settings, t), (c) => {
-    settings = choose(settings, c.key, c.value);
-    data.shape = settings.shape;
-    if (c.key === 'onboarding' && c.value) { onboard.at = 0; try { localStorage.setItem('sign.onboard', '0'); } catch { /* private mode */ } }
-    saveSettings();
-    paint();
-    showOwn(true);
-  });
   const showSimilar = (on) => { // at the top: metadata and strand choice as chips, the hits as tiles (view)
     const hits = similar(index, { words: data.words, filters: filtersOf(index, filter) });
     data.similar = hits.slice(0, 12).map((h) => h.key);
@@ -449,7 +536,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'aside-last': case 'remove-last': return step(row.action);
       case 'add-to': return take.lastChain ? step('add-to', { base: take.lastChain, kinds: take.lastKinds }) : null;
       case 'context-out': return null; // EXTEND(S2, context): a new line on top without this chip (needs chips from Whisper)
-      case 'flow': { // a connection between two sides (around their corner): on / off, kept in the own settings
+      case 'flow': { // a connection between two sides (around their corner): on / off, kept on the device
         const flow = `${(hit.drag ?? '').split('>')[0].split(':')[1]}>x`;
         settings = choose(settings, 'flows', flow);
         saveSettings();
@@ -470,7 +557,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         try { localStorage.setItem('sign.photo', data.photo ? '1' : ''); } catch { /* private mode */ }
         return paint();
       case 'focus': return focusAt(camera, hit.x, hit.y);
-      case 'zoom': return null; // pinch goes straight to the camera (handlers.pinch)
+      case 'zoom': case 'waits': return null; // pinch goes straight to the camera, or on the point to the waits (handlers.pinch)
+      case 'shape': { // ↑ / ↓ on the live picture: the window's form, right where it is (no settings needed)
+        const forms = ['circle', 'ellipse', 'rounded'];
+        const at = forms.indexOf(settings.shape) + (gesture === 'up' ? 1 : -1);
+        settings = choose(settings, 'shape', forms[(at + forms.length) % forms.length]);
+        data.shape = settings.shape;
+        saveSettings();
+        return paint();
+      }
       case 'switch-camera':
         if (take.recorder) return null;
         settings = choose(settings, 'facing', settings.facing === 'user' ? 'environment' : 'user');
@@ -480,8 +575,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         $('#live').srcObject = camera;
         unwatch = watch(camera, onActivity, { video: $('#live') });
         return null;
-      case 'own-in': return showOwn(true);
-      case 'own-out': return showOwn(false);
       case 'similar-in': step('similar-in'); return showSimilar(true);
       case 'similar-out':
         await keepSimilar();
@@ -503,15 +596,16 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'levels-close': data.levelsOpen = false; return paint();
       case 'level-open': // choose an earlier line of the chain (tap again = back to the current one)
         data.levelAt = data.levelAt === hit.index ? null : hit.index;
-        return paint(); // EXTEND(S3, chain): play that version (index.versions → its chain below)
+        paint();
+        return data.levelAt == null ? null : playVersion(data.levelAt); // that version plays (index.versions)
       case 'into-line': // a Similar result laid on the chain: it flies into the line, then a new line slides in
         await intoLine(role);
-        data.versions += 1; // EXTEND(S3, chain): write the new line {…} with {:chain.1} below (4-save)
+        await layOn([data.similar[hit.index]].filter(Boolean)); // a new line {:chain.2} on top, the chain below (add-line.js)
         return arrive();
       case 'similar-all': { // all of Similar: one after another into the line, then one new line on the chain
         const n = Math.min(6, data.similar.length);
         for (let i = 0; i < n; i++) await intoLine(`similar:${i}`, 220);
-        data.versions += 1; // EXTEND(S3, chain): the whole similar as a line {:?.1} on top (G4c)
+        await layOn(data.similar.slice(0, n)); // one line, the results one after another
         return arrive();
       }
       case 'line-full': // the line in full screen: replay from the current one
@@ -527,7 +621,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       // ---------- in the table, not wired yet: each says where it docks ----------
       case 'take-over': return null; // EXTEND(S3, similar): a result into the Take in the middle (needs similar items on screen)
       case 'share': case 'aside': case 'remove': return null; // EXTEND(S3, line): the same for an element of a line
-      case 'after': case 'together': return null; // EXTEND(S3, line): a new line on top (4-save, chain with {:chain.1})
+      case 'after': case 'together': { // an element of the line beside the point (after) or onto it (together)
+        const key = await keyOfItem(hit.index);
+        return key ? layOn([key], row.action === 'together').then(() => arrive()) : null;
+      }
       case 'settings': return null; // in the share menu itself (share-mount.js: hold on a circle)
       default: return null;
     }
@@ -557,7 +654,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (st.held) end(); else if (st.sub === 'scrub') step('release');
     },
     swipe: (dir, role) => act(dir, role),
-    pinch: (factor) => zoomBy(camera, factor),
+    pinch: (factor, role) => (role === 'point' && st.ready ? waitsBy(factor) : zoomBy(camera, factor)), // on the point while always ready: the waits
     dragEnd: (el, moved, role) => {
       if (role === spentRole || st.hold) { spentRole = null; return null; } // a property was held, not carried
       const from = targetOf(role);
@@ -586,7 +683,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     else if (zone?.endsWith('left') && dx > 60) act('edge-in', zone);
     else if (zone?.endsWith('right') && dx < -60) act('edge-in', zone);
   }, true);
-  $('#own').addEventListener('pointerup', (e) => { if (e.clientX < 72) act('edge-out', 'upper-left'); });
   $('#similar').addEventListener('pointerup', (e) => { if (innerWidth - e.clientX < 72) act('edge-out', 'upper-right'); });
   $('#share').addEventListener('pointerup', (e) => { if (innerWidth - e.clientX < 24) act('edge-out', 'middle-right'); });
   addEventListener('resize', paint);

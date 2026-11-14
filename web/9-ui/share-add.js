@@ -59,11 +59,35 @@ export async function addNew(ctx) {
 }
 
 /** ← paste. ctx: { s, keychain, edit, load, say, t } (share-mount.js). */
+/**
+ * A pasted text that carries a link and its password together (14.11.) → { text, secret }. The password is a line
+ * "Passwort: …" / "Password: …", or the one word beside a single link (next line or after a space; no spaces in it).
+ * Everything else is left as it was. The password goes straight into the keychain, never shown.
+ */
+export function splitSecret(pasted) {
+  let rest = String(pasted ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+  let secret = null;
+  rest = rest.filter((l) => {
+    const m = /^(?:passwor[dt]|kennwort|pw)\s*[:=]\s*(\S.*)$/i.exec(l);
+    if (m) secret = m[1].trim();
+    return !m;
+  });
+  const isLink = (l) => /^https?:\/\//.test(l);
+  const links = rest.filter(isLink);
+  if (!secret && links.length === 1) {
+    const other = rest.filter((l) => !isLink(l));
+    if (rest.length === 2 && !/\s/.test(other[0])) { secret = other[0]; rest = links; }
+    else if (rest.length === 1 && /^\S+\s+\S+$/.test(rest[0])) { const [url, word] = rest[0].split(/\s+/); secret = word; rest = [url]; }
+  }
+  return { text: rest.join('\n'), secret };
+}
+
 export async function bringIn(ctx) {
   const { s, keychain, edit, say, t } = ctx;
-  let text = '';
-  try { text = await clipboard(); } catch { return say(t('notReachable')); }
-  if (text.includes('\n') && await bringInvitation(ctx, text)) return say(t('share')); // a group invitation: name, read link, drop link
+  let pasted = '';
+  try { pasted = await clipboard(); } catch { return say(t('notReachable')); }
+  const { text, secret } = s.waitSecret ? { text: pasted, secret: null } : splitSecret(pasted); // link and password in one text
+  if (text.includes('\n') && await bringInvitation(ctx, text, secret)) return say(t('share')); // a group invitation: name, read link, drop link
   if (s.waitSecret) { // the password a sharing point asked for (given privately): straight into the keychain, never shown
     for (const id of [s.waitSecret, ...(s.waitSecretAlso ?? [])]) await keychain.set(id, text.trim());
     s.waitSecret = null;
@@ -79,6 +103,7 @@ export async function bringIn(ctx) {
     return edit({ add: { label: host, path: `cloud:${what.cloudId}`, id: newSource() } });
   }
   const id = newSource();
+  if (secret) await keychain.set(id, secret); // came with the link: the folder opens at once
   if (what.kind === 'login') {
     try {
       const { login, poll } = await startLogin(what.server);

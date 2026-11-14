@@ -41,7 +41,7 @@ export function edgeZone(x, y, w, h) {
  *   down(event) → role       a finger goes down, before anything is known
  *   tap(x, y, role)          x, y are 0–1 inside el · doubleTap(role)
  *   hold(role)               the finger stayed HOLD_MS · holdEnd(role) · dragEnd(element, moved, role)
- *   swipe(dir, role)         · pinch(factor): two fingers, neither held yet
+ *   swipe(dir, role)         · pinch(factor, role): two fingers, neither held yet; role of the first
  *   parallel(heldRole, role) a second finger went down while the first one is held: from now on the first
  *                            finger is a property (DESIGN principle 4), the second does the action
  * Without a held finger, a second finger is a pinch (as before). A third finger is ignored.
@@ -85,7 +85,7 @@ export function bind(el, h) {
       Object.assign(t, { x: e.clientX, y: e.clientY });
       if (spread && pinchers().length === 2) {
         const d = distance();
-        h.pinch?.(d / spread);
+        h.pinch?.(d / spread, pinchers()[0]?.role); // where the first finger went down: the point or the picture
         spread = d;
       }
       return;

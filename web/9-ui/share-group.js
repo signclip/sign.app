@@ -39,6 +39,17 @@ const signerOf = async (ctx) => {
   return { device: ctx.device, person: ctx.person, deviceKey: keys.device };
 };
 
+/** My check key as it stands in a sharing-point.sign: "q_… z_…" (public; ↑ on the own tile copies it for project.json). */
+export async function checkKey(ctx) {
+  return `${ctx.device} z_${(await deviceKeys()).device.public}`;
+}
+
+/** "q_… z_…" (project.json signer) → { q_…: key } as signerKeys gives it, or null. */
+export function signerOfText(text) {
+  const m = /^(q_\S+)\s+z_(\S+)$/.exec(String(text ?? '').trim());
+  return m ? { [m[1]]: m[2] } : null;
+}
+
 /** Signer: ↑ on my own Nextcloud folder → make the group, or renew its links. */
 export async function makeOrRenew(ctx, n) {
   const { s, keychain, say, t, edit } = ctx;
@@ -83,12 +94,16 @@ export async function welcome(ctx, { n, helloPath }) {
 }
 
 /** Member: a pasted invitation (name, read link, drop link) → one group tile, and hello into the drop. */
-export async function bringInvitation(ctx, text) {
+export async function bringInvitation(ctx, text, secret = null) {
   const lines = String(text).split('\n').map((l) => l.trim()).filter(Boolean);
   const links = lines.map(readPaste).filter((x) => x?.kind === 'link');
   if (links.length !== 2) return false;
   const label = lines.find((l) => !/^https?:/.test(l)) ?? new URL(links[0].path).host;
-  for (const link of links) await ctx.edit({ add: { label, path: link.path, id: newSource() }, marks: link === links[0] ? ['show'] : [] });
+  for (const link of links) {
+    const id = newSource();
+    if (secret) await ctx.keychain.set(id, secret); // one password for both links, pasted with them
+    await ctx.edit({ add: { label, path: link.path, id }, marks: link === links[0] ? ['show'] : [] });
+  }
   await sayHelloTo(ctx, label);
   return true;
 }
@@ -175,7 +190,8 @@ export async function followJoins(ctx) {
       const paths = (await both.list('join/')).map((f) => f.path);
       const answer = answerFor(paths, mine.helloPath);
       if (!answer || answer === mine.answer) continue;
-      const signers = signerKeys(readDescription(dec.decode(await both.read(mine.door ? `join/${SELF}` : SELF))));
+      const pinned = mine.door ? signerOfText(ctx.doorSigner) : null; // project.json names the signer: only that seal counts
+      const signers = pinned ?? signerKeys(readDescription(dec.decode(await both.read(mine.door ? `join/${SELF}` : SELF))));
       const keys = await deviceKeys();
       const r = await join({ store: both, joinPath: answer, pickupKey: keys.pickup.privateKey, signers, device: { id: ctx.device }, deviceKey: keys.device, person: ctx.person });
       await follow(ctx, t, r.sharingPoints);

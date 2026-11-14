@@ -1,22 +1,8 @@
-// panels.js — what slides in: chips only (no fields, no buttons). Own settings from the upper left,
-// Similar from the upper right, the chips of one strand from ↑ on that strand.
+// panels.js — what slides in: chips only (no fields, no buttons). Similar from the upper right, the chips of one strand from ↑ on that strand.
 //
-// Depends:   settings.js (CHOICES), 7-similar (combinedSimilar)
+// Depends:   7-similar (combinedSimilar)
 // Test:      chip lists in tests/ui.test.mjs; drawing needs a browser.
 // Limits:    a panel shows at most 40 chips; Similar shows the 20 best.
-
-import { CHOICES } from './settings.js';
-
-/** Chips of the own settings: [{ key, value, label, on }]. */
-export function ownChips(settings, t) {
-  return [
-    ...CHOICES.waitStartMs.map((v) => ({ key: 'waitStartMs', value: v, label: `▶ ${v / 1000} s`, on: settings.waitStartMs === v })),
-    ...CHOICES.waitStopMs.map((v) => ({ key: 'waitStopMs', value: v, label: `■ ${v / 1000} s`, on: settings.waitStopMs === v })),
-    ...['v', 'a', 'x', 'l'].map((k) => ({ key: 'auto', value: k, label: t(`kind.${k}`), on: settings.auto.includes(k) })),
-    ...[['circle', '○'], ['ellipse', '⬯'], ['rounded', '▢']].map(([v, label]) => ({ key: 'shape', value: v, label, on: settings.shape === v })), // the window
-    { key: 'onboarding', value: !settings.onboarding, label: '◉', on: settings.onboarding }, // the first steps again (onboarding.js)
-  ];
-}
 
 /** Chips of one strand (↑ on it): the camera's light; audio and text come with Whisper. */
 export function strandChips(kind, state) {

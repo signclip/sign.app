@@ -46,8 +46,7 @@ function grid(i, { w, k, y0 }) {
 
 /** The bar of one strand on a tile's edge (tiles are about square: the side of the field, 14 px in from the corners). */
 function edgeBar(kind, { cx, cy, tw, th }) {
-  const inward = kind === 'l' ? 6 : 0; // a second track on the same side (landmarks next to visual), a little inside
-  const bar = sideOf(SIDES[kind], { x: cx - tw / 2 + inward, y: cy - th / 2, s: tw - 2 * inward, r: 14 });
+  const bar = sideOf(SIDES[kind], { x: cx - tw / 2, y: cy - th / 2, s: tw, r: 14 });
   if (SIDES[kind] === 'bottom') return { ...bar, y1: cy + th / 2, y2: cy + th / 2 }; // tiles may be lower than wide
   if (SIDES[kind] === 'left' || SIDES[kind] === 'right') return { ...bar, y2: cy + th / 2 - 14 };
   return bar;

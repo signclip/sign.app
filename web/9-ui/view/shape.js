@@ -1,6 +1,6 @@
 // view/shape.js — the window into the 1080 × 1080 field: a circle by default, or an ellipse, or a rounded rectangle.
 //
-// Purpose:   (decided 13.11.) one circle as large as fits; own settings can change it to an ellipse or a rectangle
+// Purpose:   (decided 13.11.) one circle as large as fits; ↑/↓ on the live picture changes it to an ellipse or a rectangle
 //            with rounded corners; the rest of the field stays visible, greyed. Every side of the screen is placed
 //            by DEGREES around the window (0° = top, clockwise), so the arcs sit at the same angles whatever its
 //            shape: line −60…60 · audio 60…140 · context 140…220 · visual 220…300.

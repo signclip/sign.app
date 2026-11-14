@@ -24,11 +24,12 @@ import { quietIds } from '../4-save/remove.js';
 import { deviceKeys } from './device-keys.js';
 import { readPaste } from '../2-storage/spec.js';
 import { copyRoute } from '../2-storage/routes.js';
+import { copy } from './system-share.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { addNew, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
-import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor } from './share-group.js';
+import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders } from './folders.js';
 import { bind } from './touch.js';
 import { pointShapes } from './view/points.js';
@@ -57,7 +58,7 @@ async function clipboardText() {
  * project: { label, read, drop } the project's door (project.json): the first join, without a group text.
  * → { show(on), afterTake(paths), runRules(), dropKind(n, kind) }
  */
-export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, project = null, onHello = () => {} }) {
+export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, project = null, onHello = () => {}, onOwnHold = () => {} }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
@@ -145,7 +146,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   }
   const say = (text) => { s.note = text; draw(); };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, doorLabel, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
+  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, doorLabel, doorSigner: project?.signer ?? null, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
 
   // ---------- doing what a gesture says ----------
   async function shareTo(n) {
@@ -250,6 +251,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
       }
       const n = circleOf(role);
+      if (n === 0 && dir === 'up') return checkKey(ctx).then((k) => copy(k)).then(() => say(t('copied'))); // ↑ on my own tile: my check key (for project.json)
       if (!n) return null;
       const tile = ctx.tileOf(n);
       if (tile?.drop && (dir === 'down' || dir === 'down-far')) { // a group goes with both its links, the higher number first
@@ -259,6 +261,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     },
     dragEnd: (el, moved) => {
       const from = circleOf(role);
+      if (!moved && from === 0) return onOwnHold(); // my own tile held still: the onboarding again
       if (!moved) return from ? apply(gestureOn(targetFor(ctx.tileOf(from), 'hold'), 'hold', s.rules, { selection: selection(), private: ctx.tileOf(from)?.private })) : null; // held still: new goes there
       const onto = circleOf(roleOf(el));
       if (from === 0 && onto && s.joinStates.get(ctx.tileOf(onto)?.label) === 'door') { // me onto the door's hello bubble = hello
