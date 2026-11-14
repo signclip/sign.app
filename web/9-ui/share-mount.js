@@ -18,13 +18,16 @@
 import { findList, changeList, rulesOf } from '../2-storage/list.js';
 import { readList } from '../2-storage/sharing-point.js';
 import { openAll, afterTake, sources, runRules, reconnect } from '../2-storage/sharing-points.js';
-import { dueRules, remember, retry, backupKey, summary, reopen, bringHome } from '../2-storage/upkeep.js';
+import { dueRules, remember, retry, backupKey, summary, reopen, bringHome, sealPaper, PAPER_ID } from '../2-storage/upkeep.js';
+import { newPaperPassword } from '../2-storage/backup-key.js';
+import { readFile } from '../1-model/file.js';
+import { sheetPdf } from './emergency.js';
 import { partsOf } from '../2-storage/layout.js';
 import { quietIds } from '../4-save/remove.js';
 import { deviceKeys } from './device-keys.js';
 import { readPaste } from '../2-storage/spec.js';
 import { copyRoute } from '../2-storage/routes.js';
-import { copy } from './system-share.js';
+import { send, filesOf } from './system-share.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
@@ -187,6 +190,28 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     return say(`${t('share')} → ${sp.entry.label}`);
   }
 
+  /** The last take through the system share sheet (14.11.): video or picture, sound, text as files. */
+  async function outside() {
+    const chainPath = await lastChain();
+    if (!chainPath) return say(t('notReachable'));
+    const defs = [...readFile(dec.decode(await own.read(chainPath))).defs.values()].filter((d) => ['v', 'a', 'x'].includes(d.kind) && d.id);
+    const files = await filesOf(own, defs.map((d) => d.id));
+    return files.length ? send({ title: 'Sign', files }).catch(() => null) : say(t('notReachable'));
+  }
+
+  /** The emergency sheet (14.11.): a paper password for the backups (kept in the keychain, sealed into each backup), as PDF. */
+  async function emergency() {
+    const key = await checkKey(ctx), paper = newPaperPassword();
+    await keychain.set(PAPER_ID, paper); // a new sheet: the old paper password stops opening
+    for (const r of s.rules.filter((x) => x.mark === 'backup')) {
+      const store = s.open.get(r.to)?.store;
+      if (!store) continue;
+      try { await sealPaper(store, await backupKey(store, { keychain, host: await host() }), paper, { replace: true }); } catch { /* sealed at its next backup */ }
+    }
+    const pdf = sheetPdf({ name: person.label, key, paper, date: timeLabel(Date.now()).split(' ')[0] });
+    return send({ title: 'Sign · Notfallblatt', text: key, files: [new File([pdf], 'sign-notfallblatt.pdf', { type: 'application/pdf' })] }).catch(() => null);
+  }
+
   // ---------- the first circle (14.11.): the first time something goes to a sharing point, it shows what and how much ----------
   const confirmedPaths = () => { try { return new Set(JSON.parse(localStorage.getItem('sign.confirmed') || '[]')); } catch { return new Set(); } };
   /** What a result would send for the first time: { n, how: 'one' (this take) | 'new' (from now on) | 'all' (and everything so far) } */
@@ -276,6 +301,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'confirm') return confirmTap(a); // the first circle
     if (what === 'sp-kind') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'tap-kind'), 'tap-kind', s.rules, { kind: b }));
     if (what === 'add') return addNew(ctx); // the one + tile
+    if (what === 'out') return outside(); // the share sign: the last take to other apps
     if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : null; } // an account: ↓ rests, ↑ wakes, two fingers = space
     if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
     if (what === 'hello') { // tap = look: the name sign that came with the hello, in the window (14.11.; ← = welcome)
@@ -391,7 +417,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → back: look again (new hellos, a failed welcome tried anew)
       const n = circleOf(role);
       if (n && n === s.adminN && dir === 'right') return showAccounts(); // → on the admin tile: who has how much space
-      if (n === 0 && dir === 'up') return checkKey(ctx).then((k) => copy(k)).then(() => say(t('copied'))); // ↑ on my own tile: my check key (for project.json)
+      if (n === 0 && dir === 'up') return emergency(); // ↑ on my own tile: the emergency sheet as PDF in the share sheet (the check key goes along as text)
       if (!n) return null;
       const tile = ctx.tileOf(n);
       if (tile?.drop && (dir === 'down' || dir === 'down-far')) { // a group goes with both its links, the higher number first

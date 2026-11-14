@@ -58,6 +58,14 @@ export function retry(last, rules, failedTo) {
   return out;
 }
 
+export const PAPER_ID = 'paper'; // the paper password in the keychain: the sheet was printed, each backup gets paper.key
+
+/** The backup key sealed with the paper password at the backup target; replace = a new sheet (the old one stops). */
+export async function sealPaper(store, key, word, { replace = false } = {}) {
+  if (replace) await store.remove(`${KEYS}paper.key`).catch(() => {});
+  try { await sealBackupKey(store, key, { paper: word }); } catch (err) { if (!(err instanceof ExistsError)) throw err; }
+}
+
 /** A sealed key file for this device at the backup target, written once. */
 async function sealFor(store, key, host) {
   try { await sealBackupKey(store, key, { hosts: [{ id: host.id, pickup: host.pickup }] }); }
@@ -84,6 +92,8 @@ export async function backupKey(store, { keychain, host, paper = async () => nul
   if (!key) key = newBackupKey();
   await keychain.set(KEYCHAIN_ID, key);
   await sealFor(store, key, host); // every backup target can be opened by this device
+  const word = await keychain.get(PAPER_ID);
+  if (word) await sealPaper(store, key, word); // and by the printed sheet, once there is one
   return key;
 }
 

@@ -31,8 +31,8 @@ const bytesOf = (text, n) => {
 /** A new paper password (26 chars). Printed on the emergency sheet, never shown on screen. */
 export const newPaperPassword = newPassword;
 
-async function paperKey(password, salt) {
-  const base = await subtle().importKey('raw', enc.encode(password.toUpperCase()), 'PBKDF2', false, ['deriveKey']);
+async function paperKey(password, salt) { // spaces and dashes as printed in groups do not count
+  const base = await subtle().importKey('raw', enc.encode(password.replace(/[\s-]+/g, '').toUpperCase()), 'PBKDF2', false, ['deriveKey']);
   return subtle().deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: ROUNDS }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
 

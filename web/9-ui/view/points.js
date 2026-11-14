@@ -23,6 +23,7 @@
 //                          a dashed group circle · join = the group filled, a dotted line to my own space ·
 //                          join-own = all three filled: the icon complete, shown once, then the tiles take over.
 //                          At the signer each hello is a circle on a line from its group (the same icon).
+//              share sign  the classic way out (14.11.): tap = the last take into the system share sheet (other apps)
 //              dashed +    ONE tile to bring a new one in (13.11.): a link or address on the clipboard is taken
 //                          (folders and disks: tap this device, 14.11.); everything else is a connection between tiles ·
 //                          nothing usable on the clipboard (14.11.): a faint copy sign instead (copy a link, it turns +)
@@ -172,6 +173,8 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   const ghost = clip !== 'ready' && !waitSecret; // nothing to take: the copy sign says "copy something first"
   tile(next, 'add:new', `sp add${waitSecret ? ' now' : ''}${ghost ? ' ghost' : ''}${pulse === 'add:new' ? ' breathe' : ''}`, '', { stack: false });
   (ghost ? glyphCopy : glyphPlus)(at.get('add:new'), k, add);
+  tile(next + 1, 'out:system', 'sp out', '', { stack: false }); // the classic way out (14.11.): the system share sheet to other apps
+  glyphShare(at.get('out:system'), k, add);
   return { shapes, at };
 }
 
@@ -192,6 +195,11 @@ function ends(a, b) {
 // a plus: one more sharing point · a copy sign: two sheets, one over the other (nothing on the clipboard yet)
 function glyphPlus({ cx, cy }, k, add) {
   add('path', { d: `M ${cx - 10 * k} ${cy} H ${cx + 10 * k} M ${cx} ${cy - 10 * k} V ${cy + 10 * k}`, cls: 'glyph' });
+}
+function glyphShare({ cx, cy }, k, add) { // three dots, two lines: the share sign every phone knows
+  const p = [[cx + 8 * k, cy - 9 * k], [cx - 8 * k, cy], [cx + 8 * k, cy + 9 * k]];
+  add('path', { d: `M ${p[0]} L ${p[1]} L ${p[2]}`.replace(/,/g, ' '), cls: 'glyph' });
+  for (const [x, y] of p) add('circle', { cx: x, cy: y, r: 3.5 * k, cls: 'glyph dot' });
 }
 function glyphCopy({ cx, cy }, k, add) {
   const r = (x, y) => `M ${x + 2 * k} ${y} h ${10 * k} a ${2 * k} ${2 * k} 0 0 1 ${2 * k} ${2 * k} v ${12 * k} a ${2 * k} ${2 * k} 0 0 1 ${-2 * k} ${2 * k} h ${-10 * k} a ${2 * k} ${2 * k} 0 0 1 ${-2 * k} ${-2 * k} v ${-12 * k} a ${2 * k} ${2 * k} 0 0 1 ${2 * k} ${-2 * k} Z`;
