@@ -293,7 +293,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const browse = s.accounts ? accountTiles() : s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const hellos = s.hellos.map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to
-    const view = pointShapes(all(), { own: person.label, admin: s.adminN ?? null, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
+    const view = pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     note.textContent = s.note;
   }

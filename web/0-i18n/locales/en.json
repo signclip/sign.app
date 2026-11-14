@@ -27,7 +27,7 @@
   "mark.show": "show",
   "mark.write": "write",
   "mark.backup": "backup",
-  "menu.paste": "paste",
+  "menu.paste": "copy first",
   "menu.secret": "paste password",
   "menu.native": "works in the app",
   "give.link": "copy WebDAV address",

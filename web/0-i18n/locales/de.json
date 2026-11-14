@@ -27,7 +27,7 @@
   "mark.show": "zeigen",
   "mark.write": "schreiben",
   "mark.backup": "backup",
-  "menu.paste": "einfügen",
+  "menu.paste": "zuerst kopieren",
   "menu.secret": "Passwort einfügen",
   "menu.native": "geht in der App",
   "give.link": "WebDAV-Adresse kopieren",

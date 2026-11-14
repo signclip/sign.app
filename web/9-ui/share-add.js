@@ -55,6 +55,8 @@ export async function addNew(ctx) {
   try { text = (await clipboard()) ?? ''; } catch { /* no permission: then a folder */ }
   if (ctx.s.waitSecret || ctx.s.giveTo || text.includes('\n') || readPaste(text)) return bringIn(ctx);
   if (canPick()) return pickFolder(ctx);
+  ctx.s.pulse = 'add:new'; // nothing usable on the clipboard: + breathes, and the note says what it wants
+  setTimeout(() => { ctx.s.pulse = null; ctx.draw(); }, 1600);
   return ctx.say(ctx.t('menu.paste'));
 }
 
@@ -107,8 +109,10 @@ export async function bringIn(ctx) {
   if (what.kind === 'login') {
     try {
       const { login, poll } = await startLogin(what.server);
-      globalThis.open?.(login, '_blank');
+      say(t('menu.wait'));
+      await openPage(login); // the native app: the system browser (window.open does nothing in its web view)
       const got = await waitLogin(poll);
+      globalThis.Capacitor?.Plugins?.Browser?.close?.().catch?.(() => {}); // logged in: back to the app by itself
       await keychain.set(id, got.appPassword);
       const account = { kind: 'nextcloud', server: got.server, user: got.user, folder: '' };
       const { store } = connect(account, { secret: got.appPassword });

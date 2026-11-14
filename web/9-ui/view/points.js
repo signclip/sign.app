@@ -58,7 +58,7 @@ function edgeBar(kind, { cx, cy, tw, th }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', admin = null, focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
+export function pointShapes(all, { own = '', admin = null, pulse = null, focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const tw = 86 * k; // a tile: a rounded rectangle, two layers behind it = much lies inside
   const th = 64 * k;
   const y0 = top + 72 * k; // first row, under the handle
@@ -165,7 +165,7 @@ export function pointShapes(all, { own = '', admin = null, focus = null, waitSec
   });
   incoming.forEach((x, i) => tile(next++, `incoming:${i}`, 'sp incoming', x.label)); // waiting for me: tap = take in
   if (acceptThere) tile(next++, 'accept-there', 'sp incoming there', acceptThere.label); // tap = their page to accept
-  tile(next, 'add:new', `sp add${waitSecret ? ' now' : ''}`, '', { stack: false });
+  tile(next, 'add:new', `sp add${waitSecret ? ' now' : ''}${pulse === 'add:new' ? ' breathe' : ''}`, '', { stack: false });
   glyphPlus(at.get('add:new'), k, add);
   return { shapes, at };
 }
