@@ -34,6 +34,11 @@ jobs:
           if [ -z "$KS" ]; then echo "secret DEBUG_KEYSTORE missing: a random key would make the APK conflict with the installed app"; exit 1; fi
           mkdir -p ~/.android && echo "$KS" | base64 -d > ~/.android/debug.keystore
           keytool -list -v -keystore ~/.android/debug.keystore -storepass android | grep -m1 'SHA256'
+          alias=$(keytool -list -keystore ~/.android/debug.keystore -storepass android | grep -m1 PrivateKeyEntry | cut -d, -f1)
+          echo "alias: $alias"
+          # Gradle on the runner did not take ~/.android by itself (each APK had a new key): name it explicitly
+          printf '\nandroid {\n    signingConfigs { debug { storeFile file("%s"); storePassword "android"; keyAlias "%s"; keyPassword "android" } }\n    buildTypes { debug { signingConfig signingConfigs.debug } }\n}\n' "$HOME/.android/debug.keystore" "$alias" >> android/app/build.gradle
+          tail -5 android/app/build.gradle
       - run: cd android && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with: { name: sign-debug-apk, path: android/app/build/outputs/apk/debug/app-debug.apk }
@@ -42,7 +47,10 @@ jobs:
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk sign.apk
           v=sign-1.${{ github.run_number }}.apk; cp sign.apk "$v" # a name per version: no phone can open an older cached download by mistake
-          "$(ls -d $ANDROID_HOME/build-tools/* | tail -1)/apksigner" verify --print-certs sign.apk | grep -m1 'SHA-256' || true
+          got=$("$(ls -d $ANDROID_HOME/build-tools/* | tail -1)/apksigner" verify --print-certs sign.apk | grep -m1 'SHA-256' | awk '{print $NF}')
+          want=$(keytool -list -v -keystore ~/.android/debug.keystore -storepass android | grep -m1 'SHA256' | awk '{print $NF}' | tr -d ':' | tr 'A-F' 'a-f')
+          echo "apk $got · key $want"
+          if [ "$got" != "$want" ]; then echo "the APK is not signed with DEBUG_KEYSTORE: it would conflict with the installed app"; exit 1; fi
           gh release view apk >/dev/null 2>&1 || gh release create apk --title "Sign APK" --notes "Die neueste APK aus main: sign.apk antippen." --prerelease
           for old in $(gh release view apk --json assets --jq '.assets[].name' | grep '^sign-1\.' || true); do gh release delete-asset apk "$old" -y; done
           gh release upload apk sign.apk "$v" --clobber
