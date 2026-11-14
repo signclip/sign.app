@@ -183,6 +183,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     onLook: (path, from) => { menu.show(false); return show(path, from).catch(() => {}); }, // tap on a hello: its name sign in the window
     words: () => [...data.chips.filter((c) => !c.stable).map((c) => c.text), ...($('#say')?.value ?? '').split(/\s+/)].filter(Boolean), // context finds accounts and hellos (admin)
     panel: $('#share'), own: store, keychain, person, device, t,
+    index: () => index, // the emergency sheet counts from it
     lastChain: async () => take.shareChain ?? take.lastChain, // an element of the line (↑ on it), else the last take
     selection: () => toRecord(st), // double-tap on a sharing point = these strands always go there
     once: () => take.shareOnce, // a strand held while ↑ on the point: only it is shared this time

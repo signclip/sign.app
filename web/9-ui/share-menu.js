@@ -91,6 +91,8 @@ export function tiles(entries, rules, open = new Map(), runs = new Map()) {
  * Nextcloud, two links each, no accounts)
  */
 function groups(list, rules) {
+  const pairs = list.filter((t) => t.state !== 'device' && list.some((o) => o !== t && o.label === t.label));
+  for (const t of pairs) if (!list.some((o) => o.dropOnly && o.label === t.label) && pairs.find((o) => o.label === t.label) !== t) t.dropOnly = true; // not reachable yet: of two links of one name the later one is the drop (the door adds read, then drop)
   for (const drop of list.filter((t) => t.dropOnly)) {
     const read = list.find((t) => t !== drop && !t.dropOnly && t.label === drop.label);
     if (!read) continue;

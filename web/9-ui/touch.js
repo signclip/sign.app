@@ -93,10 +93,11 @@ export function bind(el, h) {
       }
       return;
     }
-    if (String(t.role).startsWith('corner')) { // the window's corner follows the finger
+    const rowSlide = /^(app:|out:system)/.test(String(t.role)) && (t.slid || Math.abs(e.clientX - t.x) > 10); // the share row slides
+    if (String(t.role).startsWith('corner') || rowSlide) { // the window's corner follows the finger
       clearTimeout(t.timer);
       h.slide?.(t.role, e.clientX - (t.lx ?? t.x), e.clientY - (t.ly ?? t.y));
-      Object.assign(t, { lx: e.clientX, ly: e.clientY });
+      Object.assign(t, { lx: e.clientX, ly: e.clientY, slid: true });
       return;
     }
     Object.assign(t, { cx: e.clientX, cy: e.clientY }); // where it last was: a cancelled touch ends here, not at 0,0
@@ -112,7 +113,7 @@ export function bind(el, h) {
     touches.delete(e.pointerId);
     clearTimeout(t.timer);
     if (t.pinch) { if (!pinchers().length) { spread = null; h.pinchEnd?.(); } return; } // both fingers up: the pinch ends
-    if (String(t.role).startsWith('corner')) return h.slideEnd?.(t.role);
+    if (String(t.role).startsWith('corner') || t.slid) return h.slideEnd?.(t.role);
     if (t.held) {
       const moved = Math.hypot(e.clientX - t.x, e.clientY - t.y) > 30; // held and carried = a drag
       h.holdEnd?.(t.role);

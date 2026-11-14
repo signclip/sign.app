@@ -70,7 +70,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   add('sheet', { x: 0, y: top, w, h: h - top + 24 * k, r: 24 * k, cls: 'sheet', role: 'sheet' });
   add('line', { x1: w / 2 - 20 * k, y1: top + 12 * k, x2: w / 2 + 20 * k, y2: top + 12 * k, cls: 'handle', role: 'sheet' }); // pull down = away
 
-  const tile = (i, role, cls, label, { stack = true } = {}) => {
+  const tile = (i, role, cls, label, { stack = false } = {}) => { // no layers behind (14.11.): they said nothing
     const { cx, cy } = grid(i, { w, k, y0 });
     at.set(role, { cx, cy, r: th / 2 });
     if (stack) for (const d of [8, 4]) add('sheet', { x: cx - tw / 2 + d * k, y: cy - th / 2 - d * k, w: tw, h: th, r: 14 * k, cls: 'tile-behind' });
@@ -151,7 +151,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
     const line = (b, cls) => shapes.splice(2, 0, { type: 'path', d: `M ${me.cx} ${me.cy} L ${b.cx} ${b.cy}`, cls: `join-line ${cls}` }); // under the tiles
     const group = grid(i, { w, k, y0 });
     if (state !== 'door') line(group, `${state === 'hello' ? 'hello' : 'join'}${grow(2)}`);
-    tile(i, `sp:${t.n}`, `sp join-group${state === 'door' ? ' door breathe' : state === 'hello' ? ' waiting' : ''}${grow(3)}`, t.label, { stack: false });
+    tile(i, `sp:${t.n}`, `sp join-group${state === 'door' ? ' door breathe' : state === 'hello' ? ' waiting' : ''}${grow(3)}`, state === 'door' ? 'hello' : t.label); // before the hello: it says what a tap does
     if (state === 'join' || state === 'join-own') {
       const mine = grid(i + 1, { w, k, y0 });
       line(mine, `${state === 'join-own' ? 'join own' : 'hello own'}${grow(4)}`);
@@ -171,12 +171,13 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   });
   incoming.forEach((x, i) => tile(next++, `incoming:${i}`, 'sp incoming', x.label)); // waiting for me: tap = take in
   if (acceptThere) tile(next++, 'accept-there', 'sp incoming there', acceptThere.label); // tap = their page to accept
-  const ghost = clip !== 'ready' && !waitSecret; // nothing to take: the copy sign says "copy something first"
-  tile(next, 'add:new', `sp add${waitSecret ? ' now' : ''}${ghost ? ' ghost' : ''}${pulse === 'add:new' ? ' breathe' : ''}`, '', { stack: false });
-  (ghost ? glyphCopy : glyphPlus)(at.get('add:new'), k, add);
-  tile(next + 1, 'out:system', 'sp out', '', { stack: false }); // the classic way out (14.11.): the system share sheet to other apps
-  glyphShare(at.get('out:system'), k, add);
-  if (apps?.list?.length) appRow(apps, { w, h, k, add, at }); // Android: the apps right here, at the bottom of the sheet
+  // + (14.11.): no tile any more, a small round button in the sheet's upper right corner; faint copy sign = copy a link first
+  const ghost = clip !== 'ready' && !waitSecret;
+  const plus = { cx: w - 34 * k, cy: top + 30 * k, r: 18 * k };
+  add('circle', { ...plus, cls: `sp add round${waitSecret ? ' now' : ''}${ghost ? ' ghost' : ''}${pulse === 'add:new' ? ' breathe' : ''}${shake === 'add:new' ? ' shake' : ''}`, role: 'add:new' });
+  (ghost ? glyphCopy : glyphPlus)(plus, k * 0.8, add);
+  at.set('add:new', plus);
+  appRow(apps ?? { list: [] }, { w, h, k, add, at }); // the way out at the bottom: apps (Android), then the system sheet
   return { shapes, at };
 }
 
@@ -198,18 +199,25 @@ function ends(a, b) {
 function glyphPlus({ cx, cy }, k, add) {
   add('path', { d: `M ${cx - 10 * k} ${cy} H ${cx + 10 * k} M ${cx} ${cy - 10 * k} V ${cy + 10 * k}`, cls: 'glyph' });
 }
-/** The share row (14.11.): up to 5 apps side by side, the most used first; ← → = more; tap = the last take goes there. */
-function appRow({ list, page = 0 }, { w, h, k, add, at }) {
-  const per = 5, size = 44 * k, y = h - 112 * k, gap = w / per;
+/**
+ * The share row (14.11.): the apps side by side, the most used first, sliding with the finger (x = offset in px);
+ * at its end the share sign = the system sheet (on iOS and in the browser the only one). tap = the last take goes there.
+ */
+function appRow({ list = [], x = 0 }, { w, h, k, add, at }) {
+  const size = 44 * k, y = h - 112 * k, gap = 70 * k, first = 40 * k;
   add('line', { x1: 24 * k, y1: y - 16 * k, x2: w - 24 * k, y2: y - 16 * k, cls: 'apps-rule' });
-  list.slice(page * per, page * per + per).forEach((a, i) => {
-    const cx = gap * (i + 0.5), role = `app:${page * per + i}`;
-    add('image', { png: a.icon, x: cx - size / 2, y, s: size, cls: 'app', role });
-    add('label', { x: cx, y: y + size + 14 * k, text: a.label.length > 11 ? `${a.label.slice(0, 10)}…` : a.label, cls: 'label app-label' });
-    at.set(role, { cx, cy: y + size / 2, r: size / 2 });
+  const items = [...list.map((a, i) => ({ ...a, role: `app:${i}` })), { role: 'out:system', label: '' }];
+  items.forEach((a, i) => {
+    const cx = first + i * gap + x;
+    if (cx < -size || cx > w + size) return; // off the row
+    if (a.icon) add('image', { png: a.icon, x: cx - size / 2, y, s: size, cls: 'app', role: a.role });
+    else { add('circle', { cx, cy: y + size / 2, r: size / 2, cls: 'sp out round', role: a.role }); glyphShare({ cx, cy: y + size / 2 }, k, add); }
+    if (a.label) add('label', { x: cx, y: y + size + 14 * k, text: a.label.length > 10 ? `${a.label.slice(0, 9)}…` : a.label, cls: 'label app-label' });
+    at.set(a.role, { cx, cy: y + size / 2, r: size / 2 });
   });
-  if (list.length > per) add('label', { x: w / 2, y: y + size + 32 * k, text: '·'.repeat(Math.ceil(list.length / per)).split('').map((d, i) => (i === page ? '•' : d)).join(' '), cls: 'label app-label' });
 }
+/** How far the row may slide: 0 … −(its length beyond the screen). */
+export const rowLimit = (n, { w = 390, k = w / 390 } = {}) => Math.min(0, w - (40 * k * 2 + n * 70 * k));
 function glyphShare({ cx, cy }, k, add) { // three dots, two lines: the share sign every phone knows
   const p = [[cx + 8 * k, cy - 9 * k], [cx - 8 * k, cy], [cx + 8 * k, cy + 9 * k]];
   add('path', { d: `M ${p[0]} L ${p[1]} L ${p[2]}`.replace(/,/g, ' '), cls: 'glyph' });

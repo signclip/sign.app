@@ -21,7 +21,7 @@ import { openAll, afterTake, sources, runRules, reconnect } from '../2-storage/s
 import { dueRules, remember, retry, backupKey, summary, reopen, bringHome, sealPaper, PAPER_ID } from '../2-storage/upkeep.js';
 import { newPaperPassword } from '../2-storage/backup-key.js';
 import { readFile } from '../1-model/file.js';
-import { sheetPdf } from './emergency.js';
+import { sheetPdf, sheetData } from './emergency.js';
 import { partsOf } from '../2-storage/layout.js';
 import { quietIds } from '../4-save/remove.js';
 import { deviceKeys } from './device-keys.js';
@@ -40,7 +40,7 @@ import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, 
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
-import { pointShapes, confirmShapes } from './view/points.js';
+import { rowLimit, pointShapes, confirmShapes } from './view/points.js';
 import { toSvg } from './view/ring.js';
 
 const dec = new TextDecoder();
@@ -67,7 +67,7 @@ async function clipboardText() {
  * project: { label, read, drop } the project's door (project.json): the first join, without a group text.
  * → { show(on), afterTake(paths), runRules(), dropKind(n, kind) }
  */
-export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {}, words = () => [] }) {
+export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {}, words = () => [], index = () => null }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
@@ -207,14 +207,15 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     let used = {};
     try { used = JSON.parse(localStorage.getItem('sign.apps') || '{}'); } catch { /* private mode */ }
     const list = await targets('video/*');
-    s.apps = { list: list.sort((a, b) => (used[b.pkg] ?? 0) - (used[a.pkg] ?? 0)), page: 0 };
+    s.apps = { list: list.sort((a, b) => (used[b.pkg] ?? 0) - (used[a.pkg] ?? 0)), x: 0 };
     if (!panel.hidden) draw();
   }
   function usedApp(app) {
     try { const used = JSON.parse(localStorage.getItem('sign.apps') || '{}'); used[app.pkg] = (used[app.pkg] ?? 0) + 1; localStorage.setItem('sign.apps', JSON.stringify(used)); } catch { /* private mode */ }
   }
 
-  /** The emergency sheet (14.11.): a paper password for the backups (kept in the keychain, sealed into each backup), as PDF. */
+  /** The emergency sheet (14.11.): a paper password for the backups (kept in the keychain, sealed into each backup), with every
+   *  sharing point, the access IDs and what the index adds up to, as PDF (emergency.js). */
   async function emergency() {
     const key = await checkKey(ctx), paper = newPaperPassword();
     await keychain.set(PAPER_ID, paper); // a new sheet: the old paper password stops opening
@@ -223,7 +224,10 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (!store) continue;
       try { await sealPaper(store, await backupKey(store, { keychain, host: await host() }), paper, { replace: true }); } catch { /* sealed at its next backup */ }
     }
-    const pdf = sheetPdf({ name: person.label, key, paper, date: timeLabel(Date.now()).split(' ')[0] });
+    const admin = await findAdmin().catch(() => null); // only user and server reach the sheet, never the password
+    const accounts = admin ? [...(await atlasSummary()).values()] : [];
+    const sheet = sheetData({ person, device, key, paper, date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
+    const pdf = sheetPdf(sheet);
     return send({ title: 'Sign · Notfallblatt', text: key, files: [new File([pdf], 'sign-notfallblatt.pdf', { type: 'application/pdf' })] }).catch(() => null);
   }
 
@@ -431,7 +435,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const ws = words().map((w) => w.toLowerCase());
     const hellos = s.hellos.filter((x) => ws.every((w) => x.name.toLowerCase().includes(w))).map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to · context words find hellos too
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.accounts || s.browse ? null : s.apps ?? null, browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.accounts || s.browse ? null : s.apps ?? { list: [] }, browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();
@@ -445,7 +449,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   const handlers = {
     down: (e) => {
       role = roleOf(e.target);
+      return role; // touch.js lets the share row slide by it
     },
+    slide: (r, dx) => { // the share row follows the finger (14.11.)
+      if (!s.apps) return null;
+      s.apps.x = Math.max(rowLimit(s.apps.list.length + 1, { w: panel.getBoundingClientRect().width }), Math.min(0, (s.apps.x ?? 0) + dx));
+      return draw();
+    },
+    slideEnd: () => null,
     tap: () => tapped(role), // waits 300 ms: it may become a double-tap
     doubleTap: () => { // 14.11.: on a sharing point = encrypted ↔ readable (the line from this device turns double / single)
       const n = circleOf(role);
@@ -460,11 +471,6 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
       }
       if (role?.startsWith('browse:') && s.accounts && ['down', 'down-far', 'up'].includes(dir)) { const x = accountTiles()[Number(role.split(':')[1])]; return dir === 'up' ? x?.up?.() : x?.down?.(); } // account: ↓ rests ↑ wakes · device: ↓ quiet · group: ↓ out (14.11.)
-      if (role?.startsWith('app:') && s.apps && (dir === 'left' || dir === 'right')) { // the row pages: ← more, → back
-        const pages = Math.ceil(s.apps.list.length / 5);
-        s.apps.page = Math.max(0, Math.min(pages - 1, s.apps.page + (dir === 'left' ? 1 : -1)));
-        return draw();
-      }
       if (role?.startsWith('hello:') && dir === 'left') return welcome(ctx, s.hellos[Number(role.split(':')[1])]).then(load).then(draw); // ← hello → join: welcomed
       if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → back: look again (new hellos, a failed welcome tried anew)
       const n = circleOf(role);
