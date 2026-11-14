@@ -60,6 +60,7 @@ export function tiles(entries, rules, open = new Map(), runs = new Map()) {
       always: Boolean(ruleOf(rules, n, 'always')),
       ask: Boolean(ruleOf(rules, n, 'ask')),
       kinds: kindsOf(sendRule(rules, n)),
+      consent: kindsOf(ruleOf(rules, n, 'consent')), // strands this sharing point may also use (index, modeling), 14.11.
       shown: Boolean(show),
       write: Boolean(show?.write) && !readOnly,
       copyTo: rules.filter((r) => r.from === n && r.mark === 'always').map((r) => r.to),
@@ -130,6 +131,15 @@ export function gestureOn(n, gesture, rules, extra = {}) {
       const now = kindsOf(send);
       const has = now.includes(extra.kind);
       if (gesture === 'drop-kind' && has) return null; // goes there already
+      if (gesture === 'tap-kind' && has) { // a tap walks the strand on: goes there → also consented (solid, dot) → off (14.11.)
+        const agreed = kindsOf(ruleOf(rules, n, 'consent'));
+        if (!agreed.includes(extra.kind)) return { edit: { rule: { to: n, mark: 'consent', kinds: allOrSome([...agreed, extra.kind]) }, on: true } };
+        const left = agreed.filter((k) => k !== extra.kind), rest = now.filter((k) => k !== extra.kind), mark = send?.mark ?? 'always';
+        return { edits: [
+          left.length ? { rule: { to: n, mark: 'consent', kinds: allOrSome(left) }, on: true } : { rule: { to: n, mark: 'consent' }, on: false }, // taken back: at once, for everything
+          rest.length ? { rule: { to: n, mark, kinds: allOrSome(rest) }, on: true } : { rule: { to: n, mark }, on: false },
+        ] };
+      }
       const kinds = has ? now.filter((k) => k !== extra.kind) : [...now, extra.kind];
       const mark = send?.mark ?? 'always'; // a strand put on a sharing point means "always"
       if (!kinds.length) return { edit: { rule: { to: n, mark }, on: false } }; // the last strand off ends it

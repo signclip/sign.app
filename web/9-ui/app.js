@@ -291,6 +291,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (take.starting) { take.stopSoon = true; return; }
     if (!take.recorder) return;
     const recorded = await take.recorder.stop();
+    data.paused = false;
     take.recorder = null;
     const kinds = toRecord(st); // what this take records, decided before it started
     const onto = st.base; // adding to an element: the chain below
@@ -696,6 +697,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'take-while-held': return begin('take-while-held');
       case 'strand-while-held': return begin('strand-while-held', { kind });
       case 'ready':
+        if (take.recorder?.pause) { // during a take: pause / go on (14.11.); a tap still stops it
+          if (take.recorder.paused) take.recorder.resume(); else take.recorder.pause();
+          data.paused = take.recorder.paused;
+          return paint();
+        }
         settings = choose(settings, 'ready', !st.ready);
         saveSettings();
         return step('ready');

@@ -32,11 +32,11 @@ import { addNew, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, 
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders } from './folders.js';
 import { bind } from './touch.js';
-import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder } from '../8-join/provision.js';
+import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled } from '../8-join/provision.js';
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
-import { pointShapes } from './view/points.js';
+import { pointShapes, confirmShapes } from './view/points.js';
 import { toSvg } from './view/ring.js';
 
 const dec = new TextDecoder();
@@ -71,6 +71,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     waitSecret: null, // q_ of a sharing point that waits for a pasted password
     giveTo: null, // n that waits for a pasted cloud id
     browse: null, // after a login: choosing the folder
+    appear: false, fresh: new Set(), // the menu just opened · join states that just changed (their symbols build up)
     incoming: [], // shares waiting for me in my own Nextcloud
     acceptThere: null, // after giving to a cloud id: { url, label } of the other side's page
     hellos: [], // signer: hellos waiting in my group folders
@@ -139,7 +140,11 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (!panel.hidden) draw();
     });
     findAdmin().then(() => hellosToWelcome(ctx)).then((list) => { s.hellos = list; if (!panel.hidden) draw(); }); // admin? then the signer: who said hello
-    followJoins(ctx).then((states) => { s.joinStates = states; if (!panel.hidden) draw(); }); // member: my joins
+    followJoins(ctx).then((states) => { // member: my joins; a state that changed builds its symbol up once
+      for (const [label, st] of states) if (s.joinStates?.get?.(label) !== st) s.fresh.add(label);
+      s.joinStates = states;
+      if (!panel.hidden) draw();
+    });
     joinProject(ctx, project).catch(() => {}); // the first group: the project's door (also after its password came)
   }
   async function edit(change) {
@@ -153,25 +158,58 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
 
   // ---------- doing what a gesture says ----------
-  async function shareTo(n) {
+  async function shareTo(n, kinds = null) {
     const sp = s.open.get(n);
     const chainPath = await lastChain();
     if (!sp?.store || !chainPath) return say(t('notReachable'));
     s.focus = n;
     const tile = ctx.tileOf(n);
-    const target = { entry: { ...sp.entry, always: tile.kinds.length ? tile.kinds : KINDS }, description: sp.description ?? { kinds: KINDS }, store: sp.store };
+    const target = { entry: { ...sp.entry, always: kinds ?? (tile.kinds.length ? tile.kinds : KINDS) }, description: sp.description ?? { kinds: KINDS }, store: sp.store };
     await shareTake({ own, chainPath, device, person, now: Date.now(), targets: [target], once: once() }); // once: a held strand (parallel)
     return say(`${t('share')} → ${sp.entry.label}`);
   }
 
-  async function apply(result) {
+  // ---------- the first circle (14.11.): the first time something goes to a sharing point, it shows what and how much ----------
+  const confirmedPaths = () => { try { return new Set(JSON.parse(localStorage.getItem('sign.confirmed') || '[]')); } catch { return new Set(); } };
+  /** What a result would send for the first time: { n, how: 'one' (this take) | 'new' (from now on) | 'all' (and everything so far) } */
+  function firstTime(result) {
+    const f = result?.action === 'share' ? { n: result.n, how: 'one' } : result?.once ? { n: result.once.n, how: 'all' }
+      : result?.edit?.on && result.edit.rule?.mark === 'always' && result.edit.rule.from == null ? { n: result.edit.rule.to, how: 'new' } : null;
+    const tile = f && ctx.tileOf(f.n), entry = f && s.entries[f.n - 1];
+    return f && f.n !== 0 && tile && !tile.private && entry && !confirmedPaths().has(entry.path) ? f : null;
+  }
+  async function askFirst(f, result) {
+    const tile = ctx.tileOf(f.n);
+    const count = f.how === 'one' ? 1 : f.how === 'new' ? null : (await own.list('chain/').catch(() => [])).filter((x) => x.path.endsWith('.chain.sign')).length;
+    s.confirm = { ...f, result, label: tile.label, kinds: tile.kinds.length ? [...tile.kinds] : [...KINDS], count };
+    return draw();
+  }
+  /** Tapped in the first circle: a strand on / off, or the middle = yes. */
+  async function confirmTap(part) {
+    const c = s.confirm;
+    if (!c) return null;
+    if (part !== 'ok') { c.kinds = c.kinds.includes(part) ? c.kinds.filter((k) => k !== part) : KINDS.filter((k) => [...c.kinds, part].includes(k)); return draw(); }
+    s.confirm = null;
+    if (!c.kinds.length) return draw();
+    const seen = confirmedPaths(); seen.add(s.entries[c.n - 1].path);
+    try { localStorage.setItem('sign.confirmed', JSON.stringify([...seen])); } catch { /* private mode */ }
+    const r = structuredClone({ ...c.result }); // the chosen strands go into what the gesture does
+    if (r.action === 'share') return shareTo(c.n, c.kinds);
+    if (r.edit?.rule) r.edit.rule.kinds = c.kinds.length === KINDS.length ? [] : c.kinds;
+    if (r.once) r.once.kinds = c.kinds;
+    return apply(r, { asked: true });
+  }
+
+  async function apply(result, { asked = false } = {}) {
     if (!result) return null;
+    const first = !asked && firstTime(result);
+    if (first) return askFirst(first, result);
     if (result.once) { // a copy: the connection, and everything so far once, now
       for (const change of result.edits ?? [result.edit]) await edit(change);
       const from = result.once.from == null ? own : s.open.get(result.once.from)?.store;
       const to = s.open.get(result.once.n)?.store;
       if (!from || !to) return say(t('notReachable'));
-      const r = await copyRoute(from, to, { kinds: ['v', 'a', 'x', 'l', 'm'], skip: await skip() }).catch(() => null);
+      const r = await copyRoute(from, to, { kinds: result.once.kinds ? [...result.once.kinds, 'm'] : ['v', 'a', 'x', 'l', 'm'], skip: await skip() }).catch(() => null);
       return say(r ? t('run.ok', { label: ctx.tileOf(result.once.n)?.label ?? '', n: r.copied.length }) : t('notReachable'));
     }
     if (result.action === 'share') return shareTo(result.n);
@@ -213,6 +251,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       }
       return apply(gestureOn(targetFor(tile, 'tap'), 'tap', s.rules));
     }
+    if (what === 'confirm') return confirmTap(a); // the first circle
     if (what === 'sp-kind') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'tap-kind'), 'tap-kind', s.rules, { kind: b }));
     if (what === 'add') return addNew(ctx); // the one + tile
     if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.more?.(+1); } // an account tile: more space
@@ -283,7 +322,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   function accountTiles() {
     if (!s.accounts) return null;
     return [{ label: '←', go: () => { s.accounts = null; draw(); } }, ...s.accounts.map((a) => ({
-      label: `${a.label}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
+      label: `${a.enabled ? '' : '◌ '}${a.label}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
+      rest: (on) => setEnabled(ctx.admin, a.user, on).then(showAccounts, () => say(t('notReachable'))), // ← rests, → wakes
       more: (by) => { const q = nextQuota(a.quota, by); return q ? setQuota(ctx.admin, a.user, q).then(showAccounts, () => say(t('notReachable'))) : null; },
     }))];
   }
@@ -293,8 +333,10 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const browse = s.accounts ? accountTiles() : s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const hellos = s.hellos.map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to
-    const view = pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
+    s.appear = false; // only the first drawing after opening builds up
+    s.fresh.clear();
     note.textContent = s.note;
   }
 
@@ -309,12 +351,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     tap: () => tapped(role),
 
     swipe: (dir) => {
+      if (s.confirm && (dir === 'down' || dir === 'down-far')) { s.confirm = null; return draw(); } // the first circle pushed away: nothing goes
       if (role === 'sheet' && (dir === 'down' || dir === 'down-far')) return show(false); // pulled down = egal, nothing changes
       if (role?.startsWith('bridge:') && (dir === 'down' || dir === 'down-far')) { // ↓ on a line = cut it
         const [, a, b] = role.split(':');
         return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
       }
       if (role?.startsWith('browse:') && s.accounts && (dir === 'down' || dir === 'down-far')) return accountTiles()[Number(role.split(':')[1])]?.more?.(-1); // ↓ on an account: less space
+      if (role?.startsWith('browse:') && s.accounts && (dir === 'left' || dir === 'right')) return accountTiles()[Number(role.split(':')[1])]?.rest?.(dir === 'right'); // ← the account rests (◌), → it is on again
       const n = circleOf(role);
       if (n && n === s.adminN && dir === 'right') return showAccounts(); // → on the admin tile: who has how much space
       if (n === 0 && dir === 'up') return checkKey(ctx).then((k) => copy(k)).then(() => say(t('copied'))); // ↑ on my own tile: my check key (for project.json)
@@ -369,7 +413,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
 
   function show(on) {
     panel.hidden = !on;
-    if (on) draw();
+    if (on) { s.appear = true; draw(); }
   }
   return {
     show,

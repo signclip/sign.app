@@ -58,7 +58,7 @@ function edgeBar(kind, { cx, cy, tw, th }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', admin = null, pulse = null, focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
+export function pointShapes(all, { own = '', admin = null, pulse = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const tw = 86 * k; // a tile: a rounded rectangle, two layers behind it = much lies inside
   const th = 64 * k;
   const y0 = top + 72 * k; // first row, under the handle
@@ -72,7 +72,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, focus =
     const { cx, cy } = grid(i, { w, k, y0 });
     at.set(role, { cx, cy, r: th / 2 });
     if (stack) for (const d of [8, 4]) add('sheet', { x: cx - tw / 2 + d * k, y: cy - th / 2 - d * k, w: tw, h: th, r: 14 * k, cls: 'tile-behind' });
-    add('sheet', { x: cx - tw / 2, y: cy - th / 2, w: tw, h: th, r: 14 * k, cls, role });
+    add('sheet', { x: cx - tw / 2, y: cy - th / 2, w: tw, h: th, r: 14 * k, cls: appear ? `${cls} appear a${Math.min(i, 9)}` : cls, role }); // the menu opens: the tiles build up one after another
     if (label) add('label', { x: cx, y: cy + th / 2 + 18 * k, text: label, cls: 'label' });
     return { cx, cy };
   };
@@ -128,6 +128,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, focus =
       const look = !t.kinds.includes(kind) ? 'off' : t.always ? 'own' : 'new';
       const bar = edgeBar(kind, { cx, cy, tw, th });
       add('line', { ...bar, cls: `strand mini ${look}`, role: `sp-kind:${t.n}:${kind}` });
+      if (t.consent?.includes(kind) && t.kinds.includes(kind)) add('circle', { cx: (bar.x1 + bar.x2) / 2, cy: (bar.y1 + bar.y2) / 2, r: 3.5 * k, cls: 'consent-dot' }); // consented: a dot on the bar
       add('line', { ...bar, cls: 'hit', role: `sp-kind:${t.n}:${kind}` }); // a wider, unseen line to hit
     }
   }
@@ -144,11 +145,12 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, focus =
       at.set(`sp:${t.n}`, { cx: group[0], cy: group[1], r: r * 1.4 });
       return;
     }
-    line(me, group, state === 'hello' ? 'hello' : 'join');
-    if (state !== 'hello') line(me, mine, state === 'join-own' ? 'join own' : 'hello own');
-    add('circle', { cx: me[0], cy: me[1], r, cls: 'join-me' });
-    add('circle', { cx: group[0], cy: group[1], r, cls: `join-group${state === 'hello' ? ' waiting' : ''}`, role: `sp:${t.n}` });
-    if (state !== 'hello') add('circle', { cx: mine[0], cy: mine[1], r, cls: `join-own${state === 'join-own' ? '' : ' waiting'}` });
+    const grow = (n) => (fresh.has(t.label) ? ` appear a${n}` : ''); // a new state: the symbol builds up, me → line → group → own
+    line(me, group, `${state === 'hello' ? 'hello' : 'join'}${grow(2)}`);
+    if (state !== 'hello') line(me, mine, `${state === 'join-own' ? 'join own' : 'hello own'}${grow(4)}`);
+    add('circle', { cx: me[0], cy: me[1], r, cls: `join-me${grow(1)}` });
+    add('circle', { cx: group[0], cy: group[1], r, cls: `join-group${state === 'hello' ? ' waiting' : ''}${grow(3)}`, role: `sp:${t.n}` });
+    if (state !== 'hello') add('circle', { cx: mine[0], cy: mine[1], r, cls: `join-own${state === 'join-own' ? '' : ' waiting'}${grow(5)}` });
     add('label', { x: cx, y: cy + th / 2 + 18 * k, text: t.label, cls: 'label' });
     at.set(`sp:${t.n}`, { cx: group[0], cy: group[1], r });
   }
@@ -187,4 +189,28 @@ function ends(a, b) {
 // a plus: one more sharing point
 function glyphPlus({ cx, cy }, k, add) {
   add('path', { d: `M ${cx - 10 * k} ${cy} H ${cx + 10 * k} M ${cx} ${cy - 10 * k} V ${cy + 10 * k}`, cls: 'glyph' });
+}
+
+/**
+ * The first circle (14.11.): before something goes to a sharing point for the first time. The window's form with
+ * the four strands on its sides, where the arcs are (tap = on / off); in the middle how much: 1 = this take,
+ * → = from now on, a number = everything so far; tap in the middle = yes, ↓ = nothing goes.
+ * c: { label, kinds, how, count } → { shapes, at }
+ */
+export function confirmShapes(c, { w = 390, h = 844, k = w / 390 } = {}) {
+  const shapes = [], at = new Map(), add = (type, o) => shapes.push({ type, ...o });
+  const s = 220 * k, cx = w / 2, cy = h * 0.42, x = cx - s / 2, y = cy - s / 2;
+  add('sheet', { x: 0, y: 0, w, h, r: 0, cls: 'sheet', role: 'sheet' });
+  add('sheet', { x, y, w: s, h: s, r: 40 * k, cls: 'sp confirm' });
+  for (const kind of EDGES) {
+    const bar = sideOf(SIDES[kind], { x, y, s, r: 40 });
+    const on = c.kinds.includes(kind);
+    add('line', { ...bar, cls: `strand ${on ? 'own' : 'off'}`, role: `confirm:${kind}` });
+    add('line', { ...bar, cls: 'hit', role: `confirm:${kind}` });
+  }
+  add('circle', { cx, cy, r: 44 * k, cls: 'confirm-ok', role: 'confirm:ok' });
+  add('label', { x: cx, y: cy + 8 * k, text: c.how === 'new' ? '→' : String(c.count ?? 1), cls: 'label confirm-count' });
+  add('label', { x: cx, y: y + s + 30 * k, text: c.label, cls: 'label' });
+  at.set('confirm:ok', { cx, cy, r: 44 * k });
+  return { shapes, at };
 }

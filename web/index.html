@@ -26,7 +26,13 @@
     /* the view's classes (view/ring.js, chips.js, timeline.js): colour never alone, dashed / filled say it too */
     .layer { fill: none; stroke: var(--rc-stroke); stroke-width: 2; opacity: .25; }
     .field-rest { fill: var(--rest); pointer-events: none; } /* outside the window nothing shows (14.11.): the whole square in review */
-    .corner { fill: transparent; } /* a corner of the window to drag */
+    .corner, .top-zone { fill: transparent; }
+    .confirm-ok { fill: var(--rc); stroke: var(--rc-stroke); stroke-width: 3; } .label.confirm-count { font-size: 26px; font-weight: 600; pointer-events: none; }
+    .consent-dot { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 2; pointer-events: none; }
+    .appear { transform-box: fill-box; transform-origin: center; animation: appear .32s cubic-bezier(.2,.8,.3,1.2) both; }
+    .a1 { animation-delay: .04s } .a2 { animation-delay: .08s } .a3 { animation-delay: .12s } .a4 { animation-delay: .16s } .a5 { animation-delay: .2s } .a6 { animation-delay: .24s } .a7 { animation-delay: .28s } .a8 { animation-delay: .32s } .a9 { animation-delay: .36s }
+    @keyframes appear { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .appear { animation: none; } } /* a corner of the window to drag */
     * { -webkit-tap-highlight-color: transparent; } [data-role]:focus { outline: none; } /* the arcs answer themselves, no blue box */
     #screen { background: var(--rest); } /* 14.11.: the grey around the window is the whole background */
     .strand { fill: none; stroke-width: 7; stroke-linecap: round; }
@@ -60,6 +66,7 @@
     .arriving { opacity: .6; } .thumb.flying { stroke-width: 3; }
     .now-mark { stroke: var(--fg); stroke-width: 2; opacity: .5; }
     .point .ring { fill: none; stroke: var(--rc-stroke); stroke-width: 3; } .point .core { fill: var(--rc-stroke); }
+    .point.paused .core { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 4; stroke-dasharray: 6 5; } /* paused: hollow, dashed */
     .point.photo .core { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 6; } /* photo button: a white disc in a ring */
     .photo { fill: var(--card); stroke: var(--mut); stroke-width: 2; } .photo.on { fill: var(--rc); stroke: var(--rc-stroke); stroke-width: 3; }
     .point.waiting .ring { stroke-dasharray: 8 6; } .point.line .core { opacity: .55; }

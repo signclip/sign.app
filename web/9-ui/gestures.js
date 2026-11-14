@@ -26,7 +26,7 @@ export const HELD = ['strand', 'chip'];
 export const TABLE = [
   ['take', 'tap', 'point', 'any', 'all switched-on strands start / stop together'],
   ['take-while-held', 'hold', 'point', 'any', 'all switched-on strands record while held'],
-  ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait'],
+  ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait · during a take: pause / go on'],
   ['waits', 'pinch', 'point', 'any', 'two fingers on the point: one above the other = camera zoom · side by side = time: the stretched line wider / narrower, or (always ready) the waits longer / shorter (rings show it)'],
   ['share-last', 'up', 'point', 'any', 'the sharing points as circles: tap = share there, double-tap = always, mini arcs = which strands (share-menu.js)'],
   ['aside-last', 'down', 'point', 'any', 'set the last take aside (it stays, dashed)'],
@@ -59,6 +59,7 @@ export const TABLE = [
   ['full', 'up', 'top-middle', 'any', 'full screen: only picture and point'],
   ['from-top', 'down', 'top-middle', 'any', 'pulled down from the top: in full screen = everything again, else Similar comes in at the top'],
   ['similar-less', 'up', 'similar-band', 'any', 'push Similar · viele up: full → half → closed'],
+  ['from-top', 'down', 'top-zone', 'any', 'pulled down anywhere above the point: Similar comes in (Android keeps its own strip at the very top)'],
   ['similar-all', 'down', 'similar-band', 'any', 'all of Similar onto the chain: the tiles fly into the line one after another'],
   ['line-full', 'double-tap', 'line-arc', 'any', 'this line (a take to review, or from Similar) in full screen'],
   ['context-open', 'down', 'context', 'any', 'pull the context field open (like the line): chips, and writing with the keyboard'],

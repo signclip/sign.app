@@ -91,6 +91,8 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const stretched = Boolean(data.items?.length) && ['line', 'record', 'stream'].includes(st.screen);
 
   const [, pyLow] = onShape(win, 0, ring);
+  const [, pointTop] = onShape(win, 0, 2 * ring);
+  if (!st.similar && !st.full) g.add('sheet', { x: 0, y: 24 * k, w, h: Math.max(0, pointTop - 32 * k), r: 0, cls: 'top-zone', role: 'top-zone' }); // the free part above: pulled down = Similar (below Android's own pull-down strip)
   const boxTop = fieldY - 64 * k; // the open context field's box: its top edge is where the bottom arc lies, pushed up = closed
   if ((data.open ?? 0) > 0.5 && !st.full && !many) g.add('sheet', { x: 12 * k, y: boxTop, w: w - 24 * k, h: 88 * k, r: 22 * k, cls: 'field-box' });
   if (many && !half) similarTiles(g, pyLow - ring - 10 * k + (h - pyLow + ring + 10 * k) * grow); // full: down to the bottom, only arcs and context on top
@@ -122,7 +124,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
     const p = data.feedbackP ?? 0;
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (data.feedback === 'saved' ? 4 + 26 * p : 30 - 26 * p) * k, fade: 1 - p, cls: `feedback ${data.feedback}` });
   }
-  if (!many || half) g.add('point', { ...point, cls: `${pointClass(st)}${data.photo ? ' photo' : ''}`, role: 'point' });
+  if (!many || half) g.add('point', { ...point, cls: `${pointClass(st)}${data.photo ? ' photo' : ''}${data.paused && st.screen === 'record' ? ' paused' : ''}`, role: 'point' });
 
   return { video, template, point, window: win, fieldY, hideLive: many && !half, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
 }

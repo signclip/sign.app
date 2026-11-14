@@ -26,7 +26,8 @@ export function openDevices(mediaDevices, options = {}) {
 
 /**
  * Start a Take. env: { MediaRecorder, tapAudio, now } – tapAudio(stream) → { stop() → { channels, sampleRate } }.
- * Returns { frame(ts), stop() → { video, ext, audio, lengthMs, fps, delivered } }.
+ * Returns { frame(ts), pause(), resume(), paused, stop() → { video, ext, audio, lengthMs, fps, delivered } };
+ * a pause (14.11.) holds picture and sound together; lengthMs counts only the recorded time.
  */
 export function startTake(stream, env) {
   const { MediaRecorder, tapAudio, now = () => Date.now() } = env;
@@ -38,15 +39,20 @@ export function startTake(stream, env) {
   const sound = stream.getAudioTracks().length ? tapAudio(stream) : null;
   const frames = [];
   const started = now();
+  let pausedAt = null, pausedMs = 0;
   picture.start(1000);
   return {
-    frame(ts) { frames.push(ts); },
+    get paused() { return pausedAt != null; },
+    pause() { if (pausedAt != null) return; pausedAt = now(); picture.pause?.(); sound?.pause?.(); },
+    resume() { if (pausedAt == null) return; pausedMs += now() - pausedAt; pausedAt = null; picture.resume?.(); sound?.resume?.(); },
+    frame(ts) { if (pausedAt == null) frames.push(ts); },
     stop() {
       return new Promise((resolve) => {
         picture.onstop = async () => {
           const video = new Uint8Array(await new Blob(chunks, { type }).arrayBuffer());
           const fps = measuredFps(frames);
-          resolve({ video, ext, audio: sound ? sound.stop() : null, lengthMs: now() - started, fps, delivered: deliveredLabel(videoTrack.getSettings(), fps, ext) });
+          if (pausedAt != null) { pausedMs += now() - pausedAt; pausedAt = null; }
+          resolve({ video, ext, audio: sound ? sound.stop() : null, lengthMs: now() - started - pausedMs, fps, delivered: deliveredLabel(videoTrack.getSettings(), fps, ext) });
         };
         picture.stop();
       });
@@ -60,9 +66,12 @@ export async function browserTap(stream, AudioContextClass = globalThis.AudioCon
   await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([TAP_WORKLET], { type: 'text/javascript' })));
   const node = new AudioWorkletNode(ctx, 'sign-tap');
   const blocks = [];
-  node.port.onmessage = (e) => blocks.push(e.data);
+  let held = false; // paused: the blocks are let go
+  node.port.onmessage = (e) => { if (!held) blocks.push(e.data); };
   ctx.createMediaStreamSource(stream).connect(node);
   return {
+    pause() { held = true; },
+    resume() { held = false; },
     stop() {
       ctx.close();
       const count = blocks[0]?.length ?? 1;

@@ -72,10 +72,15 @@ export async function listAccounts(admin, { group = 'Sign', max = 500, fetch = g
   for (const user of users) {
     try {
       const d = await ocs(admin, `users/${encodeURIComponent(user)}`, { fetch });
-      out.push({ user, label: d.displayname || user, used: d.quota?.used ?? 0, quota: d.quota?.quota ?? -3, lastLogin: d.lastLogin ?? 0 });
+      out.push({ user, label: d.displayname || user, used: d.quota?.used ?? 0, quota: d.quota?.quota ?? -3, lastLogin: d.lastLogin ?? 0, enabled: d.enabled !== false });
     } catch { out.push({ user, label: user, used: 0, quota: -3, lastLogin: 0 }); }
   }
   return out.sort((a, b) => b.used - a.used);
+}
+
+/** Let an account rest (no login, no sync; its files stay) or wake it again (OCS disable / enable). */
+export async function setEnabled(admin, user, on, { fetch = globalThis.fetch } = {}) {
+  await ocs(admin, `users/${encodeURIComponent(user)}/${on ? 'enable' : 'disable'}`, { method: 'PUT', fetch });
 }
 
 /** Change an account's space: one of QUOTAS ("none" = the limit lifted). */
