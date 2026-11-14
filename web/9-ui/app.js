@@ -234,6 +234,21 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     else if (what === 'stop') end();
   };
   let unwatch = camera ? watch(camera, onActivity, { video: $('#live') }) : () => {};
+  /** Back from the background (or the camera was taken away): the live picture starts again by itself. */
+  async function freshCamera() {
+    const alive = camera?.getVideoTracks().some((t) => t.readyState === 'live' && !t.muted);
+    if (alive) return $('#live').play?.().catch(() => {});
+    unwatch();
+    camera?.getTracks().forEach((t) => t.stop());
+    camera = await openDevices(navigator.mediaDevices, { facing: settings.facing }).catch(() => null);
+    $('#live').srcObject = camera;
+    unwatch = camera ? watch(camera, onActivity, { video: $('#live') }) : () => {};
+    paint();
+  }
+  globalThis.document?.addEventListener('visibilitychange', async () => {
+    if (document.hidden) { if (take.recorder || take.starting) await end(); return; } // going away during a take: it is saved
+    await freshCamera();
+  });
 
   // ---------- a take ----------
   async function begin(action = 'take', extra = {}) {
@@ -281,13 +296,20 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const onto = st.base; // adding to an element: the chain below
     const keep = toKeep(st);
     step('take'); // → saving
-    const saved = await saveTake({
-      device, person, store, now: Date.now(), lengthMs: recorded.lengthMs, context: withSticky(sticky.map((w) => `(${w})`).join(' '), take.context),
-      video: kinds.includes('v') ? recorded.video : null,
-      picture: kinds.includes('v') ? recorded.picture ?? null : null,
-      audio: kinds.includes('a') ? recorded.audio : null,
-      onto, keep,
-    });
+    let saved;
+    try {
+      saved = await saveTake({
+        device, person, store, now: Date.now(), lengthMs: recorded.lengthMs, context: withSticky(sticky.map((w) => `(${w})`).join(' '), take.context),
+        video: kinds.includes('v') ? recorded.video : null,
+        picture: kinds.includes('v') ? recorded.picture ?? null : null,
+        audio: kinds.includes('a') ? recorded.audio : null,
+        onto, keep,
+      });
+    } catch { // could not be saved (storage full, gone): back to ready at once, the point says so
+      step('saved');
+      feedback('gone');
+      return;
+    }
     take.lastChain = saved.chain.path;
     if (data.double) { // Similar · Doppel: the result is the line underneath, the new take a line on top of it (14.11.)
       const ref = await chainBytes(data.double);

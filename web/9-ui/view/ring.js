@@ -91,6 +91,8 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const stretched = Boolean(data.items?.length) && ['line', 'record', 'stream'].includes(st.screen);
 
   const [, pyLow] = onShape(win, 0, ring);
+  const boxTop = fieldY - 64 * k; // the open context field's box: its top edge is where the bottom arc lies, pushed up = closed
+  if ((data.open ?? 0) > 0.5 && !st.full && !many) g.add('sheet', { x: 12 * k, y: boxTop, w: w - 24 * k, h: 88 * k, r: 22 * k, cls: 'field-box' });
   if (many && !half) similarTiles(g, pyLow - ring - 10 * k + (h - pyLow + ring + 10 * k) * grow); // full: down to the bottom, only arcs and context on top
   if (!st.full) {
     if (!many || half) g.add('rest', { field: { x: g.cx - F / 2, y: cy - F / 2, s: F, r: 18 * k }, win, cls: 'field-rest' }); // nothing shows outside the window (14.11.)
@@ -138,7 +140,7 @@ function strandArcs({ st, data, win, k, w, h, add, edge, grow, fieldY }) {
       : pts.map((_, i) => onU(edge, (from + GAP + Math.min(i * 3, to - from - 2 * GAP) - 60) / 240))); // 60…300° → the U from its right top to its left top: each arc keeps its share and order
     let pts = along(win);
     if (edge) { const e = grow * grow * (3 - 2 * grow); pts = onEdge().map(([x, y], i) => [pts[i][0] + (x - pts[i][0]) * e, pts[i][1] + (y - pts[i][1]) * e]); } // bent out to the edges
-    if (kind === 'x' && data.open) pts = straighten(pts, data.open, { w, k, y: fieldY }); // opening: the arc becomes the field
+    if (kind === 'x' && data.open) pts = straighten(pts, data.open, { w, k, y: fieldY - 64 * k }); // opening: the arc lies on the field's top edge (14.11.)
     const dd = pathThrough(pts);
     const mid = onShape(win, (from + to) / 2, out); // for hints (hint.js)
     add('path', { d: dd, mid, cls: `strand ${live ? 'own' : looks}${kind === 'l' ? ' wave' : ''}`, role: `strand:${kind}` });
@@ -223,7 +225,6 @@ function chipArea({ st, data, cx, cy, win, k, w, shapes, fieldY }, point) {
   if (st.full && st.mode !== 'line') return;
   const open = (data.open ?? 0) > 0.5; // the context field is open: the chips sit in it, its lowest row stays free to type
   const y = st.full ? point.cy - 70 * k : open ? fieldY - 42 * k : fieldY; // chips 32 px high, centred: they end 2 px above the typing row
-  if (open && !st.full) shapes.push({ type: 'sheet', x: 12 * k, y: fieldY - 64 * k, w: w - 24 * k, h: 88 * k, r: 22 * k, cls: 'field-box' });
   const held = st.hold?.target === 'chip' ? [`chip:${st.hold.text}`, `gesture:${st.hold.text}`] : [];
   shapes.push(...chipShapes(data.chips, { timeMs: data.timeMs, cx, y, k, w })
     .map((s) => (held.includes(s.role) ? { ...s, cls: `${s.cls} hold` } : s))); // the held context, as property
