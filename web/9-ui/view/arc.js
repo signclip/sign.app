@@ -96,7 +96,7 @@ export function arcShapes(win, ring, data = {}, { k = 1, w = 390 } = {}) {
   res.push({ type: 'path', d, cls: `thread own line-arc${fade}`, role: 'line-arc' });
   res.push({ type: 'path', d, cls: 'hit', role: 'line-arc' });
   for (const p of lineSpots(win, { ring, k, count, at: current, bend, w })) {
-    res.push({ type: 'thumb', x: p.x, y: p.y, s: p.s, round: true, cls: `thumb own${Math.abs(p.i) === 1 ? ' near' : ''}${fade}`, role: `line:${p.i}` });
+    res.push({ type: 'thumb', x: p.x, y: p.y, s: p.s, round: true, href: data.lineThumbs?.[current + p.i], cls: `thumb own${Math.abs(p.i) === 1 ? ' near' : ''}${fade}`, role: `line:${p.i}` });
   }
   if (data.arrive) { // into the point = into the line at the current spot
     const [px, py] = onShape(win, 0, ring);

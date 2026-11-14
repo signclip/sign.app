@@ -46,5 +46,6 @@
   "run.error": "{label}: nicht erreicht",
   "home.restored": "{n} aus dem Backup geholt",
   "home.copied": "{n} geholt",
-  "home.key": "Backup: Papier-Passwort kopieren, dann erneut ziehen"
+  "home.key": "Backup: Papier-Passwort kopieren, dann erneut ziehen",
+  "menu.wait": "…"
 }

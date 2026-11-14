@@ -38,6 +38,7 @@
     .bubble.sticky { fill: var(--rc); opacity: .7; stroke: var(--rc-stroke); stroke-width: 1.5; } /* held as property: thicker too, not colour alone */
     .video { fill: none; } .video.faded { opacity: .55; }
     .video.other { stroke: var(--sc-stroke); stroke-width: 3; }
+    .feedback { fill: none; stroke-width: 4; pointer-events: none; } .feedback.saved { stroke: #5fbf92; } .feedback.gone { stroke: #e57373; stroke-dasharray: 6 5; }
     .wait-ring { fill: none; stroke: var(--rc-stroke); stroke-width: 2; pointer-events: none; } .wait-ring.start { stroke-dasharray: 3 4; }
     .bar { stroke-width: 3; stroke-linecap: round; opacity: .7; } .bar.now { opacity: 1; stroke-width: 4; } .bar.own { stroke: var(--rc-stroke); } .bar.other { stroke: var(--sc-stroke); }
     .chip rect { stroke-width: 1.5; } .chip text { font: 500 14px Inter, system-ui, sans-serif; fill: #1d1b20; }
@@ -49,6 +50,8 @@
     .thread { fill: none; stroke-width: 3; } .thread.own { stroke: var(--rc-stroke); opacity: .5; } .thread.other { stroke: var(--sc-stroke); }
     .thumb { stroke-width: 3; fill: var(--video); } .thumb.own { stroke: var(--rc-stroke); } .thumb.other { stroke: var(--sc-stroke); } .thumb.far { opacity: .4; }
     /* the line in its arc over the point, the chain under it (view/arc.js) */
+    .from.own { fill: var(--rc-stroke); } .from.other { fill: var(--sc-stroke); } /* review: own line coral, from Similar blue */
+    .thumb.seen { fill: transparent; } #overlay image { pointer-events: none; } .video.reference { fill: transparent; }
     .thumb.now { stroke-width: 4; stroke: var(--rc-stroke); } .thumb.own:not(.now) { stroke-width: 1.5; }
     .thread.line-arc { opacity: .75; } .thumb.near { stroke-width: 2.5; } .thread.level { opacity: .22; stroke-width: 2; } .thread.level.open { opacity: .45; stroke-dasharray: 6 5; }
     .thread.level.chosen { opacity: .9; stroke-width: 4; stroke-dasharray: none; } .thumb.chosen { opacity: 1; } .back { opacity: .3; }
@@ -71,6 +74,7 @@
     #share { position: absolute; inset: 0; pointer-events: none; }
     #share .points, #share svg { position: absolute; inset: 0; width: 100%; height: 100%; }
     #share [data-role] { pointer-events: auto; cursor: pointer; }
+    .badge.admin { fill: var(--rc-stroke); stroke: var(--card); stroke-width: 2; } .fill { fill: var(--sc-stroke); pointer-events: none; } .fill.high { fill: #e57373; }
     #share .note { position: absolute; left: 0; right: 0; bottom: 24px; text-align: center; color: var(--mut); font-size: 0.9em; }
     #share:not([hidden]) .points { animation: sheet-up .22s ease-out; }
     @keyframes sheet-up { from { transform: translateY(30%); opacity: 0; } to { transform: none; opacity: 1; } }

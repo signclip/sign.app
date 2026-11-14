@@ -37,8 +37,9 @@ export function mountScreen({ root, live, replay, template, overlay }) {
     const view = layout(st, data, { w, h });
     screen.last = view;
     fit(live, view.video, st.full);
+    if (live) live.style.visibility = view.hideLive ? 'hidden' : ''; // Similar · viele: the tiles take the window
     fit(replay, view.video, st.full);
-    fit(template, view.template, false);
+    fit(template, view.template, false); // the small template, or in Similar · Doppel the reference window
     if (template) template.hidden = !view.template;
     overlay.innerHTML = toSvg(view, { w, h });
     return view;

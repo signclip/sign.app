@@ -33,6 +33,8 @@ import { saveTake } from '../4-save/save-take.js';
 import { removeStrands } from '../4-save/remove.js';
 import { saveSimilar } from '../4-save/save-similar.js';
 import { addLine } from '../4-save/add-line.js';
+import { askRemove } from '../8-join/remove-request.js';
+import { deviceKeys } from './device-keys.js';
 import { readName } from '../1-model/filename.js';
 import { openDevices, startTake, browserTap } from '../5-take/recorder.js';
 import { loadWhisper } from '../5-take/whisper-engine.js';
@@ -46,6 +48,7 @@ import { withSticky, afterTake as nextOfSeries, readContext, fromField } from '.
 import { write as writeNotation, parse as parseNotation } from '../1-model/notation.js';
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse } from './state.js';
+import { MANY } from './view/ring.js';
 import { mountScreen, targetOf } from './screen.js';
 import { normalize, readyStep, choose, CHOICES } from './settings.js';
 import { watch } from './ready.js';
@@ -99,7 +102,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // a video shows only once its first frame plays (no black box, no grey play button); then the shapes follow
   for (const v of document.querySelectorAll('#screen video')) {
     v.addEventListener('playing', () => v.classList.add('on'));
-    v.addEventListener('emptied', () => v.classList.remove('on'));
+    v.addEventListener('emptied', () => { if (!v.dataset.picture) v.classList.remove('on'); }); // a picture (poster) shows at once
   }
   $('#live').addEventListener('playing', () => $('#screen').classList.add('ready'), { once: true });
   setTimeout(() => $('#screen').classList.add('ready'), 2500); // no camera (denied, none): the shapes come anyway
@@ -120,6 +123,13 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   setChips([]);
   let sources = [{ name: 'own', store }];
   let index = await buildIndex(sources);
+  /** The newest version of my newest take: what the chain gestures lay on after a restart. */
+  const newestOwnChain = () => {
+    const top = new Set([...index.tables.chains.values()].map((c) => c.below).filter(Boolean)); // chains with one on top are older versions
+    const mine = [...index.tables.chains.values()].filter((c) => c.from?.store === 'own' && !top.has(c.key) && c.from.path.startsWith('chain/'));
+    return mine.sort((a, b) => String(b.head["'t"] ?? '').localeCompare(String(a.head["'t"] ?? '')))[0]?.from.path ?? null; // newest by its time
+  };
+  take.lastChain = newestOwnChain(); // after a restart the chain gestures go on where they were
 
   const screen = mountScreen({ root: $('#screen'), live: $('#live'), replay: $('#replay'), template: $('#template'), overlay: $('#overlay') });
   const paint = () => screen.paint(st, { ...data, hint: hintOf(onboard.at, settings.onboarding) });
@@ -162,7 +172,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const menu = await mountShareMenu({
     project,
     panel: $('#share'), own: store, keychain, person, device, t,
-    lastChain: async () => take.lastChain,
+    lastChain: async () => take.shareChain ?? take.lastChain, // an element of the line (↑ on it), else the last take
     selection: () => toRecord(st), // double-tap on a sharing point = these strands always go there
     once: () => take.shareOnce, // a strand held while ↑ on the point: only it is shared this time
     nameSign: async () => { // the first take of the onboarding goes along with every hello
@@ -276,11 +286,18 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       onto, keep,
     });
     take.lastChain = saved.chain.path;
+    if (data.double) { // Similar · Doppel: the result is the line underneath, the new take a line on top of it (14.11.)
+      const ref = await chainBytes(data.double);
+      if (ref) take.lastChain = (await addLine({ own: store, below: ref.bytes, elements: [{ bytes: await store.read(saved.chain.path) }], device, person })).chain;
+    }
     if (take.fromSeries) { series = nextOfSeries(series); showSeries(); } // the series goes one on
     take.lastKinds = [...new Set([...kinds, ...keep])];
     data.versions = onto ? data.versions + 1 : 1;
     data.line = { count: await takesCount(), at: 0 };
+    data.lineThumbs = {}; lineThumbs(); // the new take is element 0: all move one on
     step('saved');
+    feedback('saved');
+    askAgain().catch(() => {});
     arrive(); // the new take slides in as the top of the line
     if (settings.onboarding && onboard.at === NAME_SIGN_STEP) {
       const video = saved.paths.find((p) => p.endsWith('.v.mp4'));
@@ -300,6 +317,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     $('#replay').hidden = take.replayAt < 0;
     if (take.replayAt < 0) return step('done');
     data.line = { count: videos.length, at: take.replayAt }; // newest first: the one playing sits at the top of the arc
+    lineThumbs();
     await show(videos[take.replayAt]);
     step(st.mode === 'line' ? (by > 0 ? 'before' : 'next') : 'replay-back');
   }
@@ -359,23 +377,123 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const head = readFile(dec.decode(await store.read(take.lastChain))).head;
     const version = index.versions(writeId(head.id))[j];
     if (!version) return null;
-    const refs = [...version.defs.values()];
+    const at = visualOf(version);
+    return at ? show(at.path, at.store) : null;
+  }
+  /** The first picture or video of a chain (or of the chains it lays on): { store, path } or null. */
+  function visualOf(chain) {
+    const refs = [...chain.defs.values()];
     const visual = refs.find((d) => d.kind === 'v') ?? refs.filter((d) => d.kind === 'chain' && d.name !== 'chain.1').map((d) => index.chain(writeId(d.id))).flatMap((c) => (c ? [...c.defs.values()] : [])).find((d) => d.kind === 'v');
     const where = visual && index.sharingPoints(writeId(visual.id)).find((x) => /\.v\.(mp4|png)$/.test(x));
     if (!where) return null;
     const [name, ...rest] = where.split(':');
     const src = sources.find((x) => x.name === name);
-    return src ? show(rest.join(':'), src.store) : null;
+    return src ? { store: src.store, path: rest.join(':') } : null;
   }
+  /** A small picture for a tile: the picture itself, or the first frame of the video (96 px, kept for the session). */
+  const thumbs = new Map(), pics = new Map();
+  async function thumbOf(key) {
+    if (thumbs.has(key)) return;
+    thumbs.set(key, null);
+    const at = takeOf(key) && visualOf(takeOf(key));
+    if (!at) return;
+    thumbs.set(key, await picOf(at));
+    data.thumbs = Object.fromEntries(thumbs);
+    paint();
+  }
+  /** The elements of the line around the current one get their pictures too (±4, kept by path). */
+  async function lineThumbs() {
+    const all = await takeVisuals(), at = data.line?.at ?? 0;
+    const out = { ...(data.lineThumbs ?? {}) };
+    for (let i = Math.max(0, at - 4); i <= Math.min(all.length - 1, at + 4); i++) out[i] = await picOf({ store, path: all[i] });
+    data.lineThumbs = out;
+    paint();
+  }
+  /** A small picture of a picture or video file (the first frame, 96 px), once per path. */
+  async function picOf(at) {
+    if (pics.has(at.path)) return pics.get(at.path);
+    const blob = new Blob([await at.store.read(at.path)], { type: at.path.endsWith('.png') ? 'image/png' : 'video/mp4' });
+    let url = URL.createObjectURL(blob);
+    if (!at.path.endsWith('.png')) { // a video: draw its first frame
+      const v = Object.assign(document.createElement('video'), { src: url, muted: true, playsInline: true, preload: 'auto' });
+      await new Promise((done) => { v.onloadeddata = done; v.onerror = done; setTimeout(done, 3000); });
+      const c = Object.assign(document.createElement('canvas'), { width: 96, height: 96 });
+      const s = Math.min(v.videoWidth, v.videoHeight);
+      if (s) c.getContext('2d').drawImage(v, (v.videoWidth - s) / 2, (v.videoHeight - s) / 2, s, s, 0, 0, 96, 96);
+      URL.revokeObjectURL(url);
+      url = s ? c.toDataURL('image/jpeg', 0.8) : null;
+    }
+    pics.set(at.path, url);
+    return url;
+  }
+
+  /** Similar · viele, the upper half: the tiles slide down from the top (≈ 0.3 s). */
+  async function openMany() {
+    data.manyFull = false;
+    data.reveal = 0;
+    step('similar-in');
+    showSimilar(true);
+    return animate('reveal', 0, 1);
+  }
+
+  /** Similar · Doppel: result i of the tiles plays above in the same window as the live picture (loop, muted). */
+  async function reference(i) {
+    const key = data.similar[i];
+    const at = key && takeOf(key) && visualOf(takeOf(key));
+    if (!at) return null;
+    const v = $('#template');
+    const blob = new Blob([await at.store.read(at.path)], { type: at.path.endsWith('.png') ? 'image/png' : 'video/mp4' });
+    if (at.path.endsWith('.png')) { v.dataset.picture = '1'; v.removeAttribute('src'); v.poster = URL.createObjectURL(blob); v.load(); v.classList.add('on'); }
+    else { delete v.dataset.picture; v.poster = ''; v.src = URL.createObjectURL(blob); v.loop = true; v.muted = true; v.play().catch(() => {}); }
+    data.double = key;
+    data.doubleAt = i;
+    return paint();
+  }
+  /** An index key (chain or strand) → its take chain entry. */
+  const takeOf = (key) => index.tables.chains.get(key) ?? [...(index.tables.weave.get(key) ?? [])].map((k) => index.tables.chains.get(k)).find((c) => c && index.tables.takes.has(c.key)) ?? null;
   /** Show one picture or video in the replay element (a picture as its poster). */
   async function show(path, from = store) {
     const video = $('#replay');
     const blob = new Blob([await from.read(path)], { type: path.endsWith('.png') ? 'image/png' : 'video/mp4' });
     video.hidden = false;
-    if (path.endsWith('.png')) { video.removeAttribute('src'); video.poster = URL.createObjectURL(blob); video.load(); return; }
+    if (path.endsWith('.png')) { video.dataset.picture = '1'; video.removeAttribute('src'); video.poster = URL.createObjectURL(blob); video.load(); video.classList.add('on'); return; }
+    delete video.dataset.picture;
     video.poster = '';
     video.src = URL.createObjectURL(blob);
     video.play();
+  }
+
+  /**
+   * Strands I delete were shared before (a line {…} {:sharing-point.n} in a version of this chain): each of those sharing
+   * points gets a remove request in its hello/ (remove-request.js); its signer's app honours it, as I am the author.
+   */
+  async function askAway(chainPath, strands) {
+    if (!strands.length) return;
+    const head = readFile(dec.decode(await store.read(chainPath))).head;
+    const targets = new Set(index.versions(writeId(head.id)).flatMap((c) => [...c.defs.values()].filter((d) => d.kind === 'sharing-point' && d.path).map((d) => d.path)));
+    for (const path of targets) await askAt(path, strands);
+  }
+  /** One remove request to one sharing point; not reachable now → kept on the device and asked again later (≤ 50 kept). */
+  async function askAt(path, strands) {
+    const there = menu.storeOf(path);
+    try {
+      if (!there) throw new Error('not open');
+      await askRemove({ store: there, strands, device, person, deviceKey: (await deviceKeys()).device }); // sealed: the signer sees it comes from me
+      return true;
+    } catch {
+      const later = laterList();
+      if (!later.some((x) => x.path === path && JSON.stringify(x.strands) === JSON.stringify(strands))) later.push({ path, strands });
+      try { localStorage.setItem('sign.removeLater', JSON.stringify(later.slice(-50))); } catch { /* private mode */ }
+      return false;
+    }
+  }
+  const laterList = () => { try { return JSON.parse(localStorage.getItem('sign.removeLater') || '[]'); } catch { return []; } };
+  /** The requests that could not go out: tried again at the start and after each take. */
+  async function askAgain() {
+    const later = laterList();
+    if (!later.length) return;
+    try { localStorage.setItem('sign.removeLater', '[]'); } catch { return; }
+    for (const { path, strands } of later) await askAt(path, strands); // failing ones go back into the list
   }
 
   // ---------- deleting the last take (chips take · strand · part) ----------
@@ -386,10 +504,18 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const names = what === 'take' ? strands.map((d) => d.name) : strands.filter((d) => kinds.includes(d.kind)).map((d) => d.name);
     // EXTEND(S4, part): a part of a strand ('part') with the moment from the line
     if (names.length && what !== 'part') {
+      await askAway(take.lastChain, strands.filter((d) => names.includes(d.name))); // where it was shared: a request there
       await removeStrands({ own: store, chainPath: take.lastChain, names, chips: { similar: true }, device, person });
       index = await buildIndex(sources);
+      feedback('gone');
     }
     step('done');
+  }
+  /** Saved or gone, shown at the point for 0.9 s (initial version R7): saved = a green ring going out, gone = a red dashed ring going in. */
+  async function feedback(kind) {
+    data.feedback = kind;
+    await animate('feedbackP', 0, 1, 900);
+    if (data.feedback === kind) { delete data.feedback; delete data.feedbackP; paint(); }
   }
 
   // ---------- panels ----------
@@ -399,7 +525,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   };
   const showSimilar = (on) => { // at the top: metadata and strand choice as chips, the hits as tiles (view)
     const hits = similar(index, { words: data.words, filters: filtersOf(index, filter) });
-    data.similar = hits.slice(0, 12).map((h) => h.key);
+    data.similar = hits.slice(0, MANY).map((h) => h.key);
+    for (const key of data.similar) thumbOf(key); // pictures for the tiles, as they come
     const chips = filterChips(index, filter, t);
     panel('#similar', on, chips, (c) => {
       if (!c.row) return;
@@ -439,6 +566,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     requestAnimationFrame(frame);
   };
   say.addEventListener('keydown', (e) => {
+    if (e.key === 'Backspace' && !say.value && series) { // empty field: Backspace takes the last written gesture away (initial K6)
+      const items = parseNotation(series);
+      items.splice(items.findLastIndex((n) => n.t !== 'sym'), 1);
+      series = writeNotation(items);
+      return showSeries();
+    }
     if (e.key !== 'Enter') return;
     const text = fromField(say.value); // ( ) nest, [ ] spells, missing brackets are closed
     const name = say.value.replace(/[()[\]{}]/g, '').replace(/\s+/g, ' ').trim();
@@ -453,6 +586,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     series = `${series} ${text}`.trim();
     showSeries();
   });
+
+  takeVisuals().then((all) => { data.line = { count: all.length, at: 0 }; return lineThumbs(); }).catch(() => {}); // the line is there from the start
+  setTimeout(() => askAgain().catch(() => {}), 5000); // remove requests that could not go out before (the sharing points open first)
 
   if (settings.onboarding && STEPS[onboard.at]?.[0] === 'name') { // onboarding starts with the name: write it right away
     $('#context').classList.add('breathe');
@@ -535,7 +671,18 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'scrub': case 'spread': return step(row.action);
       case 'aside-last': case 'remove-last': return step(row.action);
       case 'add-to': return take.lastChain ? step('add-to', { base: take.lastChain, kinds: take.lastKinds }) : null;
-      case 'context-out': return null; // EXTEND(S2, context): a new line on top without this chip (needs chips from Whisper)
+      case 'context-out': { // ↓ on a chip: this context goes away (sticky in front, or the written series)
+        const text = hit.text;
+        if (sticky.includes(text)) {
+          sticky = sticky.filter((w) => w !== text);
+          try { localStorage.setItem('sign.sticky', JSON.stringify(sticky)); } catch { /* private mode */ }
+        } else {
+          const keep = parseNotation(series).filter((n) => n.t === 'sym' || !readContext(writeNotation([n])).gestures.some((g) => g.chips.some((c) => c.text === text)));
+          if (writeNotation(keep) === series) return null; // a chip of a saved take: EXTEND(S2, context) a new line on top without it
+          series = writeNotation(keep);
+        }
+        return showSeries();
+      }
       case 'flow': { // a connection between two sides (around their corner): on / off, kept on the device
         const flow = `${(hit.drag ?? '').split('>')[0].split(':')[1]}>x`;
         settings = choose(settings, 'flows', flow);
@@ -575,15 +722,23 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         $('#live').srcObject = camera;
         unwatch = watch(camera, onActivity, { video: $('#live') });
         return null;
-      case 'similar-in': step('similar-in'); return showSimilar(true);
+      case 'similar-in': return openMany(); // first the upper half, sliding down
       case 'similar-out':
+        if (st.similar && !data.double && (data.reveal ?? 1) > 0) await animate('reveal', data.reveal ?? 1, 0); // the tiles slide up
         await keepSimilar();
         step('similar-out');
         data.words = [];
+        data.double = null; // Doppel ends with Similar
+        data.manyFull = false;
+        delete data.reveal; delete data.grow;
+        $('#template').removeAttribute('src');
         return showSimilar(false);
-      case 'share-last': take.shareOnce = null; step('share-last'); return menu.show(true); // ↑ on the point: the sharing points as circles
+      case 'share-last': take.shareOnce = null; take.shareChain = null; step('share-last'); return menu.show(true); // ↑ on the point: the sharing points as circles
       case 'always-there': return menu.dropKind(hit.n, hit.kind);
-      case 'full':
+      case 'full': // full screen is for review (14.11.): the line from the current take, like a result in Similar · voll
+        if (!(await takeVisuals()).length) return null;
+        data.fullFrom = 'own';
+        if (take.replayAt < 0) await replay(+1);
         step('full');
         return document.documentElement.requestFullscreen?.().catch(() => {});
       case 'unfull':
@@ -609,18 +764,56 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         return arrive();
       }
       case 'line-full': // the line in full screen: replay from the current one
+        data.fullFrom = 'own';
         if (take.replayAt < 0) await replay(+1);
         step('full');
         return document.documentElement.requestFullscreen?.().catch(() => {});
-      case 'from-top':
-        if (st.full) { step('unfull'); return document.exitFullscreen?.().catch(() => {}); }
-        step('similar-in');
-        return showSimilar(true);
+      case 'similar-less': // ↑ on the tiles: full → half → closed
+        if (data.manyFull) { await animate('grow', data.grow ?? 1, 0); data.manyFull = false; delete data.grow; return paint(); } // the arcs bend back
+        return act('edge-out', 'upper-right');
+      case 'from-top': // ↓ from the top: review ends · closed → viele half → viele full
+        if (st.full) {
+          if (data.double) { $('#replay').hidden = true; $('#replay').pause(); } // review of a result ends: Doppel again
+          step('unfull');
+          return document.exitFullscreen?.().catch(() => {});
+        }
+        if (st.similar && !data.double) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); } // half → full: the arcs bend out
+        return openMany();
       case 'context-open': return openContext(true);
       case 'context-close': return openContext(false);
       // ---------- in the table, not wired yet: each says where it docks ----------
-      case 'take-over': return null; // EXTEND(S3, similar): a result into the Take in the middle (needs similar items on screen)
-      case 'share': case 'aside': case 'remove': return null; // EXTEND(S3, line): the same for an element of a line
+      case 'take-over': return reference(hit.index); // Similar · Doppel: the result above, the live picture below
+      case 'reference-out': data.double = null; $('#template').removeAttribute('src'); return paint(); // back to viele
+      case 'reference-next': case 'reference-before': { // ← next · → before, in the order of the tiles
+        const n = data.similar.length;
+        return n ? reference((data.doubleAt + (row.action === 'reference-next' ? 1 : -1) + n) % n) : null;
+      }
+      case 'reference-full': { // Similar · voll = review: the result fills the screen like a line (↓ from the top = back)
+        const at = takeOf(data.double) && visualOf(takeOf(data.double));
+        if (!at) return null;
+        await show(at.path, at.store);
+        data.fullFrom = 'similar';
+        step('full');
+        return document.documentElement.requestFullscreen?.().catch(() => {});
+      }
+      case 'share': { // ↑ on an element of the line: that take goes to the sharing points (the menu, as for the last take)
+        const chain = takeOf(await keyOfItem(hit.index));
+        if (!chain?.from || chain.from.store !== 'own') return null;
+        take.shareChain = chain.from.path;
+        return menu.show(true);
+      }
+      case 'remove': { // ↓ all the way on an element: its strands go, here and (by request) where it was shared
+        const chain = takeOf(await keyOfItem(hit.index));
+        if (!chain?.from || chain.from.store !== 'own') return null;
+        const strands = [...chain.defs.values()].filter((d) => ['v', 'a', 'x', 'l'].includes(d.kind));
+        await askAway(chain.from.path, strands);
+        await removeStrands({ own: store, chainPath: chain.from.path, names: strands.map((d) => d.name), chips: { similar: true }, device, person });
+        index = await buildIndex(sources);
+        data.line = { count: (await takeVisuals()).length, at: 0 };
+        data.lineThumbs = {}; lineThumbs();
+        return paint();
+      }
+      case 'aside': return null; // EXTEND(S3, line): set aside (out of the line, kept) needs the aside line in 4-save
       case 'after': case 'together': { // an element of the line beside the point (after) or onto it (together)
         const key = await keyOfItem(hit.index);
         return key ? layOn([key], row.action === 'together').then(() => arrive()) : null;

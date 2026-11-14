@@ -19,8 +19,12 @@ import { readDescription, signerKeys } from '../2-storage/sharing-point.js';
 import { readPaste } from '../2-storage/spec.js';
 import { connect } from '../2-storage/connect.js';
 import { SELF } from '../2-storage/layout.js';
-import { makeGroup, renewGroup, invitation, waitingHellos, welcomeToGroup, doorLinks } from '../8-join/group.js';
-import { sayHello, answerFor, join } from '../8-join/join.js';
+import { makeGroup, renewGroup, invitation, waitingHellos, welcomeToGroup, doorLinks, describeJoin } from '../8-join/group.js';
+import { sayHello, answerFor, join, advance, readHello } from '../8-join/join.js';
+import { honorRemove } from '../8-join/remove-request.js';
+import { welcome as welcomeWithAccount, arrive } from '../8-join/welcome.js';
+import { QUOTA } from '../8-join/provision.js';
+import { readName } from '../1-model/filename.js';
 import { newSource } from '../1-model/ids.js';
 import { deviceKeys, joins } from './device-keys.js';
 import { copy } from './system-share.js';
@@ -76,20 +80,55 @@ export async function makeOrRenew(ctx, n) {
 export async function hellosToWelcome(ctx) {
   const out = [];
   for (const [n, sp] of ctx.s.open) {
-    if (sp.spec?.kind !== 'nextcloud' || !groupOf(ctx, sp.entry.label)) continue;
+    const adminFolder = ctx.admin && sp.spec?.server === ctx.admin.server && sp.spec?.user === ctx.admin.user; // the admin's own folders: the door lives there
+    if (sp.spec?.kind !== 'nextcloud' || !(groupOf(ctx, sp.entry.label) || adminFolder)) continue;
     try {
       for (const helloPath of await waitingHellos(sp.store)) out.push({ n, helloPath, name: /@\(([^)]*)\)/.exec(helloPath)?.[1] ?? '?' });
+      await groupUpkeep(sp.store);
     } catch { /* not reachable now */ }
   }
   return out;
+}
+
+/**
+ * Signer, on every look (14.11.): whoever joined moves to within/ (advance: hello, marker, answer); a remove request
+ * from the author (sealed by a device of her hello) is honoured by itself, anything else waits in hello/.
+ * Limits: one list of hello/ + per person one more; requests ≤ 20 per look.
+ */
+export async function groupUpkeep(store) {
+  const paths = (await store.list('hello/')).map((f) => f.path);
+  const name = (p) => readName(p.slice(p.lastIndexOf('/') + 1));
+  const hellos = paths.filter((p) => /\(hello /.test(p) && p.endsWith('.chain.sign'));
+  const done = (await store.list('within/')).map((f) => f.path); // hellos already moved there still name her devices
+  const keysOf = async (label) => { // the device keys this person showed in her hellos
+    const out = {};
+    for (const p of [...hellos, ...done].filter((x) => name(x)?.person === label && x.endsWith('.chain.sign'))) {
+      try { const h = readHello(new TextDecoder().decode(await store.read(p))); out[h.device.id] = h.device.key; } catch { /* not a hello */ }
+    }
+    return out;
+  };
+  const first = (p) => name(p)?.words?.[0];
+  const joined = new Set(paths.filter((q) => first(q) === 'join').map((q) => name(q)?.person).filter((l) => hellos.some((p) => name(p)?.person === l)));
+  for (const label of joined) { // her n_ comes from her hello (it names the folder within/@(label)!(n_))
+    const h = hellos.find((p) => name(p)?.person === label);
+    try { const { person } = readHello(new TextDecoder().decode(await store.read(h))); await advance({ store, person }); } catch { /* wait */ }
+  }
+  for (const p of paths.filter((x) => first(x) === 'quiet').slice(0, 20)) {
+    await honorRemove({ store, requestPath: p, authorKeys: await keysOf(name(p)?.person) }).catch(() => {});
+  }
 }
 
 /** Signer: tap on a hello circle = welcome: both links sealed for that device. */
 export async function welcome(ctx, { n, helloPath }) {
   const sp = ctx.s.open.get(n);
   const g = groupOf(ctx, sp.entry.label);
-  const sharingPoints = [g.read, g.drop].map((x) => ({ label: x.label, path: ctx.s.entries[x.n - 1].path, id: null }));
-  await welcomeToGroup({ store: sp.store, helloPath, group: { sharingPoints }, signer: await signerOf(ctx) });
+  const sharingPoints = g ? [g.read, g.drop].map((x) => ({ label: x.label, path: ctx.s.entries[x.n - 1].path, id: null })) : [];
+  if (ctx.admin) { // the admin app (14.11.): an own account for the person (QUOTA), its app password sealed into the answer
+    await describeJoin(sp.store); // the signer's keys readable through the door
+    await welcomeWithAccount({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, quota: ctx.quota ?? QUOTA });
+  } else if (sharingPoints.length) {
+    await welcomeToGroup({ store: sp.store, helloPath, group: { sharingPoints }, signer: await signerOf(ctx) });
+  } else return null;
   return ctx.say(`${ctx.t('share')} → ${/@\(([^)]*)\)/.exec(helloPath)?.[1] ?? ''}`);
 }
 
@@ -194,14 +233,29 @@ export async function followJoins(ctx) {
       const signers = pinned ?? signerKeys(readDescription(dec.decode(await both.read(mine.door ? `join/${SELF}` : SELF))));
       const keys = await deviceKeys();
       const r = await join({ store: both, joinPath: answer, pickupKey: keys.pickup.privateKey, signers, device: { id: ctx.device }, deviceKey: keys.device, person: ctx.person });
-      await follow(ctx, t, r.sharingPoints);
-      const own = (r.sharingPoints ?? []).some((sp) => sp.label && sp.label !== t.label); // my own space came along
+      const own = await takeOwn(ctx, r); // an account came along: my own Nextcloud appears (welcome.arrive)
+      if (!mine.door) await follow(ctx, t, (r.sharingPoints ?? []).filter((sp) => sp.label === t.label)); // a group's renewed links; the door stays as it is
       const state = own ? 'join-own' : 'join';
       await joins.set(t.label, { ...mine, answer, state });
       states.set(t.label, state);
     } catch { /* not there yet, or not sealed by a signer: wait */ }
   }
   return states;
+}
+
+/**
+ * The answer carried an account (secret with server, user, app password): the app password is swapped at once,
+ * kept in the keychain, and my own Nextcloud comes into the list as a writable sharing point. → true if so.
+ */
+async function takeOwn(ctx, r) {
+  let s = null;
+  try { s = r.secret ? JSON.parse(r.secret) : null; } catch { return false; }
+  if (!s?.server) return false;
+  const { entries } = await arrive({ secret: r.secret, sharingPoints: r.sharingPoints ?? [], keychain: ctx.keychain });
+  for (const e of entries.filter((x) => x.kind === 'nextcloud' && !ctx.s.entries.some((y) => y.path === x.path))) {
+    await ctx.edit({ add: { label: e.label, path: e.path, id: e.id }, marks: ['show', 'write'] });
+  }
+  return true;
 }
 
 /** Renewed links in a join: replace the group's two entries when the paths changed. */

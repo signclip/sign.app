@@ -32,6 +32,7 @@ import { addNew, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, 
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders } from './folders.js';
 import { bind } from './touch.js';
+import { isAdmin, listAccounts, setQuota, nextQuota } from '../8-join/provision.js';
 import { pointShapes } from './view/points.js';
 import { toSvg } from './view/ring.js';
 
@@ -134,7 +135,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       s.incoming = list.filter((x) => !expected.includes(x));
       if (!panel.hidden) draw();
     });
-    hellosToWelcome(ctx).then((list) => { s.hellos = list; if (!panel.hidden) draw(); }); // signer: who said hello
+    findAdmin().then(() => hellosToWelcome(ctx)).then((list) => { s.hellos = list; if (!panel.hidden) draw(); }); // admin? then the signer: who said hello
     followJoins(ctx).then((states) => { s.joinStates = states; if (!panel.hidden) draw(); }); // member: my joins
     joinProject(ctx, project).catch(() => {}); // the first group: the project's door (also after its password came)
   }
@@ -211,7 +212,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     }
     if (what === 'sp-kind') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'tap-kind'), 'tap-kind', s.rules, { kind: b }));
     if (what === 'add') return addNew(ctx); // the one + tile
-    if (what === 'browse') return browseChips(ctx)[Number(a)]?.go();
+    if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.more?.(+1); } // an account tile: more space
     if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
     if (what === 'hello') return welcome(ctx, s.hellos[Number(a)]).then(load).then(draw);
     if (what === 'accept-there') {
@@ -224,12 +225,42 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   }
 
   // ---------- drawing ----------
+  /**
+   * Is one of my Nextcloud logins an admin of its instance (14.11.)? Then this device is the admin app: hellos in its
+   * folders get an account each, and → on that tile shows the accounts. Asked once per login and session.
+   */
+  async function findAdmin() {
+    if (ctx.admin !== undefined) return ctx.admin;
+    ctx.admin = null;
+    for (const [n, sp] of s.open) {
+      if (sp.spec?.kind !== 'nextcloud') continue;
+      const login = { server: sp.spec.server, user: sp.spec.user, password: await keychain.get(sp.entry.id) };
+      if (login.password && await isAdmin(login)) { ctx.admin = login; s.adminN = n; break; }
+    }
+    return ctx.admin;
+  }
+  /** → on the admin tile: the accounts with their space as tiles; tap = more space, ↓ = less, the first tile = back. */
+  async function showAccounts() {
+    s.accounts = [];
+    say(t('menu.wait'));
+    try { s.accounts = await listAccounts(ctx.admin); say(''); } catch { s.accounts = null; return say(t('notReachable')); }
+    return draw();
+  }
+  const gb = (b) => (b < 0 ? '∞' : `${Math.round(b / 2 ** 30)}`);
+  function accountTiles() {
+    if (!s.accounts) return null;
+    return [{ label: '←', go: () => { s.accounts = null; draw(); } }, ...s.accounts.map((a) => ({
+      label: `${a.label} ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
+      more: (by) => { const q = nextQuota(a.quota, by); return q ? setQuota(ctx.admin, a.user, q).then(showAccounts, () => say(t('notReachable'))) : null; },
+    }))];
+  }
+
   function draw() {
     const { width: w, height: h } = panel.getBoundingClientRect();
-    const browse = s.browse ? browseChips(ctx) : null;
+    const browse = s.accounts ? accountTiles() : s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const hellos = s.hellos.map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to
-    const view = pointShapes(all(), { own: person.label, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
+    const view = pointShapes(all(), { own: person.label, admin: s.adminN ?? null, focus: s.focus, waitSecret: Boolean(s.waitSecret), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     note.textContent = s.note;
   }
@@ -250,7 +281,9 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         const [, a, b] = role.split(':');
         return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
       }
+      if (role?.startsWith('browse:') && s.accounts && (dir === 'down' || dir === 'down-far')) return accountTiles()[Number(role.split(':')[1])]?.more?.(-1); // ↓ on an account: less space
       const n = circleOf(role);
+      if (n && n === s.adminN && dir === 'right') return showAccounts(); // → on the admin tile: who has how much space
       if (n === 0 && dir === 'up') return checkKey(ctx).then((k) => copy(k)).then(() => say(t('copied'))); // ↑ on my own tile: my check key (for project.json)
       if (!n) return null;
       const tile = ctx.tileOf(n);
@@ -317,6 +350,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       return result;
     },
     runRules: () => run(), // what is due (all new rules at the first start)
+    /** The open store of the sharing point with this path (a share target named in a chain), or null. */
+    storeOf: (path) => [...s.open.values()].find((sp) => sp.entry.path === path)?.store ?? null,
     /** The name sign was just taken: the hello to the project's door goes out now. */
     joinProject: () => joinProject(ctx, project).then((started) => (started ? load().then(draw) : null)),
     /** A ring arc dropped on tile n (app.js): that strand always goes there. */

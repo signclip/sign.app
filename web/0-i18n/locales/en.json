@@ -46,5 +46,6 @@
   "run.error": "{label}: not reached",
   "home.restored": "{n} brought back from the backup",
   "home.copied": "{n} brought here",
-  "home.key": "Backup: copy the paper password, then drag again"
+  "home.key": "Backup: copy the paper password, then drag again",
+  "menu.wait": "…"
 }

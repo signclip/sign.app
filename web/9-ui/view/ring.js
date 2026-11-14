@@ -40,6 +40,8 @@ import { windowOf, onShape, pointsOn, pathThrough, outlinePath, extentOf } from 
 
 /** The four arcs around the window in degrees (0 = top, clockwise); the line is the upper one. */
 export const ARCS = Object.freeze({ line: [-60, 60], a: [60, 140], x: [140, 220], v: [220, 300], l: [-30, 30] }); // fixed by the user (13.11.), keep; l (14.11.): short, wavy, at the top
+/** The golden ratio: the free part above the arcs in viele ganz is 1/φ ≈ 62 % of the height. */
+export const PHI = (1 + Math.sqrt(5)) / 2;
 /** Space between two arcs: this many degrees off each end. */
 const GAP = 5;
 /** Where each strand sits on a tile of the sharing menu: the same sides as on the field. */
@@ -65,10 +67,17 @@ const POINT_D = 62, RING = 1.35; // the point; toSvg draws its ring at 1.35 × i
 export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const k = w / 390; // everything is drawn for a 390 px phone and scaled
   const d = POINT_D * k, ring = (d / 2) * RING;
-  const F = Math.min(w - 16 * k, 2 * ((w / 2 - 6 * k) / Math.sin(Math.PI / 3) - ring)) - 12 * k; // the line's ends stay on screen; 12 px more room at the sides for the sound (14.11.)
-  const cy = (st.screen === 'delete' ? 424 : 404) * k;
+  const double = Boolean(st.similar && data.double && !st.full); // Similar · Doppel: the reference above, the live picture below
+  const many = Boolean(st.similar && !double && !st.full); // Similar · viele: half (above the line, to drag into it) or full
+  const half = many && !data.manyFull, low = double || many; // the take window moves down, the upper half is free
+  const grow = many && !half ? data.grow ?? 1 : 0; // viele ganz: the arcs bend out to the screen's edges (0 → 1, animated)
+  const F0 = Math.min(w - 16 * k, 2 * ((w / 2 - 6 * k) / Math.sin(Math.PI / 3) - ring)) - 12 * k; // the line's ends stay on screen; 12 px more room at the sides for the sound (14.11.)
+  const F = low ? Math.min(F0, (h - 130 * k - 2 * ring - 8 * k) / 2) : F0; // two windows, the point between them
+  const cy = low ? h - 60 * k - F / 2 : (st.screen === 'delete' ? 424 : 404) * k;
   const win = windowOf(data.shape ?? 'circle', { cx: w / 2, cy, F });
-  const g = { st, data, w, h, k, cx: w / 2, cy, F, win, ring, shapes: [] };
+  const top = h / PHI; // viele ganz (14.11.): the arcs frame the lower 38 %, the upper 62 % stays free (golden ratio): room for A–Z one under the other (26 × ≈ 18 px ≈ 470 px of 520 on a phone)
+  const edge = { shape: 'rounded', cx: w / 2, cy: (top + h) / 2, hw: w / 2 - 14 * k, hh: (h - top) / 2 - 14 * k, r: 28 * k };
+  const g = { st, data, w, h, k, cx: w / 2, cy, F, win, ring, shapes: [], edge: grow ? edge : null, grow };
   g.add = (type, o) => g.shapes.push({ type, ...o });
 
   const video = st.full ? { cx: g.cx, cy: h / 2, d: Math.max(w, h), radius: 0 } : { cx: g.cx, cy, d: F, radius: 18 * k, window: win };
@@ -76,38 +85,51 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const point = st.full ? { cx: g.cx, cy: h - 80 * k, d } : { cx: px, cy: py, d }; // its outer ring touches the window
   const stretched = Boolean(data.items?.length) && ['line', 'record', 'stream'].includes(st.screen);
 
+  const [, pyLow] = onShape(win, 0, ring);
+  if (many && !half) similarTiles(g, pyLow - ring - 10 * k + (h - pyLow + ring + 10 * k) * grow); // full: down to the bottom, only arcs and context on top
   if (!st.full) {
-    g.add('rest', { field: { x: g.cx - F / 2, y: cy - F / 2, s: F, r: 18 * k }, win, cls: 'field-rest' }); // greyed outside the window
+    if (!many || half) g.add('rest', { field: { x: g.cx - F / 2, y: cy - F / 2, s: F, r: 18 * k }, win, cls: 'field-rest' }); // greyed outside the window
     strandArcs(g);
-    photoPoint(g);
-    soundBars(g);
-    flowArcs(g);
+    if (!many || half) { photoPoint(g); soundBars(g); }
+    if (!grow) flowArcs(g);
   }
-  g.add('video', { ...video, cls: st.screen === 'delete' ? 'video faded' : 'video' });
+  if (!many || half) g.add('video', { ...video, cls: st.screen === 'delete' ? 'video faded' : 'video' });
   if (!stretched) chipArea(g, point);
-  const template = templateVideo(g);
+  const template = double ? referenceWindow(g, point) : templateVideo(g);
   if (stretched) g.shapes.push(...timelineShapes(data.items, { timeMs: data.timeMs ?? 0, sub: st.sub ?? 'play', cx: g.cx, y: point.cy, k, w }));
-  else if (!st.full) g.shapes.push(...arcShapes(win, ring, { ...data, bend: data.bend ?? (st.sub === 'spread' ? 0 : 1) }, { k, w }));
-  if (st.similar) similarTiles(g, point);
+  else if (!st.full && !double && (!many || half)) g.shapes.push(...arcShapes(win, ring, { ...data, bend: data.bend ?? (st.sub === 'spread' ? 0 : 1) }, { k, w }));
   if (st.screen === 'delete') deleteChips(g);
   if (data.waits && !st.full) { // pinching the waits: inner ring = start, outer = stop (1 s ≈ 8 px)
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (4 + data.waits.startMs / 125) * k, cls: 'wait-ring start' });
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (4 + data.waits.stopMs / 125) * k, cls: 'wait-ring stop' });
   }
-  g.add('point', { ...point, cls: `${pointClass(st)}${data.photo ? ' photo' : ''}`, role: 'point' });
+  if (st.full) { // review: where it comes from, in colour and in form: own = a solid edge (coral), from Similar = dashed (blue)
+    const other = data.fullFrom === 'similar';
+    for (let x = 0; x < w; x += other ? 18 * k : w) g.add('sheet', { x, y: 0, w: other ? 12 * k : w, h: 5 * k, r: 0, cls: `from ${other ? 'other' : 'own'}` });
+  }
+  if (half) similarTiles(g, point.cy - ring - 10 * k); // half: above the line, a result can be dragged onto it
+  if (data.feedback && !many) { // saved: a green ring going out · gone: a red dashed ring going in (R7); p 0 → 1 over 0.9 s
+    const p = data.feedbackP ?? 0;
+    g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (data.feedback === 'saved' ? 4 + 26 * p : 30 - 26 * p) * k, fade: 1 - p, cls: `feedback ${data.feedback}` });
+  }
+  if (!many || half) g.add('point', { ...point, cls: `${pointClass(st)}${data.photo ? ' photo' : ''}`, role: 'point' });
 
-  return { video, template, point, window: win, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
+  return { video, template, point, window: win, hideLive: many && !half, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
 }
 
 /** One arc per strand, 2° short of its neighbours: new (dashed) · keep (solid) · off (grey); recording turns new solid. */
-function strandArcs({ st, data, win, k, w, h, add }) {
+function strandArcs({ st, data, win, k, w, h, add, edge, grow }) {
   for (const kind of KINDS) {
     if (data.hidden?.includes(kind) || !ARCS[kind]) continue; // hidden: still records when on
     const looks = look(st, kind);
     const live = st.screen === 'record' && looks === 'new';
     const [from, to] = ARCS[kind];
     const out = 6 * k; // every arc close around the window (14.11.)
-    let pts = kind === 'l' ? wave(win, from, to, out, k) : pointsOn(win, from + GAP, to - GAP, out);
+    const along = (wn) => (kind === 'l' ? wave(wn, from, to, out, k) : pointsOn(wn, from + GAP, to - GAP, out));
+    const squash = (d) => (Math.atan2(Math.sin((d * Math.PI) / 180) * edge.hw, Math.cos((d * Math.PI) / 180) * edge.hh) * 180) / Math.PI;
+    const onEdge = () => (kind === 'l' ? wave(edge, from, to, out, k, squash) : pointsOn(win, from + GAP, to - GAP, out).map((_, i, all) => onShape(edge, squash(from + GAP + Math.min(i * 3, to - from - 2 * GAP)), out))); // the same share of each side, not the same angle
+    let pts = along(win);
+    if (edge) { const e = grow * grow * (3 - 2 * grow); pts = onEdge().map(([x, y], i) => [pts[i][0] + (x - pts[i][0]) * e, pts[i][1] + (y - pts[i][1]) * e]); } // bent out to the edges
     if (kind === 'x' && data.open) pts = straighten(pts, data.open, { w, h, k }); // opening: the arc becomes the field
     const dd = pathThrough(pts);
     const mid = onShape(win, (from + to) / 2, out); // for hints (hint.js)
@@ -117,9 +139,9 @@ function strandArcs({ st, data, win, k, w, h, add }) {
 }
 
 /** Landmarks: a short arc, one and a half gentle waves (±3 px), so it reads as points in motion. */
-function wave(win, from, to, out, k) {
+function wave(win, from, to, out, k, at = (d) => d) {
   const pts = [];
-  for (let d = from; d <= to; d += 1) pts.push(onShape(win, d, out + 3 * k * Math.sin(((d - from) / (to - from)) * 3 * Math.PI)));
+  for (let d = from; d <= to; d += 1) pts.push(onShape(win, at(d), out + 3 * k * Math.sin(((d - from) / (to - from)) * 3 * Math.PI)));
   return pts;
 }
 
@@ -180,17 +202,36 @@ function templateVideo({ st, data, win, k, add }) {
   return template;
 }
 
-/** Similar at the top: tiles in rows above the line (metadata and strand choice sit as chips above, #similar). */
-function similarTiles({ data, w, k, add }, point) {
+/** Most results at once (14.11.): 4 columns, as many rows as the screen holds (≈ 8 on a phone). */
+export const MANY = 40;
+
+/**
+ * Similar · viele (14.11.), two ways: half = above the line in the upper half (the take window moves down, a result
+ * can be dragged onto the line) · full = from the top to the bottom, on top only the strand arcs (what is searched)
+ * and the context field; metadata (which sharing points, who, when) as chips above (#similar).
+ * ↓ from the top: closed → half → full · ↑ on them: full → half → closed · tap = Doppel · ↓ on them = all onto the chain.
+ */
+function similarTiles({ data, w, h, k, add }, bottom = h) {
   const keys = data.similar ?? [];
-  const size = 56 * k, gap = 6 * k, top = 64 * k;
-  const cols = Math.max(1, Math.floor((w - gap) / (size + gap)));
-  const rows = Math.max(1, Math.floor((point.cy - (point.d / 2) * RING - 12 * k - top) / (size + gap)));
-  const x0 = (w - (cols * size + (cols - 1) * gap)) / 2;
-  add('sheet', { x: 0, y: top - gap, w, h: rows * (size + gap) + gap, r: 0, cls: 'similar-band', role: 'similar-band' });
-  keys.slice(0, cols * rows).forEach((_, i) => {
-    add('thumb', { x: x0 + (i % cols) * (size + gap), y: top + Math.floor(i / cols) * (size + gap), s: size, cls: 'thumb other', role: `similar:${i}` });
+  const cols = 4, gap = 6 * k, top = 56 * k, size = (w - gap * (cols + 1)) / cols;
+  const rows = Math.max(1, Math.floor((bottom - top - gap) / (size + gap)));
+  const x0 = gap, y0 = top - (1 - (data.reveal ?? 1)) * (bottom - top); // coming in: the tiles slide down from the top
+  add('sheet', { x: 0, y: top - gap, w, h: bottom - top + gap, r: 0, cls: 'similar-band', role: 'similar-band' });
+  keys.slice(0, Math.min(MANY, cols * rows)).forEach((key, i) => {
+    add('thumb', { x: x0 + (i % cols) * (size + gap), y: y0 + Math.floor(i / cols) * (size + gap), s: size, href: data.thumbs?.[key], cls: 'thumb other', role: `similar:${i}` });
   });
+}
+
+/**
+ * Similar · Doppel (14.11.): the reference in the same window above, the live picture below, the point between.
+ * ↑ on it = back to viele · ←/→ = next / before · double-tap = full (review, like a line).
+ */
+function referenceWindow({ data, w, h, k, cx, F, win, ring, add }, point) {
+  const cy = point.cy - ring - 4 * k - F / 2;
+  const ref = windowOf(win.shape, { cx, cy, F });
+  add('rest', { field: { x: cx - F / 2, y: cy - F / 2, s: F, r: 18 * k }, win: ref, cls: 'field-rest' });
+  add('video', { cx, cy, d: F, window: ref, cls: 'video other reference', role: 'reference' });
+  return { cx, cy, d: F, radius: 18 * k, window: ref };
 }
 
 /** Deleting: the chips take · strand · part (no labels, the order says it). */
@@ -233,14 +274,14 @@ const SVG = {
   edge: (s) => `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" class="${s.cls}"${roleOf(s)}/>`,
   rest: (s) => `<path d="${rounded(s.field)} ${outlinePath(s.win)}" fill-rule="evenodd" class="${s.cls}"/>`,
   bubble: (s) => `<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="${s.h / 2}" class="${s.cls}"${roleOf(s)}/>`,
-  circle: (s) => `<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" class="${s.cls}"${roleOf(s)}/>`,
+  circle: (s) => `<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" class="${s.cls}"${s.fade != null ? ` style="opacity:${s.fade.toFixed(2)}"` : ''}${roleOf(s)}/>`,
   arc: (s) => `<path d="${arcPath(s)}" class="${s.cls}"${roleOf(s)}/>`,
   line: (s) => `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" class="${s.cls}"${roleOf(s)}/>`,
   path: (s) => `<path d="${s.d}" class="${s.cls}"${roleOf(s)}/>`,
   sheet: (s) => `<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="${s.r}" class="${s.cls}"${roleOf(s)}/>`,
   label: (s) => `<text x="${s.x}" y="${s.y}" text-anchor="middle" class="${s.cls}">${esc(s.text)}</text>`,
   video: (s) => (s.window ? `<path d="${outlinePath(s.window)}" class="${s.cls}"${roleOf(s)}/>` : `<circle cx="${s.cx}" cy="${s.cy}" r="${s.d / 2}" class="${s.cls}"${roleOf(s)}/>`),
-  thumb: (s) => `<rect x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" rx="${s.round ? s.s / 2 : 12}" class="${s.cls}"${roleOf(s)}/>`,
+  thumb: (s) => `${s.href ? `<image href="${esc(s.href)}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" preserveAspectRatio="xMidYMid slice" style="clip-path: inset(0 round ${s.round ? s.s / 2 : 12}px)"/>` : ''}<rect x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" rx="${s.round ? s.s / 2 : 12}" class="${s.cls}${s.href ? ' seen' : ''}"${roleOf(s)}/>`,
   chip: (s) => `<g class="${s.cls}"${roleOf(s)}>`
     + `<rect x="${s.x}" y="${s.y - s.h / 2}" width="${s.w}" height="${s.h}" rx="${s.h / 2}"/>`
     + `<text x="${s.x + s.w / 2}" y="${s.y + 5}" text-anchor="middle">${esc(s.text)}</text></g>`,

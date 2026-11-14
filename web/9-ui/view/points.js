@@ -58,7 +58,7 @@ function edgeBar(kind, { cx, cy, tw, th }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
+export function pointShapes(all, { own = '', admin = null, focus = null, waitSecret = false, browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const tw = 86 * k; // a tile: a rounded rectangle, two layers behind it = much lies inside
   const th = 64 * k;
   const y0 = top + 72 * k; // first row, under the handle
@@ -78,7 +78,10 @@ export function pointShapes(all, { own = '', focus = null, waitSecret = false, b
   };
 
   if (browse) { // after a login: choose the folder
-    browse.forEach((b, i) => tile(i, `browse:${i}`, `sp folder${i === 0 ? ' always' : ''}`, b.label));
+    browse.forEach((b, i) => {
+      const { cx, cy } = tile(i, `browse:${i}`, `sp folder${i === 0 ? ' always' : ''}`, b.label);
+      if (b.full != null) add('sheet', { x: cx - tw / 2, y: cy + th / 2 - 6 * k, w: tw * Math.min(1, b.full), h: 6 * k, r: 3 * k, cls: `fill${b.full > 0.9 ? ' high' : ''}` }); // an account: how full
+    });
     return { shapes, at };
   }
 
@@ -115,6 +118,7 @@ export function pointShapes(all, { own = '', focus = null, waitSecret = false, b
     if (joining(t)) { joinIcon(slot.get(t.n), t, joinStates.get(t.label)); continue; } // joining: the growing icon
     const cls = ['sp', t.state, t.shown && 'shown', t.always && 'always', focus === t.n && 'focus'].filter(Boolean).join(' ');
     const { cx, cy } = tile(slot.get(t.n), `sp:${t.n}`, `${cls}${t.group ? ' group' : ''}`, t.label);
+    if (t.n === admin) add('circle', { cx: cx + tw / 2 - 4 * k, cy: cy - th / 2 + 4 * k, r: 7 * k, cls: 'badge admin' }); // the admin login: → shows the accounts
     if (t.seal === 'ok' || t.seal === 'wrong') add('circle', { cx: cx - tw / 2 + 4 * k, cy: cy - th / 2 + 4 * k, r: 6 * k, cls: `badge ${t.seal === 'ok' ? 'sealed' : 'unsealed'}` });
     if (t.readOnly && !t.drop) add('sheet', { x: cx - tw / 2 + 5 * k, y: cy - th / 2 + 5 * k, w: tw - 10 * k, h: th - 10 * k, r: 10 * k, cls: 'view-only' });
     if (t.run === 'ok' || t.run === 'error') { // last copy or backup: filled dot = went through · open ring = failed

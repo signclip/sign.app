@@ -7,6 +7,8 @@
 //              {:chain.2 :chain.3}'t(…)          together: one bracket, at the same time
 //              {:chain.1}
 //            Without a chain below (nothing recorded yet) the new chain is the first: no :chain.1.
+//            The chain below may also come as bytes from elsewhere (below): in Similar · Doppel the result is the
+//            line underneath and the new take is laid on it (14.11.).
 // Depends:   1-model (file, ids, hash, crypto, json, filename), 2-storage/layout
 // Test:      tests/take.test.mjs
 // Limits:    one line ≈ 0.3 KB + 0.15 KB per element; at most 64 elements per line (a longer one = two lines).
@@ -24,18 +26,18 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 /**
- * own: store · chainPath: the chain to lay onto, or null · elements: [{ bytes }] the chains' file bytes (their id
+ * own: store · chainPath: the chain to lay onto, or null · below: its bytes instead (a chain of another store) · elements: [{ bytes }] the chains' file bytes (their id
  * and hash are read from them) · together: false = after · device, person, deviceKey, now.
  * → { chain: path of the new chain on top }
  */
-export async function addLine({ own, chainPath = null, elements, together = false, device, person, deviceKey = null, now = Date.now() }) {
+export async function addLine({ own, chainPath = null, below: belowBytes = null, elements, together = false, device, person, deviceKey = null, now = Date.now() }) {
   if (!elements?.length) throw new Error('a line needs at least one element');
   if (elements.length > MAX_ELEMENTS) throw new Error(`at most ${MAX_ELEMENTS} elements in one line`);
   const at = timeLabel(now);
   const defs = [];
   let below = null;
-  if (chainPath) {
-    const bytes = await own.read(chainPath);
+  if (chainPath || belowBytes) {
+    const bytes = belowBytes ?? await own.read(chainPath);
     below = readFile(dec.decode(bytes));
     defs.push(defLine('chain.1', { id: writeId(below.head.id, await hashBytes(bytes)) }));
   }
