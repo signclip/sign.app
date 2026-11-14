@@ -235,11 +235,20 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       try { await sealPaper(store, await backupKey(store, { keychain, host: await host() }), paper, { replace: true }); } catch { /* sealed at its next backup */ }
     }
     const admin = await findAdmin().catch(() => null); // only user and server reach the sheet, never the password
-    const accounts = admin ? [...(await atlasSummary()).values()] : [];
+    const accounts = admin ? await sheetAccounts().catch(() => []) : [];
     const signerCode = admin && adminStore() ? await paperForDoor().catch(() => null) : null; // admin: the paper becomes a signer too
     const sheet = sheetData({ person, device, key, paper, signerCode, date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
     const pdf = sheetPdf(sheet);
     return send({ title: 'Sign · Notfallblatt', text: key, files: [new File([pdf], 'sign-notfallblatt.pdf', { type: 'application/pdf' })] }).catch(() => null);
+  }
+
+  /** Every account for the sheet (admin): quiet = switched off · within = has logged in or atlas counted it · join = made,
+   *  not yet in · hello = a request without an account; numbers from atlas, bytes from the Nextcloud quota. */
+  async function sheetAccounts() {
+    const [list, counts] = await Promise.all([listAccounts(ctx.admin, { group: project?.group, skip: [project?.atlas, project?.admin, ctx.admin?.user] }), atlasSummary()]);
+    const made = list.map((a) => { const c = counts.get(a.user) ?? {}; return { user: a.user, label: a.label, state: a.enabled === false ? 'quiet' : a.lastLogin || counts.has(a.user) ? 'within' : 'join', v: c.v ?? 0, a: c.a ?? 0, x: c.x ?? 0, l: c.l ?? 0, chains: c.chains ?? 0, bytes: a.used || c.bytes || 0 }; });
+    const asked = (s.hellos ?? []).map((h) => ({ user: h.name ?? 'hello', label: h.name ?? 'hello', state: 'hello', bytes: 0 }));
+    return [...made, ...asked];
   }
 
   // ---------- the first circle (14.11.): the first time something goes to a sharing point, it shows what and how much ----------

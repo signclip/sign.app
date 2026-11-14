@@ -94,6 +94,11 @@ export class Page {
     this.raw(`${pre} ${p(cx + r, cy)} m ${p(cx + r, cy + k)} ${p(cx + k, cy + r)} ${p(cx, cy + r)} c ${p(cx - k, cy + r)} ${p(cx - r, cy + k)} ${p(cx - r, cy)} c ` +
       `${p(cx - r, cy - k)} ${p(cx - k, cy - r)} ${p(cx, cy - r)} c ${p(cx + k, cy - r)} ${p(cx + r, cy - k)} ${p(cx + r, cy)} c h ${paint}`);
   }
+  /** Many small dots of one colour: [[x, y, diameter]] as round-capped zero-length lines (~35 B per dot, not ~180). */
+  dots(list, color) {
+    if (!list.length) return;
+    this.raw(`${rgb(color)} RG 1 J [] 0 d ${list.map(([x, y, d]) => `${num(d)} w ${num(x)} ${this.y(y)} m ${num(x)} ${this.y(y)} l S`).join('\n')} 0 J`);
+  }
   raw(s) { this.ops.push(latin1(s + '\n')); }
   bytes() { return new Uint8Array(this.ops.flat()); }
 }
