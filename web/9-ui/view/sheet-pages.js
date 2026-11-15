@@ -7,18 +7,19 @@
 //            points   as in the sharing menu: this device first, 3 tiles a row, bridges with chevrons (honey = always,
 //                     mint dashed = backup, blue = read only), the joining icon with the days of hello and join,
 //                     the password gestures one joins with; then one table: name, login, whole path, q_, password line
-//            stock    takes, hours, words, versions · the field with the strand numbers · weeks · trends · rooms · index
-//            context  all clusters in one picture (view/sheet-cluster.js)
+//            stock    takes, hours, words, versions · the field with the strand numbers · weeks · the earth · index
+//            context  every take a point, placed by its words (view/sheet-context.js)
 //            accounts (admin) hello · join · within · quiet; tile size = bytes (smallest → largest), GB in the tile,
 //                     files per strand at the bars; the space once, as a bar
-// Depends:   1-model/pdf.js, view/sheet-charts.js, view/sheet-cluster.js
+// Depends:   1-model/pdf.js, view/sheet-charts.js, view/sheet-context.js, view/earth.js
 // Test:      tests/model.test.mjs (emergency sheet)
 // Limits:    sharing points: 3 a row, ≈ 4 rows on the page (12 incl. join tiles), more rows push the table on ·
 //            paths ≤ 140 characters whole (≥ 5 pt) · accounts flow in rows, a new page when full (≈ 30–40 a page).
 
 import { Page, fit, textWidth } from '../../1-model/pdf.js';
-import { INK, title, tiles, tile, arcs, weeks, trend, rooms, indexMap, step, next, n0, short, hours } from './sheet-charts.js';
-import { bigCluster } from './sheet-cluster.js';
+import { INK, title, tiles, tile, arcs, weeks, indexMap, step, next, n0, short, hours } from './sheet-charts.js';
+import { contextPicture } from './sheet-context.js';
+import { earth, sun } from './earth.js';
 
 export const M = 40, W = 515;
 const appArcSafe = (p, cx, cy, r) => p.arc(cx, cy, r, 180, 360, { fill: INK.whoSoft }); // shoulders of a person
@@ -90,8 +91,8 @@ export function pointPages(sheet, self) {
   // legend: the bridges and marks, a word each
   let lx = M;
   const legend = [['immer', (x) => { p.line(x, y, x + 22, y, { stroke: INK.takeSoft, width: 5 }); chevron(p, x, y, x + 22, y, INK.take); }],
-    ['Backup', (x) => { p.line(x, y, x + 22, y, { stroke: INK.safe, width: 2.6, dash: [3, 3] }); chevron(p, x, y, x + 22, y, INK.safe); }],
-    ['lesend', (x) => { p.line(x, y, x + 22, y, { stroke: INK.where, width: 1.4 }); chevron(p, x, y, x + 22, y, INK.where); }],
+    ['backup', (x) => { p.line(x, y, x + 22, y, { stroke: INK.safe, width: 2.6, dash: [3, 3] }); chevron(p, x, y, x + 22, y, INK.safe); }],
+    ['zeigen', (x) => { p.line(x, y, x + 22, y, { stroke: INK.where, width: 1.4 }); chevron(p, x, y, x + 22, y, INK.where); }],
     ['hello', (x) => p.line(x, y, x + 22, y, { stroke: INK.where, width: 2, dash: [1, 3] })], ['join', (x) => p.line(x, y, x + 22, y, { stroke: INK.where, width: 2 })],
     ['Einwilligung', (x) => p.circle(x + 11, y, 2.6, { fill: INK.card, stroke: INK.who, width: 0.9 })], ['läuft', (x) => p.circle(x + 11, y, 2.6, { fill: INK.safe })]];
   for (const [text, draw] of legend) { draw(lx); lx += 27 + p.text(lx + 27, y + 2.5, text, { size: 6.5, color: INK.mut }) + 11; }
@@ -137,7 +138,7 @@ export function pointPages(sheet, self) {
     p.text(own.x, own.y + TH / 2 + 24, fit(sheet.name, 8, CW - 12, 'bold'), { size: 8, font: 'bold', align: 'center', color: INK.mut });
   }
   const draw = (pt, c) => {
-    tile(p, c.x, c.y, TW, { h: TH, counts: pt.counts ?? {}, bars: barsOf(pt), fill: pt.self ? INK.whoTint : pt.shown ? INK.whereSoft : INK.card,
+    tile(p, c.x, c.y, TW, { h: TH, counts: pt.service ? {} : pt.counts ?? {}, bars: barsOf(pt), edges: !pt.service, fill: pt.self ? INK.whoTint : pt.service ? INK.paper : pt.shown ? INK.whereSoft : INK.card,
       stroke: pt.self ? INK.who : INK.where, width: pt.group ? 2.2 : 1, dashed: pt.offline, consent: pt.consent ?? [],
       run: pt.marks.includes('backup') ? (pt.offline ? 'fail' : 'ok') : null, friend: pt.friend, number: pt.n });
     p.text(c.x, c.y + TH / 2 + 24, fit(pt.label, 8, CW - 12, 'bold'), { size: 8, font: 'bold', align: 'center' });
@@ -186,24 +187,22 @@ function chevron(p, x1, y1, x2, y2, ink) {
 export function stockPage(sheet) {
   const p = new Page(), st = sheet.stats;
   let y = title(p, M, 80, W, 'Bestand');
-  tiles(p, { x: M, y, w: W, h: 52 }, [{ value: n0(st.takes), label: 'Takes' }, { value: hours(st.hours.all), label: 'Stunden' }, { value: short(st.words), label: 'Wörter' }, { value: n0(st.versions), label: 'Versionen' }]);
+  tiles(p, { x: M, y, w: W, h: 52 }, [{ value: n0(st.takes), label: 'Takes' }, { value: hours(st.hours.all), label: 'Stunden' }, { value: short(st.words), label: 'Wörter' }, { value: n0(st.versions), label: 'Fassungen' }]);
   y += 92;
   arcs(p, M + 80, y + 52, 46, { counts: st.strands, width: 4, window: INK.picture });
   weeks(p, { x: M + 200, y: y - 4, w: W - 200, h: 104 }, st.weeks, sheet.now);
-  y = title(p, M, y + 140, 240, 'Trends');
-  trend(p, { x: M, y: y - 2, w: 240 }, st.trend);
-  title(p, M + 260, y - 18, W - 260, 'Orte');
-  rooms(p, { x: M + 260, y: y - 4, w: W - 260, h: 92 }, st.rooms);
-  y = title(p, M, y + 116, W, 'Index');
+  y = title(p, M, y + 140, W, 'Orte');
+  sun(p, { x: M, y, w: 104, h: 168 });
+  earth(p, { x: M + 120, y, w: W - 120, h: 168 }, sheet.spots ?? []);
+  y = title(p, M, y + 194, W, 'Index');
   indexMap(p, { x: M, y: y + 4, w: W }, st.tables, st.strands);
   return p;
 }
 
 export function contextPage(sheet) {
-  const p = new Page(), c = sheet.clusters;
-  const hint = c.total ? `${Math.round(c.inside * 100)} % der Verbindungen innerhalb${c.bridges?.length ? ` · Brücken: ${c.bridges.slice(0, 4).join(', ')}` : ''}` : '';
-  const y = title(p, M, 80, W, `context · ${short(c.words)} chips`, hint);
-  bigCluster(p, { x: M, y, w: W, h: 806 - y }, c, sheet.now);
+  const p = new Page(), c = sheet.context;
+  const y = title(p, M, 80, W, `context · ${short(c.words)} Wörter · ${short(c.takes)} Takes`);
+  contextPicture(p, { x: M, y, w: W, h: 806 - y }, c, sheet.now);
   return p;
 }
 

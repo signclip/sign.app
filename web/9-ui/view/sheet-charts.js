@@ -11,7 +11,7 @@
 //              teal      when: roadmap, sessions, the steps of a way, how new a take is (dark = new)
 //              dark      the picture (video window) · grey: no meaning (numbers, index, roles, clusters)
 //            Drawings: arcs (the field as a ring) · tile (a sharing point as in the sharing menu, no layers) ·
-//            big numbers · weeks · trend · rooms · index (folders → tables) · step (a pictured way).
+//            big numbers · weeks · index (folders → tables) · step (a pictured way).
 // Depends:   1-model/pdf.js (fit, textWidth)
 // Test:      tests/model.test.mjs (emergency sheet)
 // Limits:    text ≥ 6 pt (readable printed) · numbers at arcs and bars shortened above 9.999 (12 T, 1,2 Mio).
@@ -31,8 +31,8 @@ export const INK = {
 /** Where the strands sit in the app: degrees from the top, clockwise (ring.js ARCS), and tile sides (SIDES). */
 export const ARCS = { l: [-30, 30], a: [60, 140], x: [140, 220], v: [220, 300] };
 export const SIDES = { l: 'top', a: 'right', x: 'bottom', v: 'left' };
-export const KIND_DE = { v: 'Bild', a: 'Ton', x: 'context', l: 'landmarks', m: 'Maske' };
-export const RULE = { always: { ink: INK.take, de: 'immer' }, ask: { ink: INK.take, de: 'fragen', dash: [2, 2] }, show: { ink: INK.where, de: 'lesend' }, backup: { ink: INK.safe, de: 'Backup' }, consent: { ink: INK.who, de: 'Einwilligung' } };
+export const KIND_DE = { v: 'Video', a: 'Ton', x: 'Text', l: 'landmarks', m: 'Maske' }; // as the app says (locales/de.json kind.*)
+export const RULE = { always: { ink: INK.take, de: 'immer' }, ask: { ink: INK.take, de: 'fragen', dash: [2, 2] }, show: { ink: INK.where, de: 'zeigen' }, backup: { ink: INK.safe, de: 'backup' }, consent: { ink: INK.who, de: 'Einwilligung' } };
 
 export const n0 = (n) => Math.round(n ?? 0).toLocaleString('de-DE');
 export const short = (n) => (n >= 1e6 ? `${(n / 1e6).toLocaleString('de-DE', { maximumFractionDigits: 1 })} Mio` : n >= 1e4 ? `${Math.round(n / 1e3)} T` : n0(n));
@@ -117,36 +117,11 @@ export function weeks(p, { x, y, w, h }, counts, now = Date.now()) {
   });
 }
 
-/** Rising and falling words: [{ word, now, before }]. */
-export function trend(p, { x, y, w }, list) {
-  if (!list.length) return p.text(x, y + 8, 'noch zu wenige Takes mit Datum', { size: 7.5, color: INK.mut });
-  list.forEach((t, i) => {
-    const ty = y + i * 15 + 6, up = t.now >= t.before;
-    p.poly(up ? [[x, ty + 3], [x + 7, ty + 3], [x + 3.5, ty - 4]] : [[x, ty - 4], [x + 7, ty - 4], [x + 3.5, ty + 3]], up ? { close: true, fill: INK.fg } : { close: true, stroke: INK.mut, width: 0.8 });
-    p.text(x + 13, ty + 2.5, fit(t.word, 8.5, w - 70), { size: 8.5 });
-    p.text(x + w, ty + 2.5, `${t.before} > ${t.now}`, { size: 7.5, color: INK.mut, align: 'right' });
-  });
-}
 
-/** Rooms °( ) as bubbles on a dotted ground (schematic: the sheet knows names and cells, not coordinates). */
-export function rooms(p, { x, y, w, h }, list) {
-  p.rect(x, y, w, h, { r: 8, fill: INK.paper, stroke: INK.line, width: 0.6 });
-  for (let gx = x + 10; gx < x + w; gx += 12) for (let gy = y + 10; gy < y + h; gy += 12) p.circle(gx, gy, 0.5, { fill: INK.rest });
-  if (!list.length) return p.text(x + w / 2, y + h / 2 + 3, 'noch keine Orte °( ) an den Takes', { size: 7.5, color: INK.mut, align: 'center' });
-  const max = list[0][1], cols = 4, cw = w / cols, rh = h / Math.ceil(list.length / cols);
-  list.forEach(([name, n], i) => {
-    const col = i % cols, row = Math.floor(i / cols);
-    const cx = x + cw * col + cw / 2 + (row % 2 ? cw / 4 : -cw / 8), cy = y + rh * row + rh / 2 - 4;
-    const r = 4 + 14 * Math.sqrt(n / max);
-    p.circle(cx, cy, r, { fill: INK.whereSoft, stroke: INK.where, width: 0.8 });
-    p.text(cx, cy + 2.5, short(n), { size: 7, font: 'bold', align: 'center' });
-    p.text(cx, cy + r + 8, fit(String(name).replace(/^o_/, ''), 6.5, cw - 4), { size: 6.5, color: INK.mut, align: 'center' });
-  });
-}
 
 /** How the index is built: folders (the truth, in every sharing point) → tables (computed on the device). */
 export function indexMap(p, { x, y, w }, tables, strands) {
-  const left = [['take/v/', 'Bild', strands.v], ['take/a/', 'Ton', strands.a], ['take/x/', 'context', strands.x], ['echo/l/ echo/m/', '~ berechnet', strands.l + strands.m], ['chain/', 'chains (Log)', tables.chains], ['keys/', 'nie geteilt', null]];
+  const left = [['take/v/', 'Video', strands.v], ['take/a/', 'Ton', strands.a], ['take/x/', 'Text', strands.x], ['echo/l/ echo/m/', '~ berechnet', strands.l + strands.m], ['chain/', 'chains (Log)', tables.chains], ['keys/', 'nie geteilt', null]];
   const right = [['strands', tables.strands], ['chains', tables.chains], ['context', tables.context], ['weave', tables.weave], ['sharingPoints', tables.sharingPoints], ['takes', tables.takes], ['similar', tables.similar]];
   const links = [[0, 0], [1, 0], [2, 0], [2, 2], [3, 0], [3, 3], [4, 1], [4, 3], [4, 5], [4, 6]];
   const bw = 150, lx = x, rx = x + w - bw, rowL = 24, rowR = 20.6;

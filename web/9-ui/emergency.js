@@ -6,12 +6,12 @@
 //              cover     the app as it looks and the roadmap (view/sheet-cover.js)
 //              backup    paper password, how backups open, access IDs, password gestures and login by hand
 //              points    every sharing point as a tile of the sharing menu, with login and path
-//              stock     numbers, strands at their arcs, weeks, trends, rooms, the index
-//              context   all context clusters in one picture
+//              stock     numbers, strands at their arcs, weeks, the earth with the spots, the index
+//              context   every take a point, placed by its words
 //              accounts  (admin) hello · join · within · quiet, tiles sized by bytes
 //            One colour = one meaning on every page (view/sheet-charts.js INK). The paper password stays the same on every
 //            sheet; a new one only with the current one copied as second factor (paperChoice).
-// Depends:   1-model/pdf.js, 3-index/tally.js, 3-index/clusters.js, view/sheet-cover.js, view/sheet-pages.js
+// Depends:   1-model/pdf.js, 3-index/tally.js, 3-index/context-map.js, view/sheet-cover.js, view/sheet-pages.js
 // Test:      tests/model.test.mjs (emergency sheet)
 // Limits:    A4 · paper password 26 Base32 characters (≈ 130 bit) in groups of 4 · no password of a login ever
 //            reaches the sheet (only user, server, path) · ≤ 24 sharing points drawn around the device.
@@ -19,7 +19,7 @@
 import { Page, makePages } from '../1-model/pdf.js';
 import { timeLabel } from '../1-model/filename.js';
 import { tally } from '../3-index/tally.js';
-import { clusters } from '../3-index/clusters.js';
+import { contextMap } from '../3-index/context-map.js';
 import { INK, arcs } from './view/sheet-charts.js';
 import { cover } from './view/sheet-cover.js';
 import { M, W, backupPage, pointPages, stockPage, contextPage, accountPages } from './view/sheet-pages.js';
@@ -41,9 +41,10 @@ export function loginOf(spec, path) {
  * What share-mount.js holds → the sheet. entries: the list (readList) · rules: rulesOf · open: Map(n → { spec, store,
  * error, waiting }) · index: the Index or null · admin: { user, server } or null · accounts: [{ user, label, state, v, a,
  * x, l, chains, bytes }] · project: project.json · joins: [{ label, state, hello, join }] (time labels of the hello and the
- * answer) · passwordGestures: the words of the gestures one joined with, or null (then fields to write by hand).
+ * answer) · passwordGestures: the words of the gestures one joined with, or null (then fields to write by hand) ·
+ * services: { admin: n, atlas: n } (service tiles) · spots: [{ name, lat, lon, n }] (none yet: takes carry no o_).
  */
-export function sheetData({ person, device, key, paper, signerCode = null, joins = [], passwordGestures = null, date, entries = [], rules = [], open = new Map(), index = null, admin = null, accounts = [], project = null, nameSign = false, gestureSlots = 5, now = Date.now() }) {
+export function sheetData({ person, device, key, paper, signerCode = null, joins = [], passwordGestures = null, services = {}, spots = [], date, entries = [], rules = [], open = new Map(), index = null, admin = null, accounts = [], project = null, nameSign = false, gestureSlots = 5, now = Date.now() }) {
   const stats = tally(index ?? EMPTY, { now });
   const files = new Map(stats.files);
   const countsOf = (store) => { const k = stats.kinds[store]; return k ? { v: k.v, a: k.a, x: k.x, l: k.l + k.m } : null; };
@@ -58,6 +59,7 @@ export function sheetData({ person, device, key, paper, signerCode = null, joins
       always: [...new Set(mine.filter((r) => r.mark === 'always').flatMap((r) => r.kinds ?? []))],
       kinds: mine.some((r) => !r.kinds?.length) ? [] : [...new Set(mine.flatMap((r) => r.kinds ?? []))],
       files: files.get(e.label) ?? 0, counts: countsOf(e.label) ?? undefined,
+      ...(n === services.admin ? { service: 'admin', label: 'Admin' } : n === services.atlas ? { service: 'atlas', label: 'Atlas' } : {}), // as in the app: no storage, no bars
     };
   });
   const atlas = project?.atlas ? `${project.atlas}${admin?.server ? `@${host(admin.server)}` : ''}` : null;
@@ -73,7 +75,7 @@ export function sheetData({ person, device, key, paper, signerCode = null, joins
   const flows = rules.filter((r) => ['always', 'ask', 'backup', 'show'].includes(r.mark)).map((r) => ({ from: r.from ?? 0, to: r.to, mark: r.mark }));
   const day = (label) => { const m = /^(\d{4})\.(\d\d)\.(\d\d)/.exec(label ?? ''); return m ? `${Number(m[3])}.${Number(m[2])}.` : null; };
   const joined = joins.map((j) => ({ label: j.label, state: j.state, hello: day(j.hello), join: day(j.join) })).filter((j) => points.some((pt) => pt.label === j.label));
-  return { name: person.label, person: person.id, date, now, roles, paper, ids, points, flows, joins: joined, passwordGestures, own, nameSign, gestureSlots, stats, clusters: clusters(stats.list),
+  return { name: person.label, person: person.id, date, now, roles, paper, ids, points, flows, joins: joined, passwordGestures, own, nameSign, gestureSlots, stats, context: contextMap(stats.list), spots,
     accounts: admin ? accounts.map((a) => ({ ...a, label: a.label ?? a.user })) : null, atlas, device };
 }
 

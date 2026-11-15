@@ -26,6 +26,7 @@ import { honorRemove } from '../8-join/remove-request.js';
 import { welcome as welcomeWithAccount, welcomeDevice, arrive } from '../8-join/welcome.js';
 import { knownFolder, userOf } from '../8-join/known.js';
 import { isAgain } from '../8-join/door.js';
+import { sayRename } from '../8-join/rename.js';
 import { QUOTA } from '../8-join/provision.js';
 import { readName } from '../1-model/filename.js';
 import { newSource } from '../1-model/ids.js';
@@ -245,7 +246,13 @@ export async function followJoins(ctx) {
       try {
         const u = readName(mine.helloPath.slice(mine.helloPath.lastIndexOf('/') + 1))?.u;
         const note = u && (await doorLinks(read, drop).list('join/')).some((f) => { const n = readName(f.path.slice(f.path.lastIndexOf('/') + 1)); return n?.words.includes(u) && n.words.includes('quiet'); });
-        if (note) { await ctx.logout?.(mine.account); await joins.set(t.label, null); states.set(t.label, 'door'); }
+        if (note) { await ctx.logout?.(mine.account); await joins.set(t.label, null); states.set(t.label, 'door'); continue; }
+        if (!mine.label) await joins.set(t.label, { ...mine, label: ctx.person.label }); // the name it joined with
+        else if (ctx.person.label && mine.label !== ctx.person.label) { // renamed (15.11.): the admin is told, sealed, with the new name sign; the ID stays
+          const keys = await deviceKeys();
+          await sayRename({ store: doorLinks(read, drop), device: { id: ctx.device, label: ctx.person.label, key: keys.device.public }, deviceKey: keys.device, person: ctx.person, account: mine.account.user, old: mine.label, nameSign: await ctx.nameSign?.().catch(() => null) });
+          await joins.set(t.label, { ...mine, label: ctx.person.label });
+        }
       } catch { /* not reachable now */ }
       continue;
     }

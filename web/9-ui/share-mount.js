@@ -40,7 +40,9 @@ import { doorView, toWithin, backToHello, moveAccount } from '../8-join/door.js'
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
-import { revokeAppPassword } from '../8-join/provision.js';
+import { revokeAppPassword, setDisplayName } from '../8-join/provision.js';
+import { renames, adoptRename, declineRename } from '../8-join/rename.js';
+import { nameSignOf } from '../8-join/join.js';
 import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled, deleteAccount, groupsOf, setGroup, matchAccounts } from '../8-join/provision.js';
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
 import { WebDavStore } from '../2-storage/webdav.js';
@@ -301,7 +303,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const admin = await findAdmin().catch(() => null); // only user and server reach the sheet, never the password
     const accounts = admin ? await sheetAccounts().catch(() => []) : [];
     const signerCode = admin && adminStore() ? await paperForDoor(choice !== 'keep').catch(() => null) : null; // admin: the paper becomes a signer too
-    const sheet = sheetData({ person, device, key, paper, signerCode, joins: await sheetJoins(), date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
+    const sheet = sheetData({ person, device, key, paper, signerCode, joins: await sheetJoins(), services: { admin: s.adminN, atlas: s.atlasN }, date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
     const pdf = sheetPdf(sheet);
     const name = sheetName(sheet); // (Sign Overview)@(Name)'t(…)!(u_…).pdf, as every file name
     const p = { title: 'Sign Overview', text: key, files: [new File([pdf], name, { type: 'application/pdf' })] };
@@ -520,7 +522,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     return draw();
   }
   const countedAt = () => { try { const at = Number(localStorage.getItem('sign.atlasAt') || 0); return at ? timeLabel(at).slice(5, 16) : '–'; } catch { return '–'; } };
-  const indexTiles = () => [{ label: `← ${countedAt()}`, go: () => { s.index = null; draw(); } }, ...s.index.filter((x) => words().every((w) => x.user.toLowerCase().includes(w.toLowerCase()))).map((x) => ({ label: `${x.user} · ${statsOf(x.c)}` }))];
+  const indexTiles = () => [{ label: `← ${countedAt()}`, go: () => { s.index = null; draw(); } }, ...s.index.filter((x) => words().every((w) => (x.c.label ?? x.user).toLowerCase().includes(w.toLowerCase()))).map((x) => ({ label: `@${x.c.label ?? x.user} · ${statsOf(x.c)}` }))];
   /** → on the admin tile: the accounts with their space as tiles; ↓ rests, ↑ wakes, two fingers apart / together = more / less space, the first tile = back (14.11.). */
   async function showAccounts() {
     s.accounts = [];
@@ -537,7 +539,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (!s.accounts) return null;
     if (s.account) return lookTiles(s.account);
     return [{ label: '←', go: () => { s.accounts = null; s.account = null; draw(); } }, ...matchAccounts(s.accounts, words()).map((a) => ({ // the context words find accounts, like Similar
-      label: `${a.enabled ? '' : '◌ '}${a.label}${s.accounts.filter((b) => b.label === a.label).length > 1 ? ` ${a.user.slice(2, 6)}` : ''}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
+      label: `${a.enabled ? '' : '◌ '}@${a.label}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
       look: () => openAccount(a), // tap = look at it: its devices and groups
       down: () => setEnabled(ctx.admin, a.user, false).then(showAccounts, () => say(t('notReachable'))), // ↓ rests (◌)
       up: () => setEnabled(ctx.admin, a.user, true).then(showAccounts, () => say(t('notReachable'))), // ↑ wakes
@@ -552,12 +554,13 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     s.hellos = await hellosToWelcome(ctx).catch(() => s.hellos);
     const door = ctx.admin ? adminStore() : null;
     s.door = door ? await doorView(door).catch(() => s.door) : null;
+    s.renames = door ? await renames(door).catch(() => s.renames ?? []) : []; // a person renamed herself: in the hello pile
     if (!panel.hidden) draw();
   }
   setInterval(() => { if (!panel.hidden && (ctx.admin || s.hellos.length)) refreshDoor(); }, 20000);
   /** The piles shown (15.11.): hello for every signer; join, within, quiet for the admin's door. */
   const PILES = ['hello', 'join', 'within', 'quiet'];
-  const pileList = (name) => (name === 'hello' ? s.hellos : s.door?.[name] ?? []);
+  const pileList = (name) => (name === 'hello' ? [...s.hellos, ...(s.renames ?? [])] : s.door?.[name] ?? []);
   /**
    * Admin (15.11.): one pile as Similar tiles; each person's name sign and password gestures together, a new device of a
    * known person with the originals (Doppel: new above, original below). In Doppel ↑ = on to the next pile, ↓ = back:
@@ -568,6 +571,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const store = name === 'hello' ? null : adminStore(), items = [], again = () => refreshDoor();
     for (const x of pileList(name)) {
       if (items.length >= 40) break; // the tiles of one look; decided ones make room
+      if (x.account && x.old) { // a rename (15.11.): the new name sign above beside the first one; ↑ = the new name, ↓ = not
+        const from = adminStore(), first = from && (await firstPieces(from, x.folder).catch(() => new Map())).get('');
+        if (!from) continue;
+        items.push({ path: `hello/${nameSignOf(x.path.slice(6))}`, pair: first ?? null, from, group: x.path,
+          up: () => adoptRename(from, x).then(() => setDisplayName(ctx.admin, x.account, x.name).catch(() => {})).then(again),
+          down: () => declineRename(from, x).then(again) });
+        continue;
+      }
       const from = store ?? s.open.get(x.n)?.store;
       if (!from) continue;
       const group = x.helloPath ?? x.folder;
@@ -615,7 +626,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   function lookTiles({ a, devices, groups, store }) {
     const again = () => openAccount(a), fail = () => say(t('notReachable'));
     return [
-      { label: `← ${a.label}`, go: () => { s.account = null; draw(); } },
+      { label: `← @${a.label}`, go: () => { s.account = null; draw(); } },
       { label: statsOf(a.counts), look: () => lookAccount(a) }, // what the account holds (atlas: takes per strand); tap = its gestures
       ...devices.map((d) => ({ label: d.device.label, down: () => quietDevice(store, d.helloPath).then(again, fail) })),
       ...groups.all.map((g) => (groups.mine.includes(g)

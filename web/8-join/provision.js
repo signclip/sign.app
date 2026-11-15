@@ -98,6 +98,11 @@ export async function revokeAppPassword({ server, user, password }, { fetch = gl
   return res.ok || res.status === 401; // 401: it was gone already
 }
 
+/** The name Nextcloud shows for an account (15.11.: a person renamed herself; the account, n_, stays). */
+export async function setDisplayName(admin, user, label, { fetch = globalThis.fetch } = {}) {
+  await ocs(admin, `users/${encodeURIComponent(user)}`, { method: 'PUT', body: new URLSearchParams({ key: 'displayname', value: label }).toString(), fetch });
+}
+
 /** A new login password for an existing account (15.11.: a new device of a known person gets its own app password;
  * the app passwords of her other devices keep working). Never shown, never stored. */
 export async function setPassword(admin, user, password, { fetch = globalThis.fetch } = {}) {
