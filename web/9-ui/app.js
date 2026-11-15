@@ -47,7 +47,7 @@ import { addEcho } from '../4-save/add-echo.js';
 import { similar } from '../7-similar/filter.js';
 import { newPerson, newSource, shortU, writeId } from '../1-model/ids.js';
 import { readFile } from '../1-model/file.js';
-import { withSticky, afterTake as nextOfSeries, readContext, fromField } from '../1-model/context.js';
+import { withSticky, afterTake as stepSeries, nextOfSeries, readContext, fromField } from '../1-model/context.js';
 import { write as writeNotation, parse as parseNotation } from '../1-model/notation.js';
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse } from './state.js';
@@ -67,6 +67,9 @@ import { drawWords } from '../1-model/words.js';
 import { installDavFetch } from '../2-storage/dav-fetch.js';
 installDavFetch(); // native app: PROPFIND, MKCOL, MOVE through the app's own plugin (Android refuses them otherwise)
 import { installDebug } from './debug.js';
+import { createWhere } from '../5-take/where.js';
+
+const here = createWhere(); // o_ of each take: H3 cell, resolution 5
 installDebug(); // every request into a short log (hold the line under the circles = share it)
 
 const $ = (sel) => document.querySelector(sel);
@@ -290,7 +293,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (st.screen !== 'record') return;
     take.began = action;
     const first = parseNotation(series).find((n) => n.t !== 'sym'); // written context: the next gesture of the series
-    take.context = action === 'take-with-context' ? contextOf(st.hold?.text) : first ? writeNotation([first]) : '';
+    take.context = action === 'take-with-context' ? contextOf(st.hold?.text) : first ? nextOfSeries(series) : ''; // a prefix series: prefix + its next element
     if (settings.onboarding && GESTURE_STEPS.includes(onboard.at)) { // a password gesture: the picked word (1, 2) or one's own typed word (3)
       const own = onboard.at === GESTURE_STEPS[2] && first ? writeNotation([first]).replace(/^\(|\)$/g, '') : '';
       take.context = `(password${data.gestureWord ? ` ${data.gestureWord}` : own ? ` ${own}` : ''})`;
@@ -309,6 +312,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     try { take.relay = relay($('#live')); } catch { take.relay = null; } // the camera may change during the take (14.11.)
     const source = take.relay ? new MediaStream([take.relay.track, ...camera.getAudioTracks()]) : camera;
     take.recorder = startTake(source, { MediaRecorder, tapAudio: () => tap });
+    here.refresh(); // o_: where this take is, ready when it is saved (never waits)
     navigator.vibrate?.(25); // the take runs: felt, not only seen
     if (take.stopSoon) { take.stopSoon = false; return end(); }
     data.levels = [];
@@ -345,7 +349,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     let saved;
     try {
       saved = await saveTake({
-        device, person, store, now: Date.now(), lengthMs: recorded.lengthMs, context: withSticky(sticky.map((w) => `(${w})`).join(' '), take.context),
+        device, person, store, cell: here.now(), now: Date.now(), lengthMs: recorded.lengthMs, context: withSticky(sticky.map((w) => `(${w})`).join(' '), take.context),
         video: kinds.includes('v') ? recorded.video : null,
         picture: kinds.includes('v') ? recorded.picture ?? null : null,
         audio: kinds.includes('a') ? recorded.audio : null,
@@ -361,7 +365,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       const ref = await chainBytes(data.double);
       if (ref) take.lastChain = (await addLine({ own: store, below: ref.bytes, elements: [{ bytes: await store.read(saved.chain.path) }], device, person , deviceKey: await sealKey() })).chain;
     }
-    if (take.fromSeries) { series = nextOfSeries(series); showSeries(); } // the series goes one on
+    if (take.fromSeries) { series = stepSeries(series); showSeries(); } // the series goes one on (a prefix series: one element)
     take.lastKinds = [...new Set([...kinds, ...keep])];
     data.versions = onto ? data.versions + 1 : 1;
     data.line = { count: await takesCount(), at: 0 };

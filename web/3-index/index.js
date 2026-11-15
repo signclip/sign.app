@@ -1,7 +1,7 @@
 // index.js — what the index knows and how it answers. Computed, never the truth.
 //
 // Purpose:   tables named after our terms, all rebuilt from the files at any time:
-//              strands        id → kind, head (from :x files and from the chains that define them)
+//              strands        id → kind, head (from :x files and from the chains that define them); :x also lead = sticky words
 //              chains         id → head, definitions, lines, the chain below (bottom {:chain.1})
 //              sharingPoints  u_ (12 chars, from the file name) → paths in every sharing point
 //              context        word (NFC, lower case) → :x strands that contain it
@@ -22,6 +22,7 @@ import { readFile } from '../1-model/file.js';
 import { readId, idKey, shortU } from '../1-model/ids.js';
 import { readName, flatWords } from '../1-model/filename.js';
 import { checkWitness } from '../1-model/crypto.js';
+import { leadOf } from '../1-model/context.js';
 
 const norm = (w) => w.normalize('NFC').toLowerCase();
 const add = (map, key, value) => (map.get(key) ?? map.set(key, new Set()).get(key)).add(value);
@@ -44,7 +45,8 @@ export class Index {
     if (!file.head.id) return null;
     const key = idKey(file.head.id);
     if (file.kind === 'x') {
-      this.tables.strands.set(key, { key, kind: 'x', head: file.head, from });
+      const lead = [...new Set(file.rows.flatMap((row) => leadOf(row.text)))]; // sticky words: a series (15.11.)
+      this.tables.strands.set(key, { key, kind: 'x', head: file.head, from, lead });
       for (const row of file.rows) for (const w of flatWords(row.text)) add(this.tables.context, norm(w), key);
       return key;
     }

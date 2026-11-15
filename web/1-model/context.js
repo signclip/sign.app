@@ -88,10 +88,39 @@ export function afterTake(text) {
   return write(items);
 }
 
+// A prefix series (15.11.): (hallo)((apfel) (birne) (du)) gives one take per element — (hallo apfel), then (hallo birne) …
+// The prefix stays in front until its last element is taken; nested prefixes step the same way inside.
+const unwrap = (n) => (n?.t === 'group' && n.items?.length === 1 && n.items[0].t === 'prefix' ? n.items[0] : n);
+const elements = (prefix) => prefix.body.items.filter((n) => n.t !== 'sym');
+
 function removeFirstGesture(items) {
   const i = items.findIndex((n) => n.t !== 'sym');
-  if (i >= 0) items.splice(i, 1);
-  return i >= 0;
+  if (i < 0) return false;
+  const p = unwrap(items[i]);
+  if (p.t === 'prefix' && elements(p).length) { // take one element of the prefix's bracket, keep the prefix for the rest
+    const inner = p.body.items, j = inner.findIndex((n) => n.t !== 'sym'), first = unwrap(inner[j]);
+    if (first.t === 'prefix' && elements(first).length > 1) removeFirstGesture(inner);
+    else inner.splice(j, 1);
+    if (!elements(p).length) items.splice(i, 1);
+    return true;
+  }
+  items.splice(i, 1);
+  return true;
+}
+
+/**
+ * The context of the next take of a series: the first gesture; of a prefix series the prefix with its first element,
+ * in its own bracket (G4): (hallo)((apfel) (birne)) → ((hallo)((apfel))). Empty text → ''.
+ */
+export function nextOfSeries(text) {
+  const first = parse(text ?? '').find((n) => n.t !== 'sym');
+  if (!first) return '';
+  const pick = (n) => {
+    const p = unwrap(n);
+    if (p.t !== 'prefix' || !elements(p).length) return n;
+    return { t: 'group', items: [{ ...p, body: { ...p.body, items: [pick(elements(p)[0])] } }], meta: [] };
+  };
+  return write([pick(first)]);
 }
 
 /**
@@ -118,4 +147,19 @@ export function fromField(text) {
     const out = write(items);
     return readContext(out).errors.length ? plain() : out;
   } catch { return plain(); }
+}
+
+/**
+ * The sticky words of a context (15.11.): what a series holds stands as a prefix in its own bracket (G4, withSticky):
+ * ((Obst)((Banane))) ((Obst)((Apfel))) → ['obst']. Nested levels all count: ((Essen)((Obst)((Banane)))) → ['essen', 'obst'].
+ * No prefix, or text that does not parse → [].
+ */
+export function leadOf(text) {
+  let nodes;
+  try { nodes = parse(text ?? ''); } catch { return []; }
+  const words = (n) => (n.t === 'value' ? [n.text] : (n.items ?? []).flatMap(words));
+  const out = new Set();
+  const walk = (n) => { if (n.t === 'prefix') { for (const w of words(n.head)) out.add(w.normalize('NFC').toLowerCase()); walk(n.body); } else if (n.t === 'group' && n.items?.length === 1) walk(n.items[0]); };
+  for (const n of nodes) walk(n);
+  return [...out];
 }

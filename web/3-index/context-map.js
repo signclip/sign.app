@@ -9,18 +9,21 @@
 //            2 takes: at the mean of their words (rare words weigh more: 1 / √f), takes with the same words spread in a
 //              sunflower around that spot. Takes without context: a ring at the edge.
 //            3 above `most` takes, points that fall into one small square merge into one point (size = how many).
+//            4 series: as long as one prefix goes on from take to take — (hallo)((apfel) (birne) (du)) gives (hallo apfel)
+//              – (hallo birne) – (hallo du) — the takes are linked in their order; a take of the same person without that
+//              prefix ends the series (no clock: it lasts as long as the context stays). Merged points: links between points.
 //            Computed each time from the index, never stored. Same input = same picture (no randomness).
 // Depends:   nothing (the take list of 3-index/tally.js: [{ ms, at, kinds, words }])
 // Test:      tests/model.test.mjs (emergency sheet)
 // Limits:    layout: 2,000 words × ≤ 30 pulls × 160 steps + a grid for pushing ≈ 0.2–0.4 s · takes: one pass ·
 //            20,000 takes → 20,000 points (≈ 700 kB of PDF) · 100,000 takes → merged in the finest squares that give
-//            ≤ 20,000 points (≈ 5 takes a point) · labels: the 24 most used words.
+//            ≤ 20,000 points (≈ 5 takes a point) · labels: the 24 most used words · links ≤ one per take (≈ 40 B each).
 
 const ANCHORS = 2000, PULLS = 30, STEPS = 160;
 
 function hash(text) { let h = 2166136261; for (const c of text) { h ^= c.codePointAt(0); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; }
 
-/** list: takes → { dots: [{ x, y, ms, at, n }], labels: [{ word, x, y, n }], merged: takes per point or 1 } in [0, 1]². */
+/** list: takes → { dots: [{ x, y, ms, at, n }], labels: [{ word, x, y, n }], merged: takes per point or 1, links: [[dot, dot]] (series) } in [0, 1]². */
 export function contextMap(list, { most = 20000 } = {}) {
   const freq = new Map();
   for (const t of list) for (const w of t.words) freq.set(w, (freq.get(w) ?? 0) + 1);
@@ -77,12 +80,12 @@ export function contextMap(list, { most = 20000 } = {}) {
     const key = [...new Set(ws)].sort().join(' ');
     (groups.get(key) ?? groups.set(key, { ws: [...new Set(ws)], takes: [] }).get(key)).takes.push(t);
   }
-  const gap = 0.55 / Math.sqrt(Math.max(1, list.length)), dots = [];
+  const gap = 0.55 / Math.sqrt(Math.max(1, list.length)), dots = [], dotOf = new Map();
   for (const { ws, takes } of groups.values()) {
     let x = 0, y = 0, wsum = 0;
     for (const w of ws) { const g = 1 / Math.sqrt(freq.get(w)); x += pos.get(w).x * g; y += pos.get(w).y * g; wsum += g; }
     x /= wsum; y /= wsum;
-    takes.sort((a, b) => (b.at ?? 0) - (a.at ?? 0)).forEach((t, i) => { const r = gap * Math.sqrt(i), a = i * 2.39996; dots.push({ x: x + r * Math.cos(a), y: y + r * Math.sin(a), ms: t.ms, at: t.at ?? null, n: 1 }); });
+    takes.sort((a, b) => (b.at ?? 0) - (a.at ?? 0)).forEach((t, i) => { const r = gap * Math.sqrt(i), a = i * 2.39996; dotOf.set(t, dots.length); dots.push({ x: x + r * Math.cos(a), y: y + r * Math.sin(a), ms: t.ms, at: t.at ?? null, n: 1 }); });
   }
   ring.forEach((t, i) => { const a = (i / Math.max(1, ring.length)) * 2 * Math.PI; dots.push({ x: 0.5 + 9 * Math.cos(a), y: 0.5 + 9 * Math.sin(a), ms: t.ms, at: t.at ?? null, n: 1 }); }); // far out: they land on the edge
   // into [0, 1]²
@@ -95,13 +98,20 @@ export function contextMap(list, { most = 20000 } = {}) {
   };
   for (const d of dots) [d.x, d.y] = fit(d.x, d.y);
   // 3 merge when there are too many: one point per small square, newest time, summed length
-  let out = dots, merged = 1;
+  let out = dots, merged = 1, cellOf = dots.map((_, i) => i);
   for (let side = 1024; out.length > most && side >= 16; side = Math.floor(side / 1.4)) { // the finest squares that bring it under `most`
-    const cells = new Map();
-    for (const d of dots) { const g = Math.floor(d.x * side) * 100003 + Math.floor(d.y * side), c = cells.get(g); if (!c) cells.set(g, { ...d }); else { c.n += 1; c.ms += d.ms; c.at = Math.max(c.at ?? 0, d.at ?? 0); } }
-    out = [...cells.values()];
+    const cells = new Map(), index = [];
+    cellOf = dots.map((d) => { const g = Math.floor(d.x * side) * 100003 + Math.floor(d.y * side); let c = cells.get(g); if (!c) { c = { ...d, i: index.length }; cells.set(g, c); index.push(c); } else { c.n += 1; c.ms += d.ms; c.at = Math.max(c.at ?? 0, d.at ?? 0); } return c.i; });
+    out = index.map(({ i, ...d }) => d);
     merged = dots.length / out.length;
   }
+  // 4 series: the same prefix from one take to the next of the same person, nothing else between
+  const links = new Set(), last = new Map();
+  for (const t of list.filter((x) => x.at != null).sort((a, b) => a.at - b.at)) {
+    const prev = last.get(t.by ?? '');
+    if (t.lead && prev?.lead === t.lead && dotOf.has(prev) && dotOf.has(t)) { const a = cellOf[dotOf.get(prev)], b = cellOf[dotOf.get(t)]; if (a !== b) links.add(`${a} ${b}`); }
+    last.set(t.by ?? '', t);
+  }
   const labels = anchors.slice(0, 24).map((w) => { const [x, y] = fit(pos.get(w).x, pos.get(w).y); return { word: w, x, y, n: freq.get(w) }; });
-  return { dots: out, labels, merged, takes: list.length, words: words.length };
+  return { dots: out, labels, merged, links: [...links].map((k) => k.split(' ').map(Number)), takes: list.length, words: words.length };
 }

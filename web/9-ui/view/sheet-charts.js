@@ -31,7 +31,7 @@ export const INK = {
 /** Where the strands sit in the app: degrees from the top, clockwise (ring.js ARCS), and tile sides (SIDES). */
 export const ARCS = { l: [-30, 30], a: [60, 140], x: [140, 220], v: [220, 300] };
 export const SIDES = { l: 'top', a: 'right', x: 'bottom', v: 'left' };
-export const KIND_DE = { v: 'Video', a: 'Ton', x: 'Text', l: 'landmarks', m: 'Maske' }; // as the app says (locales/de.json kind.*)
+export const KIND_DE = { v: 'visuell', a: 'Ton', x: 'Text', l: 'landmarks', m: 'Maske' }; // as the app says (locales/de.json kind.*)
 export const RULE = { always: { ink: INK.take, de: 'immer' }, ask: { ink: INK.take, de: 'fragen', dash: [2, 2] }, show: { ink: INK.where, de: 'zeigen' }, backup: { ink: INK.safe, de: 'backup' }, consent: { ink: INK.who, de: 'Einwilligung' } };
 
 export const n0 = (n) => Math.round(n ?? 0).toLocaleString('de-DE');
@@ -50,14 +50,14 @@ export function title(p, x, y, w, text, hint = '') {
 }
 
 /** The field as a ring with the strand arcs and the line on top; counts { v, a, x, l } written at each arc. */
-export function arcs(p, cx, cy, r, { counts = null, width = 3, window = null, line = true, size = null } = {}) {
+export function arcs(p, cx, cy, r, { counts = null, width = 3, window = null, line = true, size = null, quiet = [] } = {}) {
   if (window) p.circle(cx, cy, r - width * 1.6, { fill: window });
   const out = r + width * 2.6;
   if (line) appArc(p, cx, cy, out, -60, -34, { stroke: INK.strandSoft, width: width * 0.7 }), appArc(p, cx, cy, out, 34, 60, { stroke: INK.strandSoft, width: width * 0.7 });
   for (const [k, [a, b]] of Object.entries(ARCS)) {
     const on = !counts || counts[k] > 0, rr = k === 'l' ? out : r;
     appArc(p, cx, cy, rr, a + 5, b - 5, { stroke: on ? INK.strand : INK.rest, width: k === 'l' ? width * 0.7 : width });
-    if (!counts) continue;
+    if (!counts || quiet.includes(k)) continue; // quiet: no number there (e.g. l under the point)
     const [tx, ty] = polar(cx, cy, rr + (k === 'l' ? 9 : width + 7), (a + b) / 2);
     p.text(tx, ty + 2.5, `${k} ${short(counts[k] ?? 0)}`, { size: size ?? Math.max(6, Math.min(8, r / 6)), color: on ? INK.fg : INK.mut, align: k === 'a' ? 'left' : k === 'v' ? 'right' : 'center' });
   }
@@ -121,7 +121,7 @@ export function weeks(p, { x, y, w, h }, counts, now = Date.now()) {
 
 /** How the index is built: folders (the truth, in every sharing point) → tables (computed on the device). */
 export function indexMap(p, { x, y, w }, tables, strands) {
-  const left = [['take/v/', 'Video', strands.v], ['take/a/', 'Ton', strands.a], ['take/x/', 'Text', strands.x], ['echo/l/ echo/m/', '~ berechnet', strands.l + strands.m], ['chain/', 'chains (Log)', tables.chains], ['keys/', 'nie geteilt', null]];
+  const left = [['take/v/', 'visuell', strands.v], ['take/a/', 'Ton', strands.a], ['take/x/', 'Text', strands.x], ['echo/l/ echo/m/', '~ berechnet', strands.l + strands.m], ['chain/', 'chains (Log)', tables.chains], ['keys/', 'nie geteilt', null]];
   const right = [['strands', tables.strands], ['chains', tables.chains], ['context', tables.context], ['weave', tables.weave], ['sharingPoints', tables.sharingPoints], ['takes', tables.takes], ['similar', tables.similar]];
   const links = [[0, 0], [1, 0], [2, 0], [2, 2], [3, 0], [3, 3], [4, 1], [4, 3], [4, 5], [4, 6]];
   const bw = 150, lx = x, rx = x + w - bw, rowL = 24, rowR = 20.6;

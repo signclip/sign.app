@@ -40,12 +40,14 @@ export function loginOf(spec, path) {
 /**
  * What share-mount.js holds → the sheet. entries: the list (readList) · rules: rulesOf · open: Map(n → { spec, store,
  * error, waiting }) · index: the Index or null · admin: { user, server } or null · accounts: [{ user, label, state, v, a,
- * x, l, chains, bytes }] · project: project.json · joins: [{ label, state, hello, join }] (time labels of the hello and the
+ * x, l, chains, bytes }] · last: upkeep's ruleKey → ms of the last run · project: project.json · joins: [{ label, state, hello, join }] (time labels of the hello and the
  * answer) · passwordGestures: the words of the gestures one joined with, or null (then fields to write by hand) ·
- * services: { admin: n, atlas: n } (service tiles) · spots: [{ name, lat, lon, n }] (none yet: takes carry no o_).
+ * services: { admin: n, atlas: n } (service tiles) · spots: [{ name, lat, lon, n }] (share-mount fills them from the o_ cells).
  */
-export function sheetData({ person, device, key, paper, signerCode = null, joins = [], passwordGestures = null, services = {}, spots = [], date, entries = [], rules = [], open = new Map(), index = null, admin = null, accounts = [], project = null, nameSign = false, gestureSlots = 5, now = Date.now() }) {
+export function sheetData({ person, device, key, paper, signerCode = null, last = {}, joins = [], passwordGestures = null, services = {}, spots = [], date, entries = [], rules = [], open = new Map(), index = null, admin = null, accounts = [], project = null, nameSign = false, gestureSlots = 5, now = Date.now() }) {
   const stats = tally(index ?? EMPTY, { now });
+  // when something last went to n (upkeep: ruleKey "from>to mark kinds" → ms), as a day: 15.11.
+  const lastOf = (n, marks) => { const ms = Math.max(0, ...Object.entries(last).filter(([k]) => { const m = /^\d+>(\d+) (\w+)/.exec(k); return m && Number(m[1]) === n && marks.includes(m[2]); }).map(([, v]) => v)); return ms ? `${new Date(ms).getDate()}.${new Date(ms).getMonth() + 1}.` : null; };
   const files = new Map(stats.files);
   const countsOf = (store) => { const k = stats.kinds[store]; return k ? { v: k.v, a: k.a, x: k.x, l: k.l + k.m } : null; };
   const points = entries.map((e, i) => ({ e, n: i + 1 })).filter(({ e }) => e.id !== device).map(({ e, n }) => {
@@ -59,23 +61,28 @@ export function sheetData({ person, device, key, paper, signerCode = null, joins
       always: [...new Set(mine.filter((r) => r.mark === 'always').flatMap((r) => r.kinds ?? []))],
       kinds: mine.some((r) => !r.kinds?.length) ? [] : [...new Set(mine.flatMap((r) => r.kinds ?? []))],
       files: files.get(e.label) ?? 0, counts: countsOf(e.label) ?? undefined,
+      lastCopy: lastOf(n, ['always', 'ask']), lastBackup: lastOf(n, ['backup']),
       ...(n === services.admin ? { service: 'admin', label: 'Admin' } : n === services.atlas ? { service: 'atlas', label: 'Atlas' } : {}), // as in the app: no storage, no bars
     };
   });
   const atlas = project?.atlas ? `${project.atlas}${admin?.server ? `@${host(admin.server)}` : ''}` : null;
   const roles = ['signer', ...(admin ? ['admin'] : []), ...(admin && project?.atlas && project.atlas === admin.user ? ['atlas'] : [])];
-  const ids = [
-    { label: 'Person', value: person.id }, { label: 'Gerät', value: key, small: true }, // q_ and its check key z_ in one line
-    ...(admin ? [{ label: 'Konto (Admin)', value: `${admin.user}@${host(admin.server)}` }] : []),
+  // for the admin, on request (15.11.): who and which device — only passed on when asked, never needed day to day
+  // the signers kept for the person: every device with q_ and its check key z_, this one first
+  const devices = entries.filter((e) => e.key).sort((a, b) => (b.id === device) - (a.id === device)).map((e) => ({ label: e.id === device ? `Gerät · ${e.label}` : e.label, value: `${e.id} z_${e.key}`, small: true }));
+  const ids = [{ label: 'Person', value: person.id }, ...(devices.length ? devices : [{ label: 'Gerät', value: key, small: true }])];
+  // only on the sheet of an admin or atlas account (15.11.): a signer never sees these
+  const adminIds = admin ? [
+    { label: 'Konto (Admin)', value: `${admin.user}@${host(admin.server)}` },
     ...(atlas ? [{ label: 'atlas', value: atlas }] : []),
     ...(project?.signer ? [{ label: 'signer des Projekts', value: project.signer, small: true }] : []),
-    ...(signerCode ? [{ label: 'Ersatz-signer (neues Admin-Gerät: kopieren, + antippen)', value: `sign-signer ${signerCode.replace(/(.{4})/g, '$1 ').trim()}` }] : []),
-  ];
+    ...(signerCode ? [{ label: 'Ersatz-signer', value: `sign-signer ${signerCode.replace(/(.{4})/g, '$1 ').trim()}` }] : []),
+  ] : [];
   const own = countsOf('own') ?? { v: stats.strands.v, a: stats.strands.a, x: stats.strands.x, l: stats.strands.l };
   const flows = rules.filter((r) => ['always', 'ask', 'backup', 'show'].includes(r.mark)).map((r) => ({ from: r.from ?? 0, to: r.to, mark: r.mark }));
   const day = (label) => { const m = /^(\d{4})\.(\d\d)\.(\d\d)/.exec(label ?? ''); return m ? `${Number(m[3])}.${Number(m[2])}.` : null; };
   const joined = joins.map((j) => ({ label: j.label, state: j.state, hello: day(j.hello), join: day(j.join) })).filter((j) => points.some((pt) => pt.label === j.label));
-  return { name: person.label, person: person.id, date, now, roles, paper, ids, points, flows, joins: joined, passwordGestures, own, nameSign, gestureSlots, stats, context: contextMap(stats.list), spots,
+  return { name: person.label, person: person.id, date, now, roles, paper, ids, adminIds, admin: Boolean(admin), points, flows, joins: joined, passwordGestures, own, nameSign, gestureSlots, stats, context: contextMap(stats.list), spots,
     accounts: admin ? accounts.map((a) => ({ ...a, label: a.label ?? a.user })) : null, atlas, device };
 }
 
@@ -87,7 +94,7 @@ function frame(p, sheet, no, of, name) {
   p.text(M + 66, 43, name, { size: 9, color: INK.mut });
   p.text(M + W, 36, `${sheet.name}  ·  ${sheet.date}`, { size: 8, align: 'right' });
   let rx = M + W;
-  for (const r of [...sheet.roles].reverse()) {
+  for (const r of sheet.roles.length > 1 ? [...sheet.roles].reverse() : []) { // a role chip only on admin and atlas sheets
     const label = ROLE[r], w = label.length * 3.6 + 10;
     rx -= w; p.rect(rx, 41, w, 10, { r: 5, stroke: INK.mut, width: 0.6 }); p.text(rx + w / 2, 48.5, label, { size: 6.5, align: 'center' }); rx -= 4;
   }
@@ -113,7 +120,7 @@ export function sheetPages(sheet) {
   const self = { n: 0, label: sheet.name, kind: 'dieses Gerät', self: true, id: sheet.device ?? null, path: null, login: null, marks: [], always: ['v', 'a', 'x', 'l'], kinds: [], counts: sheet.own, files: sheet.stats.files.find(([s]) => s === 'own')?.[1] ?? 0 };
   const first = new Page();
   cover(first, sheet);
-  const named = [[first, 'Sign'], [backupPage(sheet), 'Backup'], ...pointPages(sheet, self).map((p) => [p, 'sharing points']), [stockPage(sheet), 'Bestand'], [contextPage(sheet), 'context'],
+  const named = [[first, 'Sign'], [backupPage(sheet), 'Zugang'], ...pointPages(sheet, self).map((p) => [p, 'sharing points']), [stockPage(sheet), 'Bestand'], [contextPage(sheet), 'context'],
     ...(sheet.accounts?.length ? accountPages(sheet).map((p) => [p, 'Konten']) : [])];
   named.forEach(([p, name], i) => (i ? frame(p, sheet, i + 1, named.length, name) : p.text(M + W, 824, `'t(${timeLabel(sheet.now)})  1 / ${named.length}`, { size: 6.5, color: INK.mut, align: 'right' })));
   return named.map(([p]) => p);

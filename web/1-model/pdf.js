@@ -104,6 +104,11 @@ export class Page {
     if (!list.length) return;
     this.raw(`${rgb(color)} RG 1 J [] 0 d ${list.map(([x, y, d]) => `${num(d)} w ${num(x)} ${this.y(y)} m ${num(x)} ${this.y(y)} l S`).join('\n')} 0 J`);
   }
+  /** Many thin lines of one colour: [[x1, y1, x2, y2]] (~40 B per line). */
+  segments(list, color, width = 0.4) {
+    if (!list.length) return;
+    this.raw(`${rgb(color)} RG ${num(width)} w 1 J [] 0 d ${list.map(([a, b, c, d]) => `${num(a)} ${this.y(b)} m ${num(c)} ${this.y(d)} l`).join(' ')} S 0 J`);
+  }
   raw(s) { this.ops.push(latin1(s + '\n')); }
   bytes() { return new Uint8Array(this.ops.flat()); }
 }

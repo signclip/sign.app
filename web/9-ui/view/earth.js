@@ -7,8 +7,7 @@
 //            sun(): the sun (pale, no meaning of its own), the earth's orbit (teal: a year), the earth with its point.
 // Depends:   view/sheet-charts.js (INK, short)
 // Test:      tests/model.test.mjs (emergency sheet)
-// Limits:    a spot needs latitude and longitude: today the takes carry none (o_ is not written yet, 13.11.); with o_ an
-//            H3 cell gives the middle of ~250 km² · ≤ 12 spots named.
+// Limits:    a spot = the middle of an o_ cell (H3, ~250 km², written with each take since 15.11.) · ≤ 12 spots named.
 
 import { INK, short } from './sheet-charts.js';
 

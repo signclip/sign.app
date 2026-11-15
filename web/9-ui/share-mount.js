@@ -303,7 +303,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const admin = await findAdmin().catch(() => null); // only user and server reach the sheet, never the password
     const accounts = admin ? await sheetAccounts().catch(() => []) : [];
     const signerCode = admin && adminStore() ? await paperForDoor(choice !== 'keep').catch(() => null) : null; // admin: the paper becomes a signer too
-    const sheet = sheetData({ person, device, key, paper, signerCode, joins: await sheetJoins(), services: { admin: s.adminN, atlas: s.atlasN }, date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
+    const sheet = sheetData({ person, device, key, paper, signerCode, last: s.last ?? {}, joins: await sheetJoins(), services: { admin: s.adminN, atlas: s.atlasN }, date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
+    sheet.spots = await spotsOf(sheet.stats.cells); // where the takes were: o_ cells → their middle (h3, loaded once)
     const pdf = sheetPdf(sheet);
     const name = sheetName(sheet); // (Sign Overview)@(Name)'t(…)!(u_…).pdf, as every file name
     const p = { title: 'Sign Overview', text: key, files: [new File([pdf], name, { type: 'application/pdf' })] };
@@ -311,6 +312,13 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     s.pending = p; s.apps.x = 0; return draw(); // the menu folds down to its share row: choose where it goes (14.11.)
   }
 
+  /** o_ cells [[o_, takes, name]] → spots for the earth; without h3 (offline) the earth stays empty. */
+  async function spotsOf(cells) {
+    const { centre } = await import('../5-take/where.js');
+    const out = [];
+    for (const [o, n, name] of cells) { const c = await centre(o).catch(() => null); if (c) out.push({ name, ...c, n }); }
+    return out;
+  }
   /** My joins for the sheet: per group the state and the time labels of my hello and of its answer (from the file names). */
   async function sheetJoins() {
     const timeOf = (path) => (path ? readName(path.slice(path.lastIndexOf('/') + 1))?.time ?? null : null);

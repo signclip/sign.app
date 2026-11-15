@@ -4,9 +4,9 @@
 //
 // Purpose:   backup   paper password, how backups open (this device or the paper → each backup target), access IDs,
 //                     password gestures and login by hand, the way back in 3 steps
-//            points   as in the sharing menu: this device first, 3 tiles a row, bridges with chevrons (honey = always,
-//                     mint dashed = backup, blue = read only), the joining icon with the days of hello and join,
-//                     the password gestures one joins with; then one table: name, login, whole path, q_, password line
+//            points   as in the sharing menu: this device first, 3 tiles a row, one bridge kind with chevron (new things go
+//                     there), under each tile the day of the last backup and copy; the joining icon with hello and join;
+//                     then one table: name, login, whole path, q_, password line
 //            stock    takes, hours, words, versions · the field with the strand numbers · weeks · the earth · index
 //            context  every take a point, placed by its words (view/sheet-context.js)
 //            accounts (admin) hello · join · within · quiet; tile size = bytes (smallest → largest), GB in the tile,
@@ -35,47 +35,76 @@ function value(p, y, label, text, size = 8.5) {
   return y + 18;
 }
 
+/**
+ * Zugang (15.11.): one overview of everything that opens Sign, so a new signer sees at once what is theirs to keep:
+ *   bei dir      name sign and password gestures: a new device, a new account (nothing to write but the gestures' words)
+ *   dieses Blatt the paper password: opens every backup when all devices are gone
+ *   Admin        person and device IDs: only passed on when the admin asks (a device to add or remove)
+ *   nur Admin    (admin and atlas sheets only) the admin account, atlas, the signer code, the emergency login
+ * below in the same order: the password gestures, the paper password and how it opens a backup, the IDs.
+ */
 export function backupPage(sheet) {
   const p = new Page();
-  let y = title(p, M, 84, W, 'Backup');
-  p.rect(M, y - 4, W, 58, { r: 12, fill: INK.handTint, stroke: INK.hand, width: 1 });
-  p.text(M + 16, y + 11, 'Papier-Passwort', { size: 8, font: 'bold' });
-  p.text(M + W / 2, y + 38, groups(sheet.paper), { size: 23, font: 'mono', align: 'center' });
-  y += 76;
-  const targets = sheet.points.filter((pt) => pt.marks.includes('backup')), rowH = 40;
-  const dx = M + 46, tx = M + 300, h = Math.max(2, targets.length) * rowH, dev = { x: dx, y: y + h / 2 - 16, h: 20 }, paper = { x: dx, y: y + h / 2 + 30, h: 11 };
-  tile(p, dev.x, dev.y, 40, { fill: INK.whoTint, stroke: INK.who, edges: false, number: 0 });
-  p.rect(dx - 24, paper.y - 11, 48, 22, { r: 4, fill: INK.handTint, stroke: INK.hand, width: 0.8, dash: [2, 2] });
-  p.text(dx, paper.y + 2.5, 'Papier', { size: 7, font: 'bold', align: 'center' });
-  if (!targets.length) p.text(tx, y + h / 2, 'noch kein Backup-Ziel', { size: 7.5, color: INK.mut });
-  targets.forEach((pt, i) => {
-    const T = { x: tx, y: y + i * rowH + rowH / 2, h: 14 };
-    p.line(dev.x + 20, dev.y, T.x - 14, T.y, { stroke: INK.safe, width: 2.6, dash: [3, 3] }); chevron(p, dev.x + 20, dev.y, T.x - 14, T.y, INK.safe); // backup as in the menu
-    p.line(paper.x + 24, paper.y, T.x - 14, T.y, { stroke: INK.hand, width: 0.8, dash: [2, 2] }); chevron(p, paper.x + 24, paper.y, T.x - 14, T.y, INK.hand);
-    tile(p, T.x, T.y, 28, { run: pt.offline ? 'fail' : 'ok', fill: pt.shown ? INK.whereSoft : INK.card, number: pt.n, edges: false, dashed: pt.offline });
-    p.text(tx + 24, T.y + 3, fit(pt.label, 8.5, M + W - tx - 24, 'bold'), { size: 8.5, font: 'bold' });
+  let y = title(p, M, 84, W, 'Zugang');
+  const cards = [
+    ['bei dir', 'neues Gerät, neues Konto', INK.who, (cx, cy) => { arcs(p, cx - 18, cy, 11, { width: 1.8, window: INK.picture, line: false }); for (let i = 0; i < 3; i++) p.rect(cx + 2 + i * 12, cy - 6, 10, 12, { r: 2, fill: INK.handTint, stroke: INK.hand, width: 0.6, dash: [1.5, 1.5] }); }, ['Namensgebärde', 'Passwort-Gesten']],
+    ['dieses Blatt', 'wenn alle Geräte fehlen', INK.hand, (cx, cy) => { p.rect(cx - 22, cy - 9, 44, 18, { r: 3, fill: INK.handTint, stroke: INK.hand, width: 0.8 }); p.text(cx, cy + 2.5, 'ABCD …', { size: 6.5, font: 'mono', align: 'center' }); }, ['Papier-Passwort']],
+    ['für den Admin', 'nur wenn gefragt', INK.mut, (cx, cy) => { p.text(cx, cy - 1, 'n_ …', { size: 7, font: 'mono', align: 'center', color: INK.mut }); p.text(cx, cy + 8, 'q_ … z_ …', { size: 7, font: 'mono', align: 'center', color: INK.mut }); }, ['Person', 'Geräte (signer)']],
+    ...(sheet.admin ? [['nur Admin', 'nie weitergeben', INK.fg, (cx, cy) => { p.circle(cx, cy, 9, { stroke: INK.fg, width: 1 }); p.circle(cx, cy, 3, { fill: INK.fg }); }, ['Admin-Konto', 'Ersatz-signer', 'Notzugang']]] : []),
+  ];
+  const cw = (W - (cards.length - 1) * 8) / cards.length;
+  cards.forEach(([head, when, ink, pic, items], i) => {
+    const cx0 = M + i * (cw + 8);
+    p.rect(cx0, y - 4, cw, 108, { r: 10, fill: INK.card, stroke: ink, width: 1 });
+    p.text(cx0 + 10, y + 10, head, { size: 9, font: 'bold' });
+    pic(cx0 + cw / 2, y + 36);
+    items.forEach((t, j) => p.text(cx0 + 10, y + 64 + j * 10, t, { size: 7.5 }));
+    p.text(cx0 + 10, y + 97, when, { size: 6.5, color: INK.mut });
   });
-  y += Math.max(h, 70) + 22;
-  y = title(p, M, y, W, 'Zugangs-IDs');
+  y += 124;
+  // 1 bei dir: the name sign needs nothing written; the password gestures one word each, by hand
+  y = title(p, M, y, W, 'bei dir · Passwort-Gesten', 'ein Wort je Geste, von Hand');
+  const slots = Math.max(3, Math.min(8, sheet.passwordGestures?.length || sheet.gestureSlots || 5)), sw = (W - (slots - 1) * 6) / slots;
+  for (let i = 0; i < slots; i++) {
+    const sx = M + i * (sw + 6);
+    p.rect(sx, y - 6, sw, 26, { r: 6, fill: INK.handTint, stroke: INK.hand, width: 0.8, dash: [3, 2] });
+    p.text(sx + 8, y + 4, String(i + 1), { size: 7, font: 'bold', color: INK.mut });
+    if (sheet.passwordGestures?.[i]) p.text(sx + sw / 2, y + 15, fit(sheet.passwordGestures[i], 9, sw - 8), { size: 9, align: 'center' });
+  }
+  // 2 dieses Blatt: the paper password, how it is used (copy → backup tile onto the device), where it opens
+  y = title(p, M, y + 36, W, 'dieses Blatt · Papier-Passwort', 'öffnet jedes Backup');
+  p.rect(M, y - 4, W, 46, { r: 12, fill: INK.handTint, stroke: INK.hand, width: 1 });
+  p.text(M + W / 2, y + 27, groups(sheet.paper), { size: 22, font: 'mono', align: 'center' });
+  y += 62;
+  const fy = y + 16, fx = [M + 60, M + 200, M + 340];
+  step(p, fx[0], fy, 1, 'kopieren', (cx, cy) => { p.rect(cx - 20, cy - 8, 40, 16, { r: 3, fill: INK.handTint, stroke: INK.hand, width: 0.8 }); p.text(cx, cy + 2.5, 'ABCD …', { size: 6, font: 'mono', align: 'center' }); });
+  next(p, fx[0] + 36, fx[1] - 36, fy);
+  step(p, fx[1], fy, 2, 'Kachel aufs Gerät', (cx, cy) => { tile(p, cx - 16, cy - 4, 18, { run: 'ok', edges: false }); p.line(cx - 6, cy, cx + 6, cy + 2, { stroke: INK.safe, width: 1 }); tile(p, cx + 16, cy + 2, 20, { fill: INK.whoTint, stroke: INK.who, edges: false, number: 0 }); });
+  next(p, fx[1] + 36, fx[2] - 36, fy);
+  step(p, fx[2], fy, 3, 'Backup offen', (cx, cy) => tile(p, cx, cy, 22, { fill: INK.whoTint, stroke: INK.who, edges: false, run: 'ok' }));
+  const targets = sheet.points.filter((pt) => pt.marks.includes('backup'));
+  targets.slice(0, 4).forEach((pt, i) => { // where it opens: the backup targets
+    const ty = fy - 18 + i * 14;
+    p.circle(M + 412, ty, 2.4, pt.offline ? { stroke: INK.safe, width: 0.8 } : { fill: INK.safe });
+    p.text(M + 420, ty + 2.5, fit(pt.label, 7.5, W - 382), { size: 7.5 });
+  });
+  if (!targets.length) p.text(M + 412, fy, 'noch kein Backup-Ziel', { size: 7, color: INK.mut });
+  y += 68;
+  // 3 für den Admin: only when asked — the person and every device (signer) with q_ and z_
+  y = title(p, M, y, W, 'für den Admin', 'nur weitergeben, wenn er fragt');
   for (const { label, value: v, small } of sheet.ids) y = value(p, y, label, v, small ? 6.8 : 8.5);
-  y = title(p, M, y + 10, W, 'Notzugang');
-  ['Konto', 'Passwort'].forEach((label, i) => {
-    const lx = M + i * (W / 2 + 6);
-    p.text(lx, y + 4, label, { size: 7, color: INK.mut });
-    p.line(lx + 44, y + 6, lx + W / 2 - 6, y + 6, { stroke: INK.hand, width: 0.8 });
-  });
-  y = title(p, M, y + 34, W, 'Zurück');
-  const sy = y + 34, xs = [M + 70, M + 257, M + 445];
-  step(p, xs[0], sy, 1, 'Namensgebärde', (cx, cy) => { arcs(p, cx, cy, 15, { width: 2, window: INK.picture, line: false }); p.circle(cx, cy - 3, 3.5, { fill: INK.whoSoft }); appArcSafe(p, cx, cy + 9, 6); });
-  next(p, xs[0] + 46, xs[1] - 46, sy);
-  step(p, xs[1], sy, 2, 'Passwort-Gesten', (cx, cy) => { for (let i = 0; i < 3; i++) p.rect(cx - 33 + i * 23, cy - 10, 20, 20, { r: 4, fill: INK.handTint, stroke: INK.hand, width: 0.8, dash: [2, 2] }); });
-  next(p, xs[1] + 46, xs[2] - 46, sy);
-  step(p, xs[2], sy, 3, 'Backup holen', (cx, cy) => {
-    tile(p, cx + 18, cy, 22, { fill: INK.whoTint, stroke: INK.who, edges: false, number: 0 });
-    tile(p, cx - 22, cy - 6, 18, { run: 'ok', edges: false });
-    p.line(cx - 12, cy - 2, cx + 3, cy + 2, { stroke: INK.safe, width: 1 });
-    p.rect(cx - 34, cy + 6, 22, 11, { r: 2, fill: INK.handTint, stroke: INK.hand, width: 0.6, dash: [2, 2] });
-  });
+  // 4 nur Admin (admin and atlas sheets)
+  if (sheet.admin) {
+    y = title(p, M, y + 8, W, 'nur Admin', 'nie weitergeben');
+    for (const { label, value: v, small } of sheet.adminIds) y = value(p, y, label, v, small ? 6.8 : 8.5);
+    if (sheet.adminIds.some((i) => i.label === 'Ersatz-signer')) p.text(M + 92, y - 3, 'Admin-Gerät verloren: Code kopieren, auf dem neuen Gerät + antippen', { size: 6.5, color: INK.mut });
+    y += 8;
+    ['Konto', 'Passwort'].forEach((label, i) => { // the emergency login: by hand only, never digital
+      const lx = M + i * (W / 2 + 6);
+      p.text(lx, y + 4, label, { size: 7, color: INK.mut });
+      p.line(lx + 44, y + 6, lx + W / 2 - 6, y + 6, { stroke: INK.hand, width: 0.8 });
+    });
+  }
   return p;
 }
 
@@ -88,13 +117,12 @@ export function backupPage(sheet) {
 export function pointPages(sheet, self) {
   const p = new Page(), pages = [p];
   let y = title(p, M, 80, W, `sharing points (${sheet.points.length})`);
-  // legend: the bridges and marks, a word each
+  // legend: one line, a few marks
   let lx = M;
-  const legend = [['immer', (x) => { p.line(x, y, x + 22, y, { stroke: INK.takeSoft, width: 5 }); chevron(p, x, y, x + 22, y, INK.take); }],
-    ['backup', (x) => { p.line(x, y, x + 22, y, { stroke: INK.safe, width: 2.6, dash: [3, 3] }); chevron(p, x, y, x + 22, y, INK.safe); }],
-    ['zeigen', (x) => { p.line(x, y, x + 22, y, { stroke: INK.where, width: 1.4 }); chevron(p, x, y, x + 22, y, INK.where); }],
-    ['hello', (x) => p.line(x, y, x + 22, y, { stroke: INK.where, width: 2, dash: [1, 3] })], ['join', (x) => p.line(x, y, x + 22, y, { stroke: INK.where, width: 2 })],
-    ['Einwilligung', (x) => p.circle(x + 11, y, 2.6, { fill: INK.card, stroke: INK.who, width: 0.9 })], ['läuft', (x) => p.circle(x + 11, y, 2.6, { fill: INK.safe })]];
+  const legend = [['Neues geht dorthin', (x) => { p.line(x, y, x + 22, y, { stroke: INK.takeSoft, width: 5 }); chevron(p, x, y, x + 22, y, INK.take); }],
+    ['letztes Backup', (x) => p.circle(x + 11, y, 2.6, { fill: INK.safe })], ['letzte Kopie', (x) => p.line(x + 5, y, x + 17, y, { stroke: INK.take, width: 2 })],
+    ['eingebunden', (x) => p.rect(x + 4, y - 5, 14, 10, { r: 3, fill: INK.whereSoft, stroke: INK.where, width: 0.8 })],
+    ['hello · join', (x) => p.line(x, y, x + 22, y, { stroke: INK.where, width: 2, dash: [1, 3] })]];
   for (const [text, draw] of legend) { draw(lx); lx += 27 + p.text(lx + 27, y + 2.5, text, { size: 6.5, color: INK.mut }) + 11; }
   // slots as in the menu: this device 0, then each sharing point; a join not yet within takes one more for my own space
   const TW = 84, TH = 62, CW = W / 3, RH = 124, y0 = y + 50; // 86 × 64 in the app
@@ -118,11 +146,10 @@ export function pointPages(sheet, self) {
     const mx = 0.25 * a.x + 0.5 * c.x + 0.25 * b.x, my = 0.25 * a.y + 0.5 * c.y + 0.25 * b.y, d = Math.sign(b.x - a.x) || 1;
     marks.push([mx - d, my, mx + d, my, style.ink]);
   };
-  const STYLE = { always: { line: { stroke: INK.takeSoft, width: 5 }, ink: INK.take }, backup: { line: { stroke: INK.safe, width: 2.6, dash: [3, 3] }, ink: INK.safe }, give: { line: { stroke: INK.where, width: 1.4 }, ink: INK.where } };
-  for (const f of sheet.flows ?? []) {
-    if (f.mark === 'always' || f.mark === 'ask') bridge(f.from, f.to, STYLE.always);
-    else if (f.mark === 'backup') bridge(f.from, f.to, STYLE.backup);
-    else if (f.mark === 'show' && f.from) bridge(f.from, f.to, STYLE.give); // shared to that account, read-only
+  const LINE = { line: { stroke: INK.takeSoft, width: 5 }, ink: INK.take }, drawn = new Set();
+  for (const f of sheet.flows ?? []) { // one line per pair, whatever goes (copy, backup, from now or with all before): when, the dates say
+    if (!['always', 'ask', 'backup'].includes(f.mark) || drawn.has(`${f.from}>${f.to}`)) continue;
+    drawn.add(`${f.from}>${f.to}`); bridge(f.from, f.to, LINE);
   }
   // the joining icon: me → group (hello dotted, join solid) → my own space (rose); the days on the lines
   const days = [], near = (A, B) => { const d = Math.hypot(B.x - A.x, B.y - A.y) || 1, t = Math.max(0.5, 1 - (TW / 2 + 22) / d); return [A.x + (B.x - A.x) * t, A.y + (B.y - A.y) * t]; };
@@ -139,11 +166,20 @@ export function pointPages(sheet, self) {
   }
   const draw = (pt, c) => {
     tile(p, c.x, c.y, TW, { h: TH, counts: pt.service ? {} : pt.counts ?? {}, bars: barsOf(pt), edges: !pt.service, fill: pt.self ? INK.whoTint : pt.service ? INK.paper : pt.shown ? INK.whereSoft : INK.card,
-      stroke: pt.self ? INK.who : INK.where, width: pt.group ? 2.2 : 1, dashed: pt.offline, consent: pt.consent ?? [],
-      run: pt.marks.includes('backup') ? (pt.offline ? 'fail' : 'ok') : null, friend: pt.friend, number: pt.n });
+      stroke: pt.self ? INK.who : INK.where, width: pt.group ? 2.2 : 1, dashed: pt.offline, consent: pt.consent ?? [], friend: pt.friend, number: pt.n });
     p.text(c.x, c.y + TH / 2 + 24, fit(pt.label, 8, CW - 12, 'bold'), { size: 8, font: 'bold', align: 'center' });
-    const j = joinOf.get(pt.label);
-    if (j && (j.state === 'within' || j.state === 'quiet')) p.text(c.x, c.y + TH / 2 + 33, [j.hello && `hello ${j.hello}`, j.join && `join ${j.join}`].filter(Boolean).join(' · '), { size: 6.5, color: INK.mut, align: 'center' });
+    const j = joinOf.get(pt.label), marks = [];
+    if (pt.lastBackup) marks.push(['b', pt.lastBackup]);
+    if (pt.lastCopy) marks.push(['c', pt.lastCopy]);
+    if (j && (j.state === 'within' || j.state === 'quiet') && j.join) marks.push(['j', j.join]);
+    const widths = marks.map(([, d]) => textWidth(d, 6.5) + 12), all = widths.reduce((a, b) => a + b, 0);
+    let mx = c.x - all / 2, my = c.y + TH / 2 + 33;
+    marks.forEach(([kind, d], i) => { // the days: last backup (mint dot), last copy (honey dash), join
+      if (kind === 'b') p.circle(mx + 3, my - 2.3, 2.3, { fill: INK.safe });
+      else if (kind === 'c') p.line(mx, my - 2.3, mx + 7, my - 2.3, { stroke: INK.take, width: 2 });
+      else p.line(mx, my - 2.3, mx + 7, my - 2.3, { stroke: INK.where, width: 2 });
+      p.text(mx + 9, my, d, { size: 6.5, color: INK.mut }); mx += widths[i];
+    });
   };
   draw(self, centre(0));
   for (const pt of sheet.points) draw(pt, centre(pt.n));
@@ -151,18 +187,9 @@ export function pointPages(sheet, self) {
   for (const [x, yy, text] of days) { const w = textWidth(text, 6.5) + 8; p.rect(x - w / 2, yy - 6, w, 11, { r: 5.5, fill: INK.card, stroke: INK.where, width: 0.5 }); p.text(x, yy + 2.3, text, { size: 6.5, align: 'center' }); }
   const rowsUsed = Math.ceil((slot.size + ownSlot.size) / 3);
   y = y0 + (rowsUsed - 1) * RH + TH / 2 + 48;
-  // the password gestures one joins with (account and device): written by hand, here next to the join
-  y = title(p, M, y, W, 'Passwort-Gesten');
-  const slots = Math.max(3, Math.min(8, sheet.passwordGestures?.length || sheet.gestureSlots || 5)), sw = (W - (slots - 1) * 6) / slots;
-  for (let i = 0; i < slots; i++) {
-    const sx = M + i * (sw + 6);
-    p.rect(sx, y - 6, sw, 28, { r: 6, fill: INK.handTint, stroke: INK.hand, width: 0.8, dash: [3, 2] });
-    p.text(sx + 8, y + 4, String(i + 1), { size: 7, font: 'bold', color: INK.mut });
-    if (sheet.passwordGestures?.[i]) p.text(sx + sw / 2, y + 17, fit(sheet.passwordGestures[i], 9, sw - 8), { size: 9, align: 'center' });
-  }
   // the table: one row each, every fact once
   let page = p;
-  y = title(page, M, y + 42, W, 'Pfade und IDs');
+  y = title(page, M, y, W, 'Pfade und IDs');
   let rows = Math.max(0, Math.floor((806 - y) / 22));
   for (const [i, pt] of [self, ...sheet.points].entries()) {
     if (!rows--) { page = new Page(); pages.push(page); y = title(page, M, 80, W, 'Pfade und IDs'); rows = 29; }

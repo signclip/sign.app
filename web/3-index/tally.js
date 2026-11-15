@@ -7,8 +7,9 @@
 //              words      how many different context words
 //              weeks      takes per week, the last 26 weeks, oldest first
 //              rooms     ° (room or town) of the take chains, else the o_ cell; people = @ of the chains
+//              cells     o_ cells with how many takes and their most used ° (for the earth: centre via 5-take/where.js)
 //              files      files per sharing point (store name of the index), also per kind (v a x l m chain)
-//              list       every take { ms, at, kinds, words } for the context cluster (3-index/clusters.js) ·
+//              list       every take { ms, at, lead, by, kinds, words } (lead = sticky words of a series) for the context cluster (3-index/clusters.js) ·
 //              tables     size of each index table
 // Depends:   3-index/index.js (the Index it reads), 1-model/ids.js (idKey)
 // Test:      tests/model.test.mjs (emergency sheet)
@@ -35,8 +36,8 @@ export function tally(index, { now = Date.now() } = {}) {
   const t = index.tables;
   const out = { takes: 0, hours: { all: 0, v: 0, a: 0 }, strands: Object.fromEntries(KINDS.map((k) => [k, 0])), echo: 0, versions: 0,
     chains: t.chains.size, waiting: t.takes.size, similar: t.similar.size, words: 0,
-    weeks: new Array(26).fill(0), rooms: [], people: [], files: [], kinds: {}, list: [], tables: {}, first: null, last: null };
-  const rooms = new Map(), people = new Map(), wordsOfStrand = new Map();
+    weeks: new Array(26).fill(0), rooms: [], cells: [], people: [], files: [], kinds: {}, list: [], tables: {}, first: null, last: null };
+  const rooms = new Map(), cells = new Map(), people = new Map(), wordsOfStrand = new Map();
   for (const [w, set] of t.context) for (const key of set) (wordsOfStrand.get(key) ?? wordsOfStrand.set(key, []).get(key)).push(w);
 
   for (const c of t.chains.values()) {
@@ -54,8 +55,9 @@ export function tally(index, { now = Date.now() } = {}) {
       if (kinds.has('v')) out.hours.v += h;
       if (kinds.has('a')) out.hours.a += h;
       if (out.list.length < 200_000) {
-        const words = used.filter((d) => d.kind === 'x' && d.id).flatMap((d) => wordsOfStrand.get(idKey(d.id)) ?? []);
-        out.list.push({ ms: time?.ms ?? 0, at: time?.at ?? null, kinds: [...kinds].filter((k) => KINDS.includes(k)), words: [...new Set(words)] });
+        const xs = used.filter((d) => d.kind === 'x' && d.id), words = xs.flatMap((d) => wordsOfStrand.get(idKey(d.id)) ?? []);
+        const lead = [...new Set(xs.flatMap((d) => t.strands.get(idKey(d.id))?.lead ?? []))].sort().join(' ');
+        out.list.push({ ms: time?.ms ?? 0, at: time?.at ?? null, lead, by: c.head['@'] ?? '', kinds: [...kinds].filter((k) => KINDS.includes(k)), words: [...new Set(words)] });
       }
       if (time) {
         out.first = Math.min(out.first ?? time.at, time.at);
@@ -65,6 +67,8 @@ export function tally(index, { now = Date.now() } = {}) {
       }
       const room = c.head['°'] ?? (c.head.id?.o ? c.head.id.o : null);
       if (room) bump(rooms, room);
+      const o = c.head.id?.o;
+      if (o) { const cell = cells.get(o) ?? cells.set(o, { n: 0, names: new Map() }).get(o); cell.n += 1; if (c.head['°']) bump(cell.names, c.head['°']); }
       if (c.head['@']) bump(people, c.head['@']);
     }
   }
@@ -72,6 +76,7 @@ export function tally(index, { now = Date.now() } = {}) {
 
   out.words = t.context.size;
   out.rooms = top(rooms, 12);
+  out.cells = [...cells].sort((a, b) => b[1].n - a[1].n).slice(0, 40).map(([o, { n, names }]) => [o, n, top(names, 1)[0]?.[0] ?? '']);
   out.people = top(people, 12);
   const files = new Map();
   for (const paths of t.sharingPoints.values()) for (const p of paths) {
