@@ -580,7 +580,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const at = data.look?.[data.doubleAt];
     if (!at?.[how]) return null;
     navigator.vibrate?.(how === 'up' ? 20 : [12, 50, 12]); // felt at once: on = one pulse, back = two
-    try { await at[how](); } catch { navigator.vibrate?.([40, 40, 40]); return null; } // not reachable: it stays, three pulses
+    let r;
+    try { r = await at[how](); } catch { navigator.vibrate?.([40, 40, 40]); return null; } // not reachable: it stays, three pulses
+    if (r === 'wait') { navigator.vibrate?.(250); return null; } // asks once more: the same gesture again within 5 s (delete for good)
     const rest = data.look.filter((x) => x.group !== at.group);
     if (!rest.length) { pairOff(); return act('edge-out', 'upper-right'); }
     const next = Math.min(data.look.slice(0, data.doubleAt).filter((x) => x.group !== at.group).length, rest.length - 1);

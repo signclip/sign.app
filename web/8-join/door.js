@@ -54,6 +54,13 @@ export async function backToHello(store, helloPath, { now = Date.now() } = {}) {
 /** Is this answer an again-note? (device: say hello anew) */
 export const isAgain = (answerPath) => Boolean(readName(nameOf(answerPath ?? ''))?.words.includes('again'));
 
+/** quiet ↓ twice (15.11., GDPR): every file of the account folder in quiet/ is deleted for good. → how many */
+export async function deleteFolder(store, folder, base = 'quiet') {
+  const files = (await store.list(`${base}/`)).map((f) => f.path).filter((p) => p.startsWith(`${base}/${folder}/`));
+  for (const p of files) await store.remove(p);
+  return files.length;
+}
+
 /** within ↓ quiet · quiet ↑ within: the whole account folder. */
 export async function moveAccount(store, folder, from, to) {
   const files = (await store.list(`${from}/`)).map((f) => f.path).filter((p) => p.startsWith(`${from}/${folder}/`));
