@@ -1,25 +1,28 @@
 // app.js — the web app: wiring only. What a gesture means is in gestures.js, what the screen does next
 // in state.js, how it looks in view/ring.js, where it lands on the screen in screen.js.
 //
+//   grammar (DESIGN §4, gestures.js): what (where the finger starts, or what the other finger holds) × do × onto
 //   point: tap = take with the strands that are on · hold = take while held · double-tap = always ready
-//          ↑ share (choose where) · ↓ set aside · all the way ↓ delete · ← → replay, in a line next/before
-//   strand arc: tap = on/off (stays until changed) · hold = only this strand while held · ↑ its chips · ← hide
-//   chip: hold = record more strands to it (kept solid, new dashed) · ↓ take this context away
-//         · double-tap = sticky on/off: in front, one bubble, a prefix (G4) for every take of the series
-//   live picture: tap = focus · double-tap = front/back camera (also in a take) · hold = video while held · pinch = form
-//   no settings area (14.11.): form = ↑/↓ on the picture · strands as left · waits = pinch on the point · onboarding
-//   again = hold your own tile in the sharing menu
+//          ↑ out over the upper edge = share · ↓ = set aside · ↓ out over the lower edge = delete
+//          ← the later take comes from the right (towards live) · → the one before, from the left · in a line next/before
+//   strand arc: tap = on/off (stays until changed) · hold = grip (green, the other finger acts on it; carried = drag)
+//          · spread its chips open, squeeze them closed · ← push the field to its edge
+//   chip: tap = on/off · hold = grip · ↓ take this context away · double-tap = sticky on/off (a prefix for every take)
+//   live picture: tap = focus · ← → = the other camera slides in (also in a take) · hold = grip · pinch = camera zoom
+//          · held + the other finger pulls (stretch) = the window's form
+//   no settings area (14.11.): form = picture held + stretch · strands as left · waits = pinch on the point
+//          · onboarding again = hold your own tile in the sharing menu
 //   edges: middle left strands · upper right Similar · middle right share · top: ↑ full, ↓ Similar
-//   window: a circle as large as fits, or ellipse / rounded rectangle (↑/↓ on the picture); arcs by degrees: line −60…60 ·
-//          audio 60…140 · context 140…220 · visual 220…300 · Similar as tiles at the top: one onto the line or the
-//          point, or ↓ on them = all onto the chain · line double-tap = full screen · context ↓ = open and write
-//   line (an arc of pictures over the point, view/arc.js): ↓ on it = straight, ↑ = arc again · older lines of the
-//          chain under it: ↓ = apart, ↑ = together, tap = open · a Similar result dragged onto point or line =
-//          onto the chain (it flies in, a new line slides in on top) · a saved take slides in the same way
+//   scale: spread over the free part above the take = Similar comes nearer (closed → half → full), squeeze = it goes;
+//          spread on a tile = fly to it (Doppel), again = voll; on the line: straight, again full screen; on the
+//          older lines: apart; on the context arc: the field opens · squeeze = back the same steps
+//   window: a circle as large as fits, or ellipse / rounded rectangle; arcs by degrees: line −60…60 · audio 60…140 ·
+//          context 140…220 · visual 220…300 · line: the oldest left · Similar as tiles at the top: one onto the line or
+//          the point, or the band onto the point = all onto the chain
 //   onboarding: the next element breathes, a pale point shows its gesture (onboarding.js); the first take is the name sign
 //   parallel (one finger holds, the other acts; rows with `held` in gestures.js):
-//          strand held + tap point = record only it onto the last take · + ↑ point = share only it
-//          · + all the way ↓ = delete only it · + in from upper right = Similar from it
+//          strand held + tap point = record only it onto the last take · + hold point = only it while held
+//          · + ↑ out = share only it · + ↓ out = delete only it · + in from upper right = Similar from it
 //          chip held + tap point = a take with this context (a series while held) · + upper right = Similar for it
 // Depends:   browser; 0-i18n, 1-model, 2-storage/local, 3-index, 4-save, 5-take, 7-similar, 9-ui
 // Test:      needs a browser; every part is tested on its own (tests/ui, state, view, list, similar).
@@ -47,17 +50,18 @@ import { addEcho } from '../4-save/add-echo.js';
 import { similar } from '../7-similar/filter.js';
 import { newPerson, newSource, shortU, writeId } from '../1-model/ids.js';
 import { readFile } from '../1-model/file.js';
-import { withSticky, afterTake as stepSeries, nextOfSeries, readContext, fromField } from '../1-model/context.js';
+import { withTakes } from './view/chips.js';
+import { withSticky, afterTake as stepSeries, nextOfSeries, readContext, contextTree, fromField } from '../1-model/context.js';
 import { write as writeNotation, parse as parseNotation } from '../1-model/notation.js';
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse } from './state.js';
 import { MANY } from './view/ring.js';
-import { formOf, formBy, snapForm, inside as insideWindow } from './view/shape.js';
+import { formOf, formBy, snapForm, extentOf, inside as insideWindow } from './view/shape.js';
 import { mountScreen, targetOf } from './screen.js';
 import { normalize, readyStep, choose, CHOICES } from './settings.js';
 import { watch } from './ready.js';
 import { flip, flipPicture, zoomBy, focusAt, torch } from './camera.js';
-import { bind, edgeZone } from './touch.js';
+import { bind, edgeZone, pinchStep } from './touch.js';
 import { strandChips, draw } from './panels.js';
 import { filterChips, toggle, filtersOf, EMPTY } from './similar-filter.js';
 import { mountShareMenu } from './share-mount.js';
@@ -89,6 +93,7 @@ function propertyOf(role) {
   const hit = targetOf(role);
   if (hit.target === 'strand') return { target: 'strand', kind: hit.kind };
   if (hit.target === 'chip') return { target: 'chip', text: hit.text };
+  if (hit.target === 'live') return { target: 'strand', kind: 'v' }; // the picture is the visual strand
   return null;
 }
 const dec = new TextDecoder();
@@ -166,7 +171,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const i = GESTURE_STEPS.indexOf(onboard.at);
     if (!settings.onboarding || i < 0 || i > 1) { if (data.gestureChoices) { data.gestureChoices = null; data.gestureWord = null; data.offers = []; } return; }
     if (!data.gestureChoices || again) { data.gestureChoices = drawWords(3); data.gestureWord = null; }
-    data.offers = data.gestureChoices.map((text) => ({ text, offer: true, picked: text === data.gestureWord }));
+    data.offers = data.gestureChoices.map((text) => ({ text, offer: true, origin: 'password', picked: text === data.gestureWord }));
   }
   const step = (action, extra = {}) => {
     const before = st.fields;
@@ -251,7 +256,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const words = await transcribe(engine, resample(toMono(audio.channels), audio.sampleRate, 16000));
     if (!words.length) return;
     await addEcho({ own: store, chainPath, from: 'a.1', kind: 'x', row: wordsRow(words), echo: engine.label, device, person , deviceKey: await sealKey() });
-    setChips(words.map((w) => ({ text: w.text, t: [w.from, w.to] })));
+    setChips(words.map((w) => ({ text: w.text, t: [w.from, w.to], heard: true }))); // heard, not typed: the wave
     paint();
     index = await reindex();
   }
@@ -504,7 +509,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const text = chain ? await contextTextOf(chain).catch(() => '') : '';
     const mine = new Set(data.chips.map((c) => c.text));
     data.offers = readContext(text).gestures.map((g) => g.chips.map((c) => c.text)).filter((w) => w.length && !mine.has(w.join(' ')))
-      .map((w) => (w.length > 1 ? { items: w.map((text) => ({ text, offer: true })), offer: true } : { text: w[0], offer: true }));
+      .map((w) => (w.length > 1 ? { items: w.map((text) => ({ text })), offer: true, origin: 'similar' } : { text: w[0], offer: true, origin: 'similar' }));
   }
   const offerText = (o) => (o.items ? o.items.map((c) => c.text).join(' ') : o.text);
   /** An offer taken (14.11.): it joins my context for this take, as written there (one gesture, in front of the series). */
@@ -719,9 +724,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // ---------- the context field: chips, and writing (one gesture per Enter; the series goes one on per take) ----------
   const say = $('#say');
   function showSeries() {
-    const gestures = readContext(series).gestures.map((g) => g.chips.map((c) => c.text).join(' '));
-    setChips(gestures.map((text, i) => ({ text, t: i ? [1, 2] : [0, 1] }))); // the next one now, the rest coming
-    data.timeMs = 0;
+    setChips(withTakes(contextTree(series))); // bubbles in bubbles; one take per element: now, next, some time later; ↑ = flies
     paint();
   }
   /** Open or close the context field: the bottom arc straightens into the field (or bends back), ~300 ms. */
@@ -795,7 +798,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // ---------- one gesture → one action ----------
   async function act(gesture, role, extra = {}) {
     let hit = { ...targetOf(role), ...extra };
-    if (hit.target === 'strand' && hit.kind === 'x' && ['down', 'up'].includes(gesture) && !st.hold) hit = { ...hit, target: 'context' }; // the context arc opens its field
+    if (hit.target === 'strand' && hit.kind === 'x' && ['spread', 'squeeze'].includes(gesture) && !st.hold) hit = { ...hit, target: 'context' }; // the context arc opens its field
     if (hit.target === 'delete') return gesture === 'tap' ? removeLast(hit.what) : null;
     const mode = st.mode === 'line' ? 'line' : st.similar ? 'similar' : 'take';
     const held = st.hold?.target ?? null; // what the other finger holds (parallel gesture)
@@ -804,6 +807,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (row && !['take', 'take-while-held', 'strand-while-held', 'add-strand', 'take-with-context'].includes(row.action)) learned(row.action); // takes count when saved
     switch (row?.action) {
       case 'take': return take.recorder || take.starting ? end() : begin('take');
+      case 'grip': { // hold on a strand, chip or the picture: it is the property now (green), nothing records
+        const hold = propertyOf(role);
+        if (!hold || propertyRole === role) return null;
+        propertyRole = role;
+        return step('hold-property', { hold });
+      }
       // ---------- parallel: a strand or chip is held by the other finger ----------
       case 'add-strand':
         if (take.recorder || take.starting) return end();
@@ -896,8 +905,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         delete data.focus; delete data.focusT;
         return paint();
       }
-      case 'zoom': case 'waits': return null; // pinch goes straight to the camera, or on the point to the waits (handlers.pinch)
-      case 'form': return null; // a corner dragged: handlers.slide shapes the window as the finger moves
+      case 'zoom': case 'waits': return null; // pinch goes straight to the camera (picture), or on the point to time / the waits (handlers.pinch)
+      case 'form': return null; // the picture held, the other finger pulls: handlers.stretch shapes the window as it moves
       case 'switch-camera':
         if (take.recorder && !take.relay) return null; // without the canvas the recorder would end
         settings = choose(settings, 'facing', settings.facing === 'user' ? 'environment' : 'user');
@@ -931,8 +940,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         step('unfull');
         return document.exitFullscreen?.().catch(() => {});
       // ---------- the line in its arc, the chain under it ----------
-      case 'straighten': return animate('bend', data.bend ?? 1, 0);
-      case 'bend': return animate('bend', data.bend ?? 0, 1);
+      case 'straighten': // spread on the line: straight, then full screen (replay from the current one)
+        if ((data.bend ?? 1) > 0) return animate('bend', data.bend ?? 1, 0);
+        data.fullFrom = 'own';
+        if (take.replayAt < 0) await replay(+1);
+        step('full');
+        return document.documentElement.requestFullscreen?.().catch(() => {});
+      case 'bend': // squeeze: full screen ends, then back into the arc
+        if (st.full) { step('unfull'); return document.exitFullscreen?.().catch(() => {}); }
+        return animate('bend', data.bend ?? 0, 1);
       case 'levels-open': data.levelsOpen = true; return paint();
       case 'levels-close': data.levelsOpen = false; return paint();
       case 'level-open': // choose an earlier line of the chain (tap again = back to the current one)
@@ -951,14 +967,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         await layOn(data.similar.slice(0, n)); // one line, the results one after another
         return arrive();
       }
-      case 'line-full': // the line in full screen: replay from the current one
-        data.fullFrom = 'own';
-        if (take.replayAt < 0) await replay(+1);
-        step('full');
-        return document.documentElement.requestFullscreen?.().catch(() => {});
-      case 'similar-less': // ↑ on the tiles: full → half → closed
+      case 'similar-nearer': // spread above the take or over Similar: closed → half → full (a far planet comes nearer)
+        if (!st.similar) return openMany();
+        if (!data.double && !data.manyFull) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); } // half → full: the arcs bend out
+        return null;
+      case 'similar-farther': // squeeze: full → half → closed
         if (data.manyFull) { await animate('grow', data.grow ?? 1, 0); data.manyFull = false; delete data.grow; return paint(); } // the arcs bend back
-        return act('edge-out', 'upper-right');
+        return st.similar ? act('edge-out', 'upper-right') : null;
+      case 'share-in': take.shareOnce = null; take.shareChain = null; return menu.show(true); // pulled in from the middle right
+      case 'share-out': return menu.show(false);
       case 'from-top': // ↓ from the top: review ends · closed → viele half → viele full
         if (st.full) {
           if (data.double) { $('#replay').hidden = true; $('#replay').pause(); } // review of a result ends: Doppel again
@@ -976,7 +993,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'context-close': return openContext(false);
       // ---------- in the table, not wired yet: each says where it docks ----------
       case 'take-over': return reference(hit.index); // Similar · Doppel: the result above, the live picture below
-      case 'reference-out': if (data.look?.[data.doubleAt]?.up) return decide('up'); // admin: ↑ = on to the next pile (15.11.)
+      case 'look-up': return decide('up'); // admin: ↑ = on to the next pile (15.11.)
+      case 'reference-out': // squeeze on the result: farther, back to Similar · viele
         data.double = null; data.offers = []; $('#template').removeAttribute('src'); pairOff(); return paint(); // back to viele
       case 'look-down': return decide('down'); // admin: ↓ = back a pile (join → hello anew, within → quiet)
       case 'reference-next': case 'reference-before': { // ← next · → before, in the order of the tiles
@@ -1013,18 +1031,25 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         const key = await keyOfItem(hit.index);
         return key ? layOn([key], row.action === 'together').then(() => arrive()) : null;
       }
-      case 'settings': return null; // in the share menu itself (share-mount.js: hold on a circle)
       default: return null;
     }
   }
 
   // ---------- touch on the screen: each finger has its role, read when it goes down ----------
-  let propertyRole = null; // the finger that holds a property (parallel gesture)
-  let spentRole = null; // that finger just let go: its drag end is not a drag
+  let propertyRole = null; // the finger that holds a property (gripped, or parallel gesture)
+  let paired = false; // the other finger acted while it was held: its lifting is no drag
+  let spentRole = null; // that finger just let go after acting as a property: its drag end is not a drag
+  /** The window's edges on the screen: [top, bottom] in client px, or null. */
+  const windowEdges = () => {
+    const win = screen.last?.window;
+    if (!win) return null;
+    const r = $('#screen').getBoundingClientRect(), [, ey] = extentOf(win);
+    return [r.top + win.cy - ey, r.top + win.cy + ey];
+  };
   const handlers = {
     down: (e) => {
       const role = screen.roleAt(e);
-      const doubles = role === 'point' || role === 'live' || role?.startsWith('chip:') || role === 'sticky' || role === 'line-arc'; // these wait for a second tap
+      const doubles = role === 'point' || role?.startsWith('chip:') || role === 'sticky'; // these wait for a second tap
       handlers.doubleTap = doubles ? () => act('double-tap', role) : undefined;
       return role;
     },
@@ -1035,46 +1060,58 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       return act('tap', role, { x, y });
     },
     hold: (role) => act('hold', role),
-    parallel: async (heldRole) => { // a second finger came while one is held: the held thing becomes the property
+    parallel: async (heldRole) => { // a second finger came while one is held: the held thing is (or becomes) the property
+      paired = true;
       const hold = propertyOf(heldRole);
-      if (!hold || propertyRole === heldRole) return; // already the property: the other finger just acts again
+      if (!hold || propertyRole === heldRole) return; // already gripped: the other finger just acts
       propertyRole = heldRole;
-      if (st.screen === 'record' && st.held) await cancelTake(); // only what the hold started alone is not kept
+      if (st.screen === 'record' && st.held) await cancelTake(); // only what a hold started alone is not kept
       step('hold-property', { hold });
     },
     holdEnd: (role) => {
-      if (propertyRole && role === propertyRole) { spentRole = role; propertyRole = null; return step('release-property'); }
+      if (propertyRole && role === propertyRole) {
+        if (paired) spentRole = role; // it was a property for the other finger, not carried
+        propertyRole = null; paired = false;
+        return step('release-property');
+      }
       if (st.held) end(); else if (st.sub === 'scrub') step('release');
+    },
+    out: (x0, y0, x1, y1, dir) => { // the edge rule: ended beyond the window's upper / lower edge
+      const edges = windowEdges();
+      if (!edges) return undefined;
+      return dir === 'up' ? y1 < edges[0] : y1 > edges[1];
     },
     swipe: (dir, role) => { if (role?.startsWith('offer:') && dir.startsWith('down') && data.gestureChoices) { suggestGesture(true); return paint(); } // three other words
       if (role?.startsWith('offer:') && dir.startsWith('down')) { data.offers = data.offers.filter((o) => offerText(o) !== role.slice(6)); return paint(); } return act(dir, role); }, // ↓ on an offer: away
-    pinch: (factor, role, how = {}) => { // on the point: one above the other = camera zoom, side by side = time (line zoom, or the waits) · on the picture: the window's form
-      if (role === 'point') {
-        if ((how.angle ?? 90) >= 45) return zoomBy(camera, how.fy ?? factor); // up and down: the picture
-        const f = how.fx ?? factor; // across: time
-        if (data.items?.length && ['line', 'record', 'stream'].includes(st.screen)) { data.timeZoom = Math.max(0.25, Math.min(8, (data.timeZoom ?? 1) * f)); return paint(); }
-        return st.ready ? waitsBy(f) : null;
-      }
-      const win = screen.last?.window, r = $('#screen').getBoundingClientRect(); // the form only from inside the window; outside a pinch means nothing
-      if (!win || !how.mid || !insideWindow(win, how.mid.x - r.left, how.mid.y - r.top)) return null;
-      return reshape(formBy(rawShape ?? data.shape, factor, how));
+    pinch: (factor, role, how = {}) => { // continuous, view only: on the picture = camera zoom · on the point = time (line zoom, or the waits)
+      if (role === 'live') return zoomBy(camera, factor);
+      if (role !== 'point') return null; // elsewhere the pinch ends as a step (pinchEnd)
+      const f = how.fx ?? factor;
+      if (data.items?.length && ['line', 'record', 'stream'].includes(st.screen)) { data.timeZoom = Math.max(0.25, Math.min(8, (data.timeZoom ?? 1) * f)); return paint(); }
+      return st.ready ? waitsBy(f) : null;
     },
-    slide: (role, dx, dy) => { // a corner of the window: inwards rounder, outwards squarer
-      const [sx, sy] = { 'corner:tl': [1, 1], 'corner:tr': [-1, 1], 'corner:bl': [1, -1], 'corner:br': [-1, -1] }[role] ?? [0, 0];
-      return reshape({ round: (rawShape ?? data.shape).round + (dx * sx + dy * sy) / Math.SQRT2 / 160 });
+    pinchEnd: (factor, role) => { // spread = nearer / more, squeeze = farther / less, where the first finger lay
+      const g = pinchStep(factor);
+      if (!g || role === 'live' || role === 'point') return null; // those zoomed continuously
+      return act(g, role ?? 'top-zone');
     },
-    slideEnd: () => { rawShape = null; saveSettings(); },
+    stretch: (heldRole, factor, how) => { // one finger holds the picture, the other pulls: the window's form changes
+      if (heldRole !== 'live') return false;
+      reshape(formBy(rawShape ?? data.shape, factor, how));
+      return true;
+    },
+    stretchEnd: () => { rawShape = null; saveSettings(); },
     dragEnd: (el, moved, role) => {
-      if (role === spentRole || st.hold) { spentRole = null; return null; } // a property was held, not carried
+      if (role === spentRole) { spentRole = null; return null; } // a property was held for the other finger, not carried
       const from = targetOf(role);
       const onto = el?.closest?.('[data-role]')?.dataset.role;
       if (from.target === 'strand' && onto?.startsWith('strand:')) return act('drag', role, { drag: `${role}>${onto}` });
       if (from.target === 'strand' && el?.closest?.('#similar')) return act('drag', role, { drag: from.kind === 'x' ? 'strand:x>similar' : 'strand>similar' });
       if (from.target === 'strand' && onto?.startsWith('sp:')) return act('drag', role, { drag: 'strand>sharing-point', n: Number(onto.split(':')[1]) });
       if (from.target === 'similar-item' && (onto === 'point' || onto === 'line-arc')) return act('drag', role, { drag: `similar-item>${onto}` });
-      if (from.target === 'item' && onto === 'point') return act('drag', role, { drag: 'item>point' });
-      if (from.target === 'item') return act('drag', role, { drag: 'item>beside-point' });
-      return null;
+      if (from.target === 'similar-band' && (onto === 'point' || onto === 'line-arc')) return act('drag', role, { drag: 'similar-band>point' });
+      if (from.target === 'item' && (onto === 'point' || onto === 'line-arc')) return act('drag', role, { drag: `item>${onto}` });
+      return null; // dropped anywhere else: nothing happens
     },
   };
   bind($('#screen'), handlers);

@@ -70,7 +70,7 @@ export function sheetData({ person, device, key, paper, signerCode = null, last 
   // for the admin, on request (15.11.): who and which device — only passed on when asked, never needed day to day
   // the signers kept for the person: every device with q_ and its check key z_, this one first
   const devices = entries.filter((e) => e.key).sort((a, b) => (b.id === device) - (a.id === device)).map((e) => ({ label: e.id === device ? `Gerät · ${e.label}` : e.label, value: `${e.id} z_${e.key}`, small: true }));
-  const ids = [{ label: 'Person', value: person.id }, ...(devices.length ? devices : [{ label: 'Gerät', value: key, small: true }])];
+  const ids = [{ label: 'Person', value: `sign-person ${person.id}` }, ...(devices.length ? devices : [{ label: 'Gerät', value: key, small: true }])];
   // only on the sheet of an admin or atlas account (15.11.): a signer never sees these
   const adminIds = admin ? [
     { label: 'Konto (Admin)', value: `${admin.user}@${host(admin.server)}` },

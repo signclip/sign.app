@@ -115,7 +115,7 @@ export async function groupUpkeep(store) {
   const joined = new Set(paths.filter((q) => first(q) === 'join').map((q) => name(q)?.person).filter((l) => hellos.some((p) => name(p)?.person === l)));
   for (const label of joined) { // her n_ comes from her hello (it names the folder within/@(label)!(n_))
     const h = hellos.find((p) => name(p)?.person === label);
-    try { const { person } = readHello(new TextDecoder().decode(await store.read(h))); await advance({ store, person, folder: (await knownFolder(store, label)) ?? undefined }); } catch { /* wait */ } // a known name: into her account folder
+    try { const { person } = readHello(new TextDecoder().decode(await store.read(h))); await advance({ store, person, folder: (await knownFolder(store, label, person.id)) ?? undefined }); } catch { /* wait */ } // a known name: into her account folder
   }
   for (const p of paths.filter((x) => first(x) === 'quiet').slice(0, 20)) {
     await honorRemove({ store, requestPath: p, authorKeys: await keysOf(name(p)?.person) }).catch(() => {});
@@ -129,7 +129,8 @@ export async function welcome(ctx, { n, helloPath }) {
   const sharingPoints = g ? [g.read, g.drop].map((x) => ({ label: x.label, path: ctx.s.entries[x.n - 1].path, id: null })) : [];
   if (ctx.admin) { // the admin app (14.11.): an own account for the person (QUOTA), its app password sealed into the answer
     await describeJoin(sp.store); // the signer's keys readable through the door
-    const known = await knownFolder(sp.store, /@\(([^)]*)\)/.exec(helloPath)?.[1] ?? ''); // a known person on a new device (15.11.): her account, a new app password
+    const asker = readHello(new TextDecoder().decode(await sp.store.read(helloPath))).person;
+    const known = await knownFolder(sp.store, asker.label, asker.id); // a known person on a new device (15.11.): by her ID (paper), else her name; her account, a new app password
     if (known) await welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: userOf(known) });
     else await welcomeWithAccount({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, quota: ctx.quota ?? QUOTA, atlas: ctx.atlasUser, group: ctx.group })
       .catch(async (e) => { // the account is there already (welcomed once, sent back from join): only a new device password

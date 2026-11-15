@@ -7,7 +7,9 @@
 //            decides by eye); one list of within/ per look.
 
 import { readName } from '../1-model/filename.js';
-import { withHello } from './join.js';
+import { withHello, readHello } from './join.js';
+
+const dec = new TextDecoder();
 
 const nameOf = (p) => p.slice(p.lastIndexOf('/') + 1);
 const visual = (p) => /\.(mp4|png)$/.test(p);
@@ -15,9 +17,10 @@ const timeOf = (p) => readName(nameOf(p))?.time ?? '';
 const under = async (store, base) => (await store.list(`${base}/`).catch(() => [])).map((f) => f.path);
 const within = (store) => under(store, 'within');
 
-/** The account folder of this label in within/ ('@(Lena)!(n_…)'), or null. */
-export async function knownFolder(store, label) {
-  const p = (await within(store)).find((x) => x.startsWith(`within/@(${label})!(`));
+/** The account folder in within/ ('@(Lena)!(n_…)'): by the person's ID first (back from her paper, 15.11.), else by name; or null. */
+export async function knownFolder(store, label, id = null) {
+  const all = await within(store);
+  const p = (id && all.find((x) => x.split('/')[1]?.toLowerCase().endsWith(`!(${id.toLowerCase()})`))) || all.find((x) => x.startsWith(`within/@(${label})!(`));
   return p ? p.slice(7, p.indexOf('/', 7)) : null;
 }
 /** The account (Nextcloud user) behind a folder: its n_, small. */
@@ -48,7 +51,8 @@ export async function firstPieces(store, folder) {
  * known, each one carries the original of the same piece (pair) → [{ path, pair }], and the folder (or null).
  */
 export async function helloTakes(store, hello) {
-  const folder = await knownFolder(store, hello.name);
+  const id = await store.read(hello.helloPath).then((b) => readHello(dec.decode(b)).person.id).catch(() => null);
+  const folder = await knownFolder(store, hello.name, id);
   const first = folder ? await firstPieces(store, folder) : new Map();
   const takes = (await withHello(store, hello.helloPath)).filter(visual).map((path) => ({ path, pair: first.get(pieceOf(path)) ?? null }));
   return { takes, folder };

@@ -39,7 +39,7 @@ const groupOf = async (store, helloPath) => {
 /** join ↑: hello, its takes and the answer into the account folder (a known one for a new device). */
 export async function toWithin(store, helloPath) {
   const { person, files } = await groupOf(store, helloPath);
-  return moveAll(store, files, 'within', (await knownFolder(store, person.label)) ?? accountFolder(person), 'within');
+  return moveAll(store, files, 'within', (await knownFolder(store, person.label, person.id)) ?? accountFolder(person), 'within');
 }
 
 /** join ↓: answer and hello to quiet/; the again-note in join/ tells the device to say hello anew (new takes). */

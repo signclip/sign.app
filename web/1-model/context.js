@@ -25,6 +25,26 @@ export function readContext(text) {
   return { gestures, errors };
 }
 
+/**
+ * The gestures as a tree for the view (chips in bubbles, 15.11.): a word → { text }; a bracket of several →
+ * { items }; a prefix → { head: [words], items } (the head multiplies onto every item). Nothing is multiplied out.
+ */
+export function contextTree(text) {
+  const node = (n) => {
+    switch (n.t) {
+      case 'value': case 'text': return { text: n.text };
+      case 'spell': return { text: n.letters.join('') };
+      case 'group': return n.items.length === 1 ? node(n.items[0]) : { items: n.items.filter((x) => x.t !== 'sym').map(node) };
+      case 'prefix': {
+        const body = node(n.body);
+        return { head: chips(n.head).map((c) => c.text), items: body.items && !body.head ? body.items : [body] };
+      }
+      default: return null;
+    }
+  };
+  return parse(text).filter((n) => n.t !== 'sym').map(node).filter(Boolean);
+}
+
 /** Put every prefix of the row into its own bracket: (A)((b) (c)) → ((A)((b) (c))). */
 export function wrapPrefixes(text) {
   return write(parse(text).map((n) => (n.t === 'prefix' ? { t: 'group', items: [n], meta: [] } : n)));

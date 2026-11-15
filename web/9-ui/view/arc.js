@@ -2,7 +2,8 @@
 //
 // Purpose:   (decided 13.11.) the line is a playlist of preview pictures tight side by side on the upper arc around the
 //            window; the point sits on it at 0°. It can be pulled straight (one row through the point) and back.
-//              current   the element playing is the window itself; before = left of the point, after = right
+//              current   the element playing is the window itself; the line runs from the oldest (left) to the newest (right):
+//                        before = left of the point, after = right (15.11.; counts are newest first, so older = left)
 //              levels    when the line is part of a chain, its earlier lines are arcs under it (between the line and
 //                        the window), 9 px apart; pulled apart (levelsOpen) 26 px with their pictures; a tap chooses
 //                        one (levelAt): it shows its pictures and stands out, the current line steps back
@@ -58,7 +59,7 @@ export function lineSpots(win, { ring, k = 1, count = 0, at: current = 0, bend =
   for (let n = 0; n < count; n++) {
     const i = n - current;
     if (i === 0) continue;
-    const d = Math.sign(i) * (ring + GAP * k + s / 2 + (Math.abs(i) - 1) * (S + GAP) * k);
+    const d = -Math.sign(i) * (ring + GAP * k + s / 2 + (Math.abs(i) - 1) * (S + GAP) * k);
     const p = at(arc, d, cx, top, bend);
     if (!p || p[0] < -s || p[0] > w + s) continue;
     res.push({ i, x: p[0] - s / 2, y: p[1] - s / 2, s });

@@ -101,9 +101,6 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   if (many && !half) similarTiles(g, pyLow - ring - 10 * k + (h - pyLow + ring + 10 * k) * grow); // full: down to the bottom, only arcs and context on top
   if (!st.full) {
     if (!many || half) g.add('rest', { field: { x: g.cx - F / 2, y: cy - F / 2, s: F, r: 18 * k }, win, cls: 'field-rest' }); // nothing shows outside the window (14.11.)
-    if (!many && !double) for (const [c, sx, sy] of [['bl', -1, 1], ['br', 1, 1]]) { // the lower corners (the line lies over the upper ones): drag = rounder / squarer
-      g.add('circle', { cx: g.cx + sx * (win.rx ?? win.hw) * 0.86, cy: cy + sy * (win.ry ?? win.hh) * 0.86, r: 30 * k, cls: 'corner', role: `corner:${c}` });
-    }
     strandArcs(g);
     if (!many || half) { photoPoint(g); soundBars(g); }
     if (!grow) flowArcs(g);

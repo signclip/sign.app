@@ -27,7 +27,7 @@ export const STEPS = [
   ['share-last', 'point'], // the sharing menu: the door breathes as a hello bubble
   ['hello', 'panel'], // drag yourself onto it
   ['replay-back', 'point'], // watch it
-  ['strand-while-held', 'strand:v'], // only one strand while held
+  ['grip', 'strand:v'], // grip a strand: it turns green, the other finger acts on it (15.11.)
   ['take-while-held', 'point'], // all switched-on strands while held
   ['similar-in', 'upper-right'], // Similar
 ];

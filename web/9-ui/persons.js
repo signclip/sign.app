@@ -47,6 +47,17 @@ export function personStorage(raw) {
       return id;
     },
     switchTo(id) { if (reg().some((p) => p.id === id)) raw.setItem(CUR, id); },
+    /** A person comes back on this device (15.11.): her ID from the paper (sign-person n_…), her first steps follow. → id */
+    adopt(id) {
+      if (!/^n_[0-9A-Z]{16}$/.test(id)) return null;
+      if (reg().some((p) => p.id === id)) { raw.setItem(CUR, id); return id; }
+      if (reg().length >= MAX) return null;
+      raw.setItem(REG, JSON.stringify([...reg(), { id, label: '', start: 'direct' }]));
+      raw.setItem(CUR, id);
+      raw.setItem(`sign.person@${id}`, id);
+      raw.setItem(`sign.onboard@${id}`, '0');
+      return id;
+    },
     /** ↓ on a person: off this device (its keys here); its files stay. The current one cannot remove itself. */
     remove(id) {
       if (id === cur() || id === first()) return false;

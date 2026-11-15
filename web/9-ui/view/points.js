@@ -132,7 +132,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   for (const t of all) {
     if (t.under) continue; // the drop link of a group: drawn as part of its read tile
     if (joining(t)) { joinIcon(slot.get(t.n), t, joinStates.get(t.label)); continue; } // joining: the growing icon
-    const cls = ['sp', t.state, t.shown && 'shown', t.always && 'always', focus === t.n && 'focus'].filter(Boolean).join(' ');
+    const cls = ['sp', t.state, t.shown && 'shown', t.always && 'always', focus === t.n && 'focus', t.moved && 'door breathe'].filter(Boolean).join(' '); // moved (15.11.): breathes, tap = follow
     const { cx, cy } = tile(slot.get(t.n), `sp:${t.n}`, `${cls}${t.group ? ' group' : ''}`, t.label);
     if (t.n === admin) add('circle', { cx: cx + tw / 2 - 4 * k, cy: cy - th / 2 + 4 * k, r: 7 * k, cls: 'badge admin' }); // the admin login: → shows the accounts
     if (t.seal === 'ok' || t.seal === 'wrong') add('circle', { cx: cx - tw / 2 + 4 * k, cy: cy - th / 2 + 4 * k, r: 6 * k, cls: `badge ${t.seal === 'ok' ? 'sealed' : 'unsealed'}` });

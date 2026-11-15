@@ -1,111 +1,154 @@
-// gestures.js — the one table of gestures (DESIGN R9): action × gesture × target × mode.
+// gestures.js — the one table of gestures (DESIGN R9) and its grammar (DESIGN §4, 15.11.): what × do × onto.
 //
 // Purpose:   help, hints and tests come from this table; a new action = one row, no code change.
-//            Only strand fields, the point (record) and what is on screen are targets: no extra buttons.
-//            tap = on/off or start · hold = record while held (point: all on; strand: only it) · items: ↑ share
-//            · ↓ set aside, all the way ↓ delete (chips) · ← next · → before · slow hold = find the moment.
+//            A gesture is a sentence: WHAT = where the finger starts (or what the first finger holds: the prefix,
+//            as in the notation) · DO = the movement (a verb, the same for every what) · ONTO = where it ends.
+//            The screen is the model in space: ← → the line (left the oldest; the thing follows the finger, so ←
+//            brings the later one), ↑ ↓ the chain, spread / squeeze the scale (moment … take … line … chain … Similar:
+//            spread over the free part above the take = Similar comes nearer, like a far planet; squeeze = it goes).
+//            Edge rule: what crosses the window's edge leaves the room (↑ out = share, ↓ out = delete); a pull from
+//            the screen's edge brings in. Spread / squeeze without a held thing only changes the view; one finger
+//            holds a thing and the other pulls (stretch) = the thing changes. Holding a strand, chip or the picture
+//            only grips it (green); only the point records.
 //            No labels on screen (decided 08.11.): the help shows while something is held.
-//            Edges in zones, starting ~1–2 cm inside (Android back).
-//            Intent × device (Design · Geste Overview): VOICE = the keyword for an action (Initial §4.2);
-//            glasses later as one more map, the table stays.
-//            Parallel (DESIGN principle 4): one finger holds a property (a strand or a chip), the other does
-//            the action. A sixth column `held` says which property the row needs; rows without it are the
-//            gesture alone. A held property never blocks: with no parallel row the gesture does what it
-//            does alone. Voice and glasses give the same pair later (keyword + held field), the table stays.
+//            Intent × device: VOICE = the keyword for an action (Initial §4.2); glasses later as one more map.
+//            Parallel (DESIGN principle 4): the sixth column `held` says which property the row needs; rows without
+//            it are the gesture alone. A held property never blocks: with no parallel row the gesture does what it
+//            does alone.
 // Depends:   nothing
-// Test:      tests/ui.test.mjs
-// Limits:    a lookup is a scan of ~50 rows (< 1 µs); each (gesture, target, mode, held) means one action;
+// Test:      tests/ui.test.mjs, tests/parallel.test.mjs (checkTable, checkGrammar)
+// Limits:    a lookup is a scan of ~75 rows (< 1 µs); each (gesture, target, mode, held) means one action;
 //            one property at a time (two fingers; a third is ignored).
 
-export const GESTURES = ['tap', 'double-tap', 'hold', 'hold-slow', 'up', 'down', 'down-far', 'left', 'right', 'edge-in', 'edge-out', 'drag', 'pinch'];
+export const GESTURES = ['tap', 'double-tap', 'hold', 'up', 'down', 'up-out', 'down-out', 'left', 'right', 'edge-in', 'edge-out', 'drag', 'pinch', 'spread', 'squeeze', 'stretch'];
 export const MODES = ['take', 'similar', 'line', 'any'];
 /** What the other finger can hold (the property of a parallel gesture). */
-export const HELD = ['strand', 'chip'];
+export const HELD = ['strand', 'chip', 'live'];
+
+/** The verbs: one meaning per movement, for every what (help and onboarding teach these, not the rows). */
+export const VERBS = {
+  tap: 'now: record, on / off, play, fill a gap',
+  hold: 'while held (the point records) · a strand, chip or the picture: grip it',
+  'double-tap': 'always: lasting on / off',
+  left: 'later: the next one comes from the right',
+  right: 'earlier: the one before comes from the left',
+  up: 'move up inside the window (chain, piles)',
+  down: 'move down inside the window · on a thing: set aside',
+  'up-out': 'out over the upper edge: share',
+  'down-out': 'out over the lower edge: delete (chips)',
+  drag: 'A onto B: A flows to B',
+  pinch: 'zoom the view, continuous',
+  spread: 'nearer / more of it (view only)',
+  squeeze: 'farther / less of it (view only)',
+  stretch: 'one finger holds a thing, the other pulls: the thing changes',
+  'edge-in': 'from the screen edge: bring in',
+  'edge-out': 'to the screen edge: push away',
+};
 
 /** [action, gesture, target, mode, what it does, held?] */
 export const TABLE = [
+  // the point: records; the edge rule on it
   ['take', 'tap', 'point', 'any', 'all switched-on strands start / stop together'],
   ['take-while-held', 'hold', 'point', 'any', 'all switched-on strands record while held'],
   ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait · during a take: pause / go on'],
-  ['waits', 'pinch', 'point', 'any', 'two fingers on the point: one above the other = camera zoom · side by side = time: the stretched line wider / narrower, or (always ready) the waits longer / shorter (rings show it)'],
-  ['share-last', 'up', 'point', 'any', 'the sharing points as circles: tap = share there, double-tap = always, mini arcs = which strands (share-menu.js)'],
+  ['waits', 'pinch', 'point', 'any', 'two fingers on the point: time, the line wider / narrower, or (always ready) the waits longer / shorter (rings show it)'],
+  ['share-last', 'up-out', 'point', 'any', 'out over the upper edge: the sharing points as circles, tap = share there'],
   ['aside-last', 'down', 'point', 'any', 'set the last take aside (it stays, dashed)'],
-  ['remove-last', 'down-far', 'point', 'any', 'delete: chips take · strand · part, then share-first · out of similar · out of training'],
-  ['scrub', 'hold-slow', 'point', 'line', 'find the moment: the strip spreads, the chips follow the time'],
-  ['next', 'left', 'point', 'line', 'next element of the line'],
-  ['before', 'right', 'point', 'line', 'element before'],
-  ['replay-back', 'left', 'point', 'any', 'watch the take before (plays in the display)'],
-  ['replay-on', 'right', 'point', 'any', 'watch the next take; past the newest = live again'],
+  ['remove-last', 'down-out', 'point', 'any', 'out over the lower edge: delete, chips take · strand · part, then share-first · out of similar · out of training'],
+  ['next', 'left', 'point', 'line', 'the next (later) element of the line comes from the right'],
+  ['before', 'right', 'point', 'line', 'the element before comes from the left'],
+  ['replay-on', 'left', 'point', 'any', 'the next take comes from the right; past the newest = live again'],
+  ['replay-back', 'right', 'point', 'any', 'the take before comes from the left (plays in the display)'],
+  // strands: tap on/off, hold = grip
   ['strand-on-off', 'tap', 'strand', 'any', 'this strand on / off for the point'],
-  ['strand-while-held', 'hold', 'strand', 'any', 'record only this strand while held'],
-  ['strand-while-held', 'hold', 'live', 'any', 'record only video while held'],
+  ['grip', 'hold', 'strand', 'any', 'grip this strand: it turns green, the other finger acts on it; carried = dragged'],
   ['flow', 'drag', 'strand:a>strand:x', 'any', 'connect audio to context: Whisper lets it flow in by itself (drag again = off)'],
   ['flow', 'drag', 'strand:v>strand:x', 'any', 'connect visual to context: suggestions from own modelling (later)'],
   ['similar-from', 'drag', 'strand:x>similar', 'any', 'from context to Similar: find with these words'],
   ['similar-from', 'drag', 'strand>similar', 'any', 'Similar from this strand'],
   ['always-there', 'drag', 'strand>sharing-point', 'any', 'this strand always goes to that sharing point (A onto B = B gets A)'],
-  ['chips-in', 'up', 'strand', 'any', 'show the chips of this strand (camera: light, exposure; audio: stereo, Whisper)'],
-  ['chips-out', 'down', 'strand', 'any', 'hide the chips of this strand'],
-  ['hide-strand', 'left', 'strand', 'any', 'hide this field (it still records when on)'],
+  ['chips-in', 'spread', 'strand', 'any', 'open the chips of this strand (camera: light, exposure; audio: stereo, Whisper)'],
+  ['chips-out', 'squeeze', 'strand', 'any', 'close the chips of this strand'],
+  ['hide-strand', 'left', 'strand', 'any', 'push this field to the edge (it still records when on)'],
+  ['context-open', 'spread', 'context', 'any', 'open the context field: chips, and writing with the keyboard'],
+  ['context-close', 'squeeze', 'context', 'any', 'close it again'],
+  // the picture
   ['photo', 'tap', 'photo', 'any', 'picture instead of video: the point becomes a photo button (tap again = video)'],
   ['focus', 'tap', 'live', 'any', 'focus where tapped'],
-  ['zoom', 'pinch', 'live', 'any', 'two fingers on the picture: side by side = narrower / wider · one above the other = lower / higher · slanted = squarer / rounder (14.11.; the camera zoom is on the point)'],
-  ['form', 'drag', 'corner', 'any', 'a corner of the window dragged: inwards = rounder (fully round = ellipse), outwards = squarer, continuous'],
-  ['switch-camera', 'double-tap', 'live', 'any', 'front / back camera, also during a take (14.11.: the picture changes, the sound goes on)'],
+  ['grip', 'hold', 'live', 'any', 'grip the picture (the visual strand): the other finger acts on it'],
+  ['zoom', 'pinch', 'live', 'any', 'two fingers on the picture: the camera nearer / farther'],
+  ['form', 'stretch', 'live', 'any', 'picture held, the other finger pulls: across = narrower / wider · up-down = lower / higher · slanted = squarer / rounder', 'live'],
+  ['switch-camera', 'left', 'live', 'any', 'the other camera slides in (front / back), also during a take: the picture changes, the sound goes on'],
+  ['switch-camera', 'right', 'live', 'any', 'the same, the other way'],
+  // edges: bring in, push away
   ['strands-in', 'edge-in', 'middle-left', 'any', 'show the strand fields (hidden ones come back)'],
   ['similar-in', 'edge-in', 'upper-right', 'any', 'pull Similar onto the display'],
   ['similar-out', 'edge-out', 'upper-right', 'any', 'push Similar off'],
+  ['share-in', 'edge-in', 'middle-right', 'any', 'pull the sharing points in'],
+  ['share-out', 'edge-out', 'middle-right', 'any', 'push them off'],
   ['full', 'up', 'top-middle', 'any', 'full screen: only picture and point'],
   ['from-top', 'down', 'top-middle', 'any', 'pulled down from the top: in full screen = everything again, else Similar comes in at the top'],
-  ['similar-less', 'up', 'similar-band', 'any', 'push Similar · viele up: full → half → closed'],
-  ['from-top-far', 'down-far', 'top-middle', 'any', 'pulled down from the top all the way: Similar · viele over the whole screen at once (14.11.)'],
-  ['from-top-far', 'down-far', 'top-zone', 'any', 'pulled down far from above the point: Similar · viele full at once; a short pull = half'],
+  ['from-top-far', 'down-out', 'top-middle', 'any', 'pulled down from the top all the way: Similar · viele over the whole screen at once'],
   ['from-top', 'down', 'top-zone', 'any', 'pulled down anywhere above the point: Similar comes in (Android keeps its own strip at the very top)'],
-  ['similar-all', 'down', 'similar-band', 'any', 'all of Similar onto the chain: the tiles fly into the line one after another'],
-  ['line-full', 'double-tap', 'line-arc', 'any', 'this line (a take to review, or from Similar) in full screen'],
-  ['context-open', 'down', 'context', 'any', 'pull the context field open (like the line): chips, and writing with the keyboard'],
-  ['context-close', 'up', 'context', 'any', 'push it closed again'],
-  ['share', 'up', 'item', 'any', 'share to the sharing point in focus (no question)'],
-  ['aside', 'down', 'item', 'any', 'set aside'],
-  ['remove', 'down-far', 'item', 'any', 'delete: chips share-first · out of similar and shares · out of training'],
-  ['after', 'drag', 'item>beside-point', 'any', 'one after another: a new line on top'],
-  ['together', 'drag', 'item>point', 'any', 'at the same time: a new line on top'],
-  ['chip-on-off', 'tap', 'chip', 'any', 'this context on / off for similar'],
-  ['sticky', 'double-tap', 'chip', 'any', 'sticky on / off: in front for the series, a prefix for every take (like double-tap = always elsewhere)'],
-  ['context-out', 'down', 'chip', 'any', 'take this context away: a new line on top'],
-  ['add-to', 'hold', 'chip', 'any', 'record more strands to this: kept ones solid, new ones dashed → a new combination'],
-  ['add-to', 'hold', 'item', 'any', 'record more strands to this element (missing picture, a new version …)'],
-  ['next', 'left', 'item', 'any', 'next / another; on hello: go on to join'],
-  ['before', 'right', 'item', 'any', 'before'],
-  ['settings', 'hold', 'sharing-point', 'any', 'settings and consent of this sharing point'],
-  ['take-over', 'tap', 'similar-item', 'any', 'Similar · Doppel: this result above in the same window, the live picture below (14.11.)'],
-  ['reference-full', 'double-tap', 'reference', 'any', 'Similar · voll: the result in full screen, to review like a line (↓ from the top = back)'],
-  ['reference-out', 'up', 'reference', 'any', 'back to Similar · viele'],
-  ['reference-next', 'left', 'reference', 'any', 'the next result'],
-  ['reference-before', 'right', 'reference', 'any', 'the result before'],
-  ['look-down', 'down', 'reference', 'any', 'admin, a pile in Doppel (15.11.): back a pile (hello → quiet, join → hello anew, within → quiet); ↑ there = on (hello → join → within, quiet → within)'],
-  // the line in its arc over the point, the chain under it (view/arc.js)
-  ['straighten', 'down', 'line-arc', 'any', 'pull the line straight (animated): one row of pictures'],
-  ['bend', 'up', 'line-arc', 'any', 'back into the arc'],
-  ['levels-open', 'down', 'level', 'any', 'pull the older lines of the chain apart: their pictures show'],
-  ['levels-close', 'up', 'level', 'any', 'push them together again'],
-  ['level-open', 'tap', 'level', 'any', 'open this older line'],
+  ['from-top-far', 'down-out', 'top-zone', 'any', 'pulled down far from above the point: Similar · viele full at once'],
+  // the scale: Similar lies outside, like far planets
+  ['similar-nearer', 'spread', 'top-zone', 'any', 'spread over the free part above the take: Similar comes nearer (closed → half → full)'],
+  ['similar-nearer', 'spread', 'similar-band', 'any', 'spread over Similar: it comes nearer (half → full)'],
+  ['similar-farther', 'squeeze', 'similar-band', 'any', 'squeeze over Similar: it goes farther (full → half → closed)'],
+  ['similar-farther', 'squeeze', 'top-zone', 'any', 'squeeze above the take: Similar goes'],
+  ['similar-all', 'drag', 'similar-band>point', 'any', 'all of Similar onto the chain: the tiles fly into the line one after another'],
+  ['take-over', 'tap', 'similar-item', 'any', 'Similar · Doppel: this result above in the same window, the live picture below'],
+  ['take-over', 'spread', 'similar-item', 'any', 'fly to this result: it comes into the window (Doppel)'],
   ['into-line', 'drag', 'similar-item>point', 'any', 'lay this result on the chain: it flies into the arc, a new line on top'],
   ['into-line', 'drag', 'similar-item>line-arc', 'any', 'the same, dropped on the line'],
+  ['reference-full', 'spread', 'reference', 'any', 'Similar · voll: nearer still, the result in full screen, to review like a line'],
+  ['reference-out', 'squeeze', 'reference', 'any', 'farther: back to Similar · viele'],
+  ['reference-next', 'left', 'reference', 'any', 'the next result comes from the right'],
+  ['reference-before', 'right', 'reference', 'any', 'the result before comes from the left'],
+  ['look-up', 'up', 'reference', 'any', 'admin, a pile in Doppel: on a pile (hello → join → within, quiet → within)'],
+  ['look-down', 'down', 'reference', 'any', 'admin, a pile in Doppel: back a pile (hello → quiet, join → hello anew, within → quiet)'],
+  // the line in its arc over the point, the chain under it (view/arc.js): opened and closed by the scale
+  ['straighten', 'spread', 'line-arc', 'any', 'spread on the line: straight (one row of pictures), spread again = full screen'],
+  ['bend', 'squeeze', 'line-arc', 'any', 'squeeze: from full screen back to straight, then into the arc'],
+  ['levels-open', 'spread', 'level', 'any', 'spread the older lines of the chain apart: their pictures show'],
+  ['levels-close', 'squeeze', 'level', 'any', 'push them together again'],
+  ['level-open', 'tap', 'level', 'any', 'open this older line'],
+  // an element of the line
+  ['share', 'up-out', 'item', 'any', 'out over the upper edge: share to the sharing point in focus (no question)'],
+  ['aside', 'down', 'item', 'any', 'set aside'],
+  ['remove', 'down-out', 'item', 'any', 'out over the lower edge: delete, chips share-first · out of similar and shares · out of training'],
+  ['after', 'drag', 'item>line-arc', 'any', 'onto the line: one after another, a new line on top'],
+  ['together', 'drag', 'item>point', 'any', 'onto the point: at the same time, a new line on top'],
+  ['add-to', 'hold', 'item', 'any', 'record more strands to this element (missing picture, a new version …)'],
+  ['next', 'left', 'item', 'any', 'next (later); on hello: go on to join'],
+  ['before', 'right', 'item', 'any', 'before'],
+  // a chip
+  ['chip-on-off', 'tap', 'chip', 'any', 'this context on / off for similar'],
+  ['sticky', 'double-tap', 'chip', 'any', 'sticky on / off: in front for the series, a prefix for every take'],
+  ['context-out', 'down', 'chip', 'any', 'take this context away: a new line on top'],
+  ['grip', 'hold', 'chip', 'any', 'grip this context: the other finger records or finds with it'],
 
-  // parallel: the other finger holds a strand (its arc turns green; what it had started alone is dropped)
+  // parallel: the other finger holds a strand (its arc turns green)
   ['add-strand', 'tap', 'point', 'any', 'record only the held strand onto the last take: a new combination on top, the rest stays', 'strand'],
-  ['share-strand', 'up', 'point', 'any', 'the sharing points, sharing only the held strand of the last take', 'strand'],
-  ['remove-strand', 'down-far', 'point', 'any', 'delete only the held strand of the last take (chips as always)', 'strand'],
+  ['strand-while-held', 'hold', 'point', 'any', 'record only the held strand while the point is held', 'strand'],
+  ['share-strand', 'up-out', 'point', 'any', 'the sharing points, sharing only the held strand of the last take', 'strand'],
+  ['remove-strand', 'down-out', 'point', 'any', 'delete only the held strand of the last take (chips as always)', 'strand'],
   ['similar-from', 'edge-in', 'upper-right', 'any', 'Similar from the held strand', 'strand'],
   // parallel: the other finger holds a chip
   ['take-with-context', 'tap', 'point', 'any', 'a take with the held context; tap again = next take of the series, as long as it is held', 'chip'],
   ['similar-context', 'edge-in', 'upper-right', 'any', 'Similar for the held context', 'chip'],
 ];
 
+/** Named exceptions to the grammar, each with its reason (DESIGN §4: new ones only with approve). */
+export const EXCEPTIONS = [
+  ['left', 'live', 'the cameras lie side by side (front, back, later glasses): ← → on the picture = the next source (15.11.)'],
+  ['right', 'live', 'the same'],
+  ['left', 'strand', 'a field pushed to its edge, not a step in time'],
+];
+
 /** Intent × keyword (Initial §4.2): saying it does the same as the gesture. */
 export const VOICE = {
-  take: 'Start', next: 'Weiter', before: 'Zurück', scrub: 'Marker', after: 'Zusammenfügen',
+  take: 'Start', next: 'Weiter', before: 'Zurück', after: 'Zusammenfügen',
   'remove-last': 'Alle löschen', 'share-last': 'Senden', share: 'Senden', full: 'Vollbild',
 };
 
@@ -114,7 +157,7 @@ const rows = TABLE.map(([action, gesture, target, mode, what, held = null]) => (
 const find = (gesture, target, mode, held) => rows.find((r) => r.gesture === gesture && r.target === target && r.mode === mode && r.held === held);
 
 /**
- * What does this gesture do here? → row or null. held: 'strand' | 'chip' | null (what the other finger holds).
+ * What does this gesture do here? → row or null. held: 'strand' | 'chip' | 'live' | null (what the other finger holds).
  * Order: parallel row in this mode, parallel row in any mode, then the gesture alone (mode, any).
  */
 export function actionFor({ gesture, target, mode = 'take', held = null }) {
@@ -135,6 +178,32 @@ export function checkTable() {
     seen.set(k, r.action);
   }
   return problems;
+}
+
+// what each verb may do (the grammar, checked)
+const LATER = ['next', 'replay-on', 'reference-next'];
+const EARLIER = ['before', 'replay-back', 'reference-before'];
+const OUT = ['share', 'share-last', 'share-strand'];
+const AWAY = ['remove', 'remove-last', 'remove-strand'];
+const ALWAYS = ['ready', 'sticky'];
+const VIEW = ['similar-nearer', 'similar-farther', 'take-over', 'reference-full', 'reference-out', 'straighten', 'bend', 'levels-open', 'levels-close', 'chips-in', 'chips-out', 'context-open', 'context-close'];
+const CONTENT = ['point', 'item'];
+
+/** Rows that break the grammar (and are no named exception) → list of problems; [] = consistent. */
+export function checkGrammar() {
+  const excepted = (r) => EXCEPTIONS.some(([g, t]) => g === r.gesture && t === r.target);
+  const rule = {
+    left: (r) => LATER.includes(r.action),
+    right: (r) => EARLIER.includes(r.action),
+    'up-out': (r) => OUT.includes(r.action),
+    'down-out': (r) => !CONTENT.includes(r.target) || AWAY.includes(r.action),
+    'double-tap': (r) => ALWAYS.includes(r.action),
+    hold: (r) => !['strand', 'chip', 'live'].includes(r.target) || r.action === 'grip',
+    spread: (r) => VIEW.includes(r.action),
+    squeeze: (r) => VIEW.includes(r.action),
+    stretch: (r) => Boolean(r.held),
+  };
+  return rows.filter((r) => rule[r.gesture] && !rule[r.gesture](r) && !excepted(r)).map((r) => `${r.gesture} on ${r.target} does ${r.action}`);
 }
 
 /** Help as rows for one target (the UI shows it while something is held). */

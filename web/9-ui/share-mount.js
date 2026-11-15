@@ -33,7 +33,8 @@ import { send, filesOf, targets, sendTo, defaults, printFile, saveFiles, copy } 
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel, readName } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
-import { addNew, peek, pickFolder, loginAt, resumeLogin, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
+import { writeMove, readMove } from '../2-storage/move-note.js';
+import { addNew, bringIn, peek, pickFolder, loginAt, resumeLogin, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
 import { readHello, devicesOf, quietDevice } from '../8-join/join.js';
 import { helloTakes, accountTakes, firstPieces, knownFolder } from '../8-join/known.js';
 import { doorView, toWithin, backToHello, moveAccount, deleteFolder } from '../8-join/door.js';
@@ -114,6 +115,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   let sealWith = null; deviceKeys().then((k) => { sealWith = k.device; }, () => {}); // the list is sealed like every .sign
   const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()), deviceKey: sealWith });
   const all = () => tiles(s.entries, s.rules, s.open, s.runs).filter((x) => { const e = s.entries[x.n - 1]; return e && !(e.key && !e.path); })
+    .map((x) => { const to = s.moved?.get(s.entries[x.n - 1]?.id); return to ? { ...x, moved: to, label: `→ ${to.replace(/^https?:\/\//, '').split('/')[0]}` } : x; })
     .map((x) => (x.n === s.adminN ? { ...x, service: 'admin', label: 'Hello (admin)' } : x.n === s.atlasN ? { ...x, service: 'atlas', label: 'Atlas' } : x.n === s.groupsN ? { ...x, service: 'groups', label: 'Groups' } : x)); // Admin and Atlas are no storage (15.11.) // devices (this one and the person's others) are no tiles: their check keys are for the seals // this device is the own tile (0), not a second one
 
   // ---------- upkeep: what is due runs by itself (2-storage/upkeep.js) ----------
@@ -177,8 +179,24 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (!panel.hidden) draw();
     });
     joinProject(ctx, project).catch(() => {}); // the first group: the project's door (also after its password came)
+    checkMoves().catch(() => {});
+  }
+  /** Sealed moves (15.11.): a sharing point that says its content went elsewhere breathes "→ host"; a tap follows it. ≤ 1 look per tile per 10 min. */
+  async function checkMoves() {
+    s.moved ??= new Map(); s.moveSeen ??= new Map();
+    let changed = false;
+    for (const [, sp] of s.open) {
+      const id = sp.entry?.id;
+      if (!sp.store?.read || !id || Date.now() - (s.moveSeen.get(id) ?? 0) < 600000) continue;
+      s.moveSeen.set(id, Date.now());
+      const m = await readMove(sp.store);
+      const to = m && !s.entries.some((e) => e.path === m.to) ? m.to : null;
+      if ((s.moved.get(id) ?? null) !== to) { if (to) s.moved.set(id, to); else s.moved.delete(id); changed = true; }
+    }
+    if (changed && !panel.hidden) draw();
   }
   async function edit(change) {
+    if (change?.remove != null) await moveNote(change.remove).catch(() => {}); // taken away right after everything was copied out: a sealed move note stays behind
     if (change?.remove != null) await logoutEntry(change.remove).catch(() => {}); // a login taken away: its app password deletes itself, the keychain forgets it
     if (change?.remove != null && [s.adminN, s.atlasN, s.groupsN].includes(change.remove)) { ctx.admin = undefined; s.adminN = s.atlasN = s.groupsN = null; ctx.groups = null; ctx.atlas = null; s.door = null; s.accounts = s.account = s.index = null; } // Admin or Atlas taken away: asked anew
     await changeList(own, change, meta());
@@ -194,6 +212,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const others = await Promise.all(s.entries.map(async (x, i) => i + 1 !== n && x.id && (await keychain.get(x.id)) === secret));
     if (spec?.kind === 'nextcloud' && !others.some(Boolean)) await revokeAppPassword({ server: spec.server, user: spec.user, password: secret });
     await keychain.remove?.(e.id);
+  }
+  /** A tile taken away ≤ 10 min after everything was copied from it to another: the move note in it (before its key goes). */
+  async function moveNote(n) {
+    const c = s.copiedTo, e = s.entries[n - 1];
+    if (!c || !e || c.fromId !== e.id || Date.now() - c.at > 600000 || !c.toPath) return;
+    const store = s.open.get(n)?.store, keys = await deviceKeys();
+    if (store) await writeMove(store, { to: c.toPath, device: { id: device, key: keys.device.public }, deviceKey: keys.device, person });
+    s.copiedTo = null;
   }
   /** Log out every tile of one account (a quiet note from the admin, 15.11.). */
   async function logout(account) {
@@ -382,6 +408,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       const to = s.open.get(result.once.n)?.store;
       if (!from || !to) return say(t('notReachable'));
       const r = await copyRoute(from, to, { kinds: result.once.kinds ? [...result.once.kinds, 'm'] : ['v', 'a', 'x', 'l', 'm'], skip: await skip() }).catch(() => null);
+      if (r && result.once.from != null) s.copiedTo = { fromId: s.entries[result.once.from - 1]?.id, toPath: s.entries[result.once.n - 1]?.path, at: Date.now() }; // ↓ on the old one now = a move
       return say(r ? t('run.ok', { label: ctx.tileOf(result.once.n)?.label ?? '', n: r.copied.length }) : t('notReachable'));
     }
     if (result.action === 'share') return shareTo(result.n);
@@ -410,6 +437,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       s.shake = 'sp:0'; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; // the phone: with the native app (S4)
     }
     if (what === 'person') { globalThis.signPersons?.switchTo(a); return location.reload(); } // another person on this device: in
+    if (what === 'sp' && ctx.tileOf(Number(a))?.moved) return bringIn(ctx, ctx.tileOf(Number(a)).moved); // moved: a tap follows to the new sharing point
     const svc = what === 'sp' ? ctx.tileOf(Number(a))?.service : null;
     if (svc === 'admin') return lookPile('hello'); // Admin: a tap = the hellos (the piles stand beside it)
     if (svc === 'atlas') return showIndex(); // Atlas: a tap = the index (takes per account)
@@ -717,14 +745,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     },
 
     swipe: (dir) => {
-      if (s.confirm && (dir === 'down' || dir === 'down-far')) { s.confirm = null; return draw(); } // the first circle pushed away: nothing goes
-      if (role === 'sheet' && (dir === 'down' || dir === 'down-far')) return show(false); // pulled down = egal, nothing changes
-      if (role?.startsWith('bridge:') && (dir === 'down' || dir === 'down-far')) { // ↓ on a line = cut it
+      if (s.confirm && (dir === 'down' || dir === 'down-out')) { s.confirm = null; return draw(); } // the first circle pushed away: nothing goes
+      if (role === 'sheet' && (dir === 'down' || dir === 'down-out')) return show(false); // pulled down = egal, nothing changes
+      if (role?.startsWith('bridge:') && (dir === 'down' || dir === 'down-out')) { // ↓ on a line = cut it
         const [, a, b] = role.split(':');
         return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
       }
-      if (role?.startsWith('browse:') && s.accounts && ['down', 'down-far', 'up'].includes(dir)) { const x = accountTiles()[Number(role.split(':')[1])]; return dir === 'up' ? x?.up?.() : x?.down?.(); } // account: ↓ rests ↑ wakes · device: ↓ quiet · group: ↓ out (14.11.)
-      if (role?.startsWith('person:') && (dir === 'down' || dir === 'down-far')) { // off this device; its files stay
+      if (role?.startsWith('browse:') && s.accounts && ['down', 'down-out', 'up'].includes(dir)) { const x = accountTiles()[Number(role.split(':')[1])]; return dir === 'up' ? x?.up?.() : x?.down?.(); } // account: ↓ rests ↑ wakes · device: ↓ quiet · group: ↓ out (14.11.)
+      if (role?.startsWith('person:') && (dir === 'down' || dir === 'down-out')) { // off this device; its files stay
         if (!globalThis.signPersons?.remove(role.slice(7))) { s.shake = role; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; }
         return draw();
       }
@@ -740,7 +768,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if ((n === 0 || (n && n === s.adminN)) && dir === 'up') return emergency(); // ↑ on my own tile: the emergency sheet as PDF in the share sheet (the check key goes along as text)
       if (!n) return null;
       const tile = ctx.tileOf(n);
-      if (tile?.drop && (dir === 'down' || dir === 'down-far')) { // a group goes with both its links, the higher number first
+      if (tile?.drop && (dir === 'down' || dir === 'down-out')) { // a group goes with both its links, the higher number first
         return apply({ edits: [Math.max(n, tile.drop), Math.min(n, tile.drop)].map((x) => ({ remove: x })) });
       }
       return apply(gestureOn(n, dir, s.rules));

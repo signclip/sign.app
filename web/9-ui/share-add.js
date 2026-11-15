@@ -52,8 +52,8 @@ async function clipboard() { // at most 1 s: a clipboard that asks and never ans
  * awaited password on the clipboard → bringIn; nothing usable there: the copy sign shakes. Folders and disks come
  * from a tap on this device's own tile (pickFolder, 14.11.): the + is only for links.
  */
-const SIGNER_KEY = /^q_[0-9A-Z]{16}\s+z_[0-9A-Z]{40,60}$/i, SIGNER_CODE = /^sign-signer\s+([0-9A-Za-z\s-]{26,40})$/i;
-const usable = (s, text) => Boolean(s.waitSecret || s.giveTo || text.includes('\n') || readPaste(text) || SIGNER_KEY.test(text.trim()) || SIGNER_CODE.test(text.trim()));
+const SIGNER_KEY = /^q_[0-9A-Z]{16}\s+z_[0-9A-Z]{40,60}$/i, SIGNER_CODE = /^sign-signer\s+([0-9A-Za-z\s-]{26,40})$/i, PERSON_CODE = /^sign-person\s+(n_[0-9A-Z]{16})$/i;
+const usable = (s, text) => Boolean(s.waitSecret || s.giveTo || text.includes('\n') || readPaste(text) || SIGNER_KEY.test(text.trim()) || SIGNER_CODE.test(text.trim()) || PERSON_CODE.test(text.trim()));
 
 /**
  * Without a tap (14.11.): is there something the + could take? → 'ready' | 'ghost'. The native app reads the clipboard;
@@ -103,10 +103,10 @@ export function splitSecret(pasted) {
   return { text: rest.join('\n'), secret };
 }
 
-export async function bringIn(ctx) {
+export async function bringIn(ctx, given = null) { // given: a text instead of the clipboard (a moved sharing point followed, 15.11.)
   const { s, keychain, edit, say, t } = ctx;
   let pasted = '';
-  try { pasted = await clipboard(); } catch { return say(t('notReachable')); }
+  try { pasted = given ?? await clipboard(); } catch { return say(t('notReachable')); }
   const { text, secret } = s.waitSecret ? { text: pasted, secret: null } : splitSecret(pasted); // link and password in one text
   if (text.includes('\n') && await bringInvitation(ctx, text, secret)) return say(t('share')); // a group invitation: name, read link, drop link
   if (s.waitSecret) { // the password a sharing point asked for (given privately): straight into the keychain, never shown
@@ -118,6 +118,8 @@ export async function bringIn(ctx) {
   }
   if (s.giveTo) return giveOut(ctx, s.giveTo, text.trim());
   if (SIGNER_KEY.test(text.trim()) || SIGNER_CODE.test(text.trim())) return addSigner(ctx, text.trim()); // admin: a second device, or the paper
+  const back = PERSON_CODE.exec(text.trim())?.[1]?.toUpperCase().replace(/^N_/, 'n_'); // a person comes back from her paper (15.11.): her ID here, the hello carries it, the admin finds her account by it
+  if (back) return globalThis.signPersons?.adopt(back) ? location.reload() : say(t('notReachable'));
   const what = readPaste(text);
   if (!what) return say(t('menu.paste'));
   if (what.kind === 'cloud') { // a cloud id brought in: its shares to me are taken in by themselves

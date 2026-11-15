@@ -6,7 +6,7 @@
 // Limits:    one hint at a time; a way of 60 px on the 390 px phone; edges ~40 px inside.
 
 const WAY = 60;
-const MOVES = { up: [0, -1], down: [0, 1], 'down-far': [0, 2], left: [-1, 0], right: [1, 0] };
+const MOVES = { up: [0, -1], down: [0, 1], 'down-out': [0, 2], 'up-out': [0, -2], left: [-1, 0], right: [1, 0] };
 
 /** Middle of a shape: point, circle, thumb, or an arc (its middle angle). */
 function middleOf(s) {
@@ -50,7 +50,7 @@ export function withHint(shapes, hint, { w, h, k = w / 390 }) {
     if (hint.gesture === 'edge-out') dir = edge.inward.map((d) => -d);
   }
   const moving = dir[0] || dir[1];
-  const how = moving ? 'move' : hint.gesture; // tap · double-tap · hold · hold-slow · move
+  const how = moving ? 'move' : hint.gesture; // tap · double-tap · hold · move
   out.push({ type: 'hint', cx: at[0], cy: at[1], r: 14 * k, dx: dir[0] * WAY * k, dy: dir[1] * WAY * k, cls: `hint ${how}` });
   return out;
 }

@@ -1,22 +1,31 @@
 // touch.js — turn pointer events into the gestures of the table: tap, double-tap, hold (start/end),
-// swipes, pinch, and edge zones. Pure parts (classify, edgeZone) are tested; bind() needs a browser.
+// swipes (inside the window, or out over its edge), pinch (continuous) ending as spread / squeeze, stretch (one
+// finger held, the other pulls), and edge zones. Pure parts (classify, edgeZone) are tested; bind() needs a browser.
 //
-// Depends:   nothing · Test: tests/ui.test.mjs
-// Limits:    hold after 350 ms · double-tap within 300 ms · swipe ≥ 50 px · edges start 12–72 px inside
-//            the screen edge (Android uses the outermost strip for "back") and only in the upper 2/3 ·
-//            at most two fingers: held + action (parallel) or two moving (pinch).
+// Depends:   nothing · Test: tests/ui.test.mjs, tests/parallel.test.mjs
+// Limits:    hold after 350 ms · double-tap within 300 ms · swipe ≥ 50 px · spread / squeeze when the fingers'
+//            distance changed by ≥ 25 % · stretch after 10 px · edges start 12–72 px inside the screen edge
+//            (Android uses the outermost strip for "back") and only in the upper 2/3 · at most two fingers:
+//            held + action (parallel or stretch) or two moving (pinch).
 
 export const LONG_MS = 1100, HOLD_MS = 350, DOUBLE_MS = 300, SWIPE_PX = 50, EDGE_IN = [12, 72];
-export const FAR_PX = 220; // a swipe down longer than this = all the way down (delete instead of set aside)
+export const FAR_PX = 220; // without a window to ask: a swipe down longer than this counts as out over the edge
+export const STEP = 1.25; // spread / squeeze: the fingers' distance changed by at least this factor
 
-/** A finished one-finger touch → 'tap' | 'up' | 'down' | 'down-far' | 'left' | 'right' | null (held touches end elsewhere). */
-export function classify({ dx, dy, ms }) {
+/**
+ * A finished one-finger touch → 'tap' | 'up' | 'down' | 'up-out' | 'down-out' | 'left' | 'right' | null.
+ * out: did the finger end beyond the window's edge in its direction (asked by bind via h.out)? Unknown = by length.
+ */
+export function classify({ dx, dy, ms, out }) {
   if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return ms < HOLD_MS ? 'tap' : null;
   if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_PX) return null;
   if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'left' : 'right';
-  if (dy < 0) return 'up';
-  return dy > FAR_PX ? 'down-far' : 'down';
+  if (dy < 0) return out ? 'up-out' : 'up';
+  return (out ?? dy > FAR_PX) ? 'down-out' : 'down';
 }
+
+/** A pinch ended: the whole change of distance → 'spread' | 'squeeze' | null. */
+export const pinchStep = (factor) => (factor >= STEP ? 'spread' : factor <= 1 / STEP ? 'squeeze' : null);
 
 /** Where a touch starts → edge zone or null. w, h = screen size. */
 export function edgeZone(x, y, w, h) {
@@ -38,7 +47,11 @@ export function edgeZone(x, y, w, h) {
  *                            · holdEnd(role) · dragEnd(element, moved, role, { long })
  *   swipe(dir, role)         · pinch(factor, role, how): two fingers, neither held yet; role of the first;
  *                              how { fx, fy (distance across / up-down changed), angle (0 = side by side, 90 = above), mid (start, between) }
- *   pinchEnd() both fingers up · slide(role, dx, dy) · slideEnd(role): one finger on a role starting with 'corner', moved (the window's form)
+ *   pinchEnd(factor, role, mid) both fingers up: the whole change of distance (pinchStep makes it spread / squeeze)
+ *   out(x0, y0, x1, y1, dir) → did a swipe up / down end beyond the window's edge? (the edge rule)
+ *   stretch(heldRole, factor, how) the second finger moves while the first is held → true if it changed the held thing
+ *                            (then that finger makes no tap or swipe) · stretchEnd(heldRole)
+ *   slide(role, dx, dy) · slideEnd(role): one finger on a row that slides (share rows), moved
  *   parallel(heldRole, role) a second finger went down while the first one is held: from now on the first
  *                            finger is a property (DESIGN principle 4), the second does the action
  * Without a held finger, a second finger is a pinch (as before). A third finger is ignored.
@@ -47,6 +60,7 @@ export function bind(el, h) {
   const touches = new Map(); // pointerId → { x, y, at, role, held, timer, pinch }
   let lastTap = 0;
   let spread = null; // distance between two fingers while pinching
+  let total = 1, pinchRole = null; // the whole pinch: product of its steps · where its first finger went down
   let across = [0, 0], mid = null; // the two fingers' distance across and up-down · where they started, between them
 
   const pinchers = () => [...touches.values()].filter((t) => t.pinch);
@@ -61,8 +75,10 @@ export function bind(el, h) {
     if (others.length === 1 && !heldOne) { // a second finger, the first not held: pinch, not a touch
       clearTimeout(others[0].timer);
       others[0].pinch = true;
+      pinchRole = others[0].role ?? null;
       touches.set(e.pointerId, { x: e.clientX, y: e.clientY, pinch: true });
       spread = distance();
+      total = 1;
       const [p, q] = pinchers();
       across = [Math.abs(p.x - q.x), Math.abs(p.y - q.y)];
       mid = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
@@ -71,7 +87,7 @@ export function bind(el, h) {
     const role = h.down?.(e) ?? null;
     const t = { x: e.clientX, y: e.clientY, at: performance.now(), role, held: false, pinch: false };
     touches.set(e.pointerId, t);
-    if (heldOne) h.parallel?.(heldOne.role, role);
+    if (heldOne) { t.anchor = heldOne; h.parallel?.(heldOne.role, role); }
     t.timer = setTimeout(() => {
       t.held = true;
       h.hold?.(role);
@@ -90,13 +106,27 @@ export function bind(el, h) {
         const ratio = (i) => (across[i] > 8 && now[i] > 8 ? now[i] / across[i] : 1); // a component near zero says nothing
         const angle = (Math.atan2(now[1], now[0]) * 180) / Math.PI;
         h.pinch?.(d / spread, pinchers()[0]?.role, { fx: ratio(0), fy: ratio(1), angle, mid }); // where the first finger went down: the point or the picture
+        total *= d / spread;
         across = now;
         spread = d;
       }
       return;
     }
+    if (t.anchor && [...touches.values()].includes(t.anchor)) { // stretch: pulled from the held finger
+      const a = t.anchor, gone = Math.hypot(e.clientX - t.x, e.clientY - t.y);
+      if (t.stretch || gone > 10) {
+        const was = t.from ?? [t.x - a.x, t.y - a.y], now = [e.clientX - a.x, e.clientY - a.y];
+        const ratio = (i) => (Math.abs(was[i]) > 8 && Math.abs(now[i]) > 8 ? Math.abs(now[i]) / Math.abs(was[i]) : 1);
+        const angle = (Math.atan2(Math.abs(now[1]), Math.abs(now[0])) * 180) / Math.PI;
+        if (h.stretch?.(a.role, Math.hypot(...now) / Math.max(1, Math.hypot(...was)), { fx: ratio(0), fy: ratio(1), angle })) {
+          t.stretch = true;
+          t.from = now;
+          return;
+        }
+      }
+    }
     const rowSlide = /^(app:|out:system|row-area)/.test(String(t.role)) && (t.slid || Math.abs(e.clientX - t.x) > 10); // the share row slides
-    if (String(t.role).startsWith('corner') || rowSlide) { // the window's corner follows the finger
+    if (rowSlide) {
       clearTimeout(t.timer);
       h.slide?.(t.role, e.clientX - (t.lx ?? t.x), e.clientY - (t.ly ?? t.y));
       Object.assign(t, { lx: e.clientX, ly: e.clientY, slid: true });
@@ -115,15 +145,19 @@ export function bind(el, h) {
     const e = ev.type === 'pointercancel' ? { clientX: t.cx ?? t.x, clientY: t.cy ?? t.y, pointerId: ev.pointerId } : ev;
     touches.delete(e.pointerId);
     clearTimeout(t.timer);
-    if (t.pinch) { if (!pinchers().length) { spread = null; h.pinchEnd?.(); } return; } // both fingers up: the pinch ends
-    if (String(t.role).startsWith('corner') || t.slid) return h.slideEnd?.(t.role);
+    if (t.pinch) { if (!pinchers().length) { spread = null; h.pinchEnd?.(total, pinchRole, mid); } return; } // both fingers up: the pinch ends
+    if (t.stretch) return h.stretchEnd?.(t.anchor?.role);
+    if (t.slid) return h.slideEnd?.(t.role);
     if (t.held) {
       const moved = Math.hypot(e.clientX - t.x, e.clientY - t.y) > 30; // held and carried = a drag
       h.holdEnd?.(t.role);
       h.dragEnd?.(globalThis.document?.elementFromPoint?.(e.clientX, e.clientY) ?? null, moved, t.role, { long: Boolean(t.long) });
       return;
     }
-    const gesture = classify({ dx: e.clientX - t.x, dy: e.clientY - t.y, ms: performance.now() - t.at });
+    const how = { dx: e.clientX - t.x, dy: e.clientY - t.y, ms: performance.now() - t.at };
+    const dir = classify(how);
+    const out = ['up', 'down', 'down-out'].includes(dir) && h.out ? h.out(t.x, t.y, e.clientX, e.clientY, how.dy < 0 ? 'up' : 'down') : undefined;
+    const gesture = out === undefined ? dir : classify({ ...how, out });
     if (gesture === 'tap') tapped(e, t.role);
     else if (gesture) h.swipe?.(gesture, t.role);
   };
