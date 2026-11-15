@@ -11,24 +11,25 @@
 // Test:      tests/similar.test.mjs
 // Limits:    ≤ 8 persons, ≤ 12 sharing points, 3 months shown (more by scrolling the row).
 
+import { localDayStart, rangeOf, shown } from '../1-model/time.js';
 import { facets, sharingPointsOf } from '../7-similar/filter.js';
 
 export const EMPTY = Object.freeze({ persons: [], at: [], sharingPoints: [], time: null, kinds: [] });
-const pad = (n) => String(n).padStart(2, '0');
-const day = (d) => `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
 
-/** Time chips → ranges, relative to now. */
+/** Time chips (local days and months, as a person thinks) → range of UTC times, to the second (time.js). */
 export function timeOf(key, now = new Date()) {
   if (!key) return null;
-  if (key === 'today') return [day(now), day(now)];
-  if (key === 'week') return [day(new Date(now - 6 * 864e5)), day(now)];
-  return [key, key]; // a month 'JJJJ.MM'
+  const ms = Number(now), today = localDayStart(ms), endOf = (start) => start - 1000;
+  if (key === 'today') return rangeOf(today, endOf(localDayStart(today + 36 * 3600e3)));
+  if (key === 'week') return rangeOf(localDayStart(today - 6 * 864e5 + 12 * 3600e3), endOf(localDayStart(today + 36 * 3600e3)));
+  const [y, m] = key.split('.').map(Number); // a local month 'JJJJ.MM'
+  return rangeOf(new Date(y, m - 1, 1).getTime(), endOf(new Date(y, m, 1).getTime()));
 }
 
 /** chips: [{ row, key, value, label, on }] */
 export function filterChips(index, chosen = EMPTY, t = (k) => k, now = new Date()) {
   const f = facets(index);
-  const month = day(now).slice(0, 7);
+  const month = shown(Number(now), 'month');
   const persons = f.persons.slice(0, 8);
   const times = ['today', 'week', month, ...f.months.filter((m) => m !== month).slice(0, 2)];
   const isOn = (key, value) => (key === 'time' ? chosen.time === value : chosen[key].includes(value));

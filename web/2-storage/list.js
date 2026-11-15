@@ -14,7 +14,7 @@
 
 import { signed } from '../1-model/crypto.js';
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
-import { newId, writeId, shortU } from '../1-model/ids.js';
+import { newId, writeId, uOf } from '../1-model/ids.js';
 import { hashBytes } from '../1-model/hash.js';
 import { buildName, readName } from '../1-model/filename.js';
 import { relationLine } from './relations.js';
@@ -101,7 +101,7 @@ export async function editList(oldText, edit, { device, person, now = Date.now()
 
 /** Where a version of the list lies. */
 export function listPath({ id, person, time }) {
-  return `chain/${monthOf(time)}/${buildName({ words: [WORD], person, time, u: shortU(id), kind: 'chain', ext: 'sign' })}`;
+  return `chain/${monthOf(time)}/${buildName({ words: [WORD], person, time, u: uOf(id), kind: 'chain', ext: 'sign' })}`;
 }
 
 /** The list in force: the newest list file in chain/ (by time in its name), or null. person: only that person's (14.11.: several on a device). */

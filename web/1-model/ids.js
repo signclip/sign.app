@@ -7,8 +7,8 @@
 // Test:      tests/model.test.mjs
 // Limits:    t_ runs until year 10889 · u_ has 80 random bits (16 chars): two files of the same
 //            source in the same millisecond collide with p ≈ 1 / 2^80 · o_ (Ort) is an H3 cell
-//            (resolution 5, ~250 km², optional) given by the caller · the file name carries
-//            u_ shortened to 12 chars (10⁶ files → p ≈ 4·10⁻⁷ that two share it; the head decides).
+//            (resolution 5, ~250 km², optional) given by the caller · the file name carries the whole
+//            u_ (15.11.): two of 10⁹ files share it with p ≈ 4·10⁻⁷, so the index finds a file by its name.
 // Witness:   y_ ("yes") in the own head = signature of the device key over the whole file (crypto.js);
 //            it confirms identity and content, it is not part of the identity.
 
@@ -69,9 +69,14 @@ export function newId({ q, n, o = null, now = Date.now() }) {
   return { q, n, o: o ? (o.startsWith('o_') ? o : 'o_' + o) : null, t: 't_' + timePart(now), u: 'u_' + random(16) };
 }
 
-/** Identity as text in fixed order; the witness y_ (own head only) and the hash (references) may follow. */
+/**
+ * Identity as text in fixed order. Two forms only (SCHEMA B2), decided here and nowhere else:
+ *   own head    q_ n_ o_ t_ u_ [z_] [y_]      the file itself, with its witness
+ *   reference   q_ n_ o_ t_ u_ [z_] HASH      another file: with a hash, never with a witness
+ * (15.11.: a reference that copied y_ was a second spelling of the same pointer, ~105 chars longer).
+ */
 export function writeId(id, hash = null) {
-  return [...ID_PARTS.map((k) => id[k]).filter(Boolean), id.z, id.y, hash].filter(Boolean).join(' ');
+  return [...ID_PARTS.map((k) => id[k]).filter(Boolean), id.z, hash ? null : id.y, hash].filter(Boolean).join(' ');
 }
 
 /** Read "q_… n_… o_… t_… u_… [y_…] [hash]" back. Parts may be missing (in a similar); order is checked. */
@@ -95,8 +100,8 @@ export function readId(text) {
 /** The key the index uses: identity parts only (no witness, no hash). Two copies share it. */
 export function idKey(id) { return writeId({ ...id, z: null, y: null, hash: null }); }
 
-/** u_ shortened for file names: "u_" + first 12 characters. */
-export function shortU(id, length = 12) { return id.u ? id.u.slice(0, 2 + length) : null; }
+/** u_ as it stands in file names: whole, 16 characters (15.11.: the name finds the file, the head confirms it). */
+export function uOf(id) { return id.u ?? null; }
 
 /** Milliseconds of the time part. */
 export function idTime(id) { return Number(fromBase32(id.t.slice(2))); }

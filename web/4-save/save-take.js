@@ -1,26 +1,26 @@
 // save-take.js — one Take: bytes in, files out, in the order that never leaves a broken link.
 //
 // Purpose:   video (no sound) .v.mp4 · audio .a.wav (32 bit float, head inside) · context
-//            .x.sign + .x.json · one chain file with one line "recorded here": _({:v.1 :a.1 :x.1}).
+//            .x.sign · one chain file with one line "recorded here": _({:v.1 :a.1 :x.1}).
 //            Originals are written first, the chain last: if anything fails, nothing points into
 //            nothing (SCHEMA.md B5, decisions 06.–07.11.).
 // Depends:   1-model (ids, hash, file, json, wav, filename), 2-storage/layout
 // Test:      tests/storage.test.mjs
-// Limits:    a 4.2 s Take ≈ 8 MB video + 0.8 MB audio + 2 small text files + 2 chain files ·
+// Limits:    a 4.2 s Take = 4 files: ≈ 8 MB video + 0.8 MB audio + 1 small text file + 1 chain file ·
+//            (.json is made on demand by 1-model/json.js, never stored: 15.11.) ·
 //            every strand may be missing (only audio, only text …).
 //            onto + keep: adding to an existing combination (SCHEMA G4b): the kept strands come from the
 //            chain below by reference, the new ones are recorded: {:x.1 _({:v.1})} and {:chain.1} at the bottom.
 // Heads (14.11.): every strand carries its own head with ID and y_ (media-head.js: wav chunk, png tEXt, mp4 uuid box).
 // EXTEND(S5, landmarks): .l.parquet and .m.mp4 come as echo in a new chain on top of this one.
 
-import { newId, writeId, shortU } from '../1-model/ids.js';
+import { newId, writeId, uOf } from '../1-model/ids.js';
 import { hashBytes, storedText } from '../1-model/hash.js';
 import { headLine, defLine, fileText, readFile } from '../1-model/file.js';
-import { toJson } from '../1-model/json.js';
 import { encodeWav, wavSamples } from '../1-model/wav.js';
 import { headed, sealHead } from '../1-model/media-head.js';
 import { flatWords, timeLabel } from '../1-model/filename.js';
-import { pathOf, jsonPath } from '../2-storage/layout.js';
+import { pathOf } from '../2-storage/layout.js';
 import { signed } from '../1-model/crypto.js';
 
 const enc = new TextEncoder();
@@ -43,10 +43,9 @@ export async function saveTake({ device, person, cell = null, where = null, now 
   const defs = [];
   const used = [];
 
-  const add = async (kind, id, bytes, { json = null, ext } = {}) => {
-    const path = pathOf({ ...base, kind, u: shortU(id), ...(ext ? { ext } : {}) });
+  const add = async (kind, id, bytes, { ext } = {}) => {
+    const path = pathOf({ ...base, kind, u: uOf(id), ...(ext ? { ext } : {}) });
     files.push({ path, bytes });
-    if (json) files.push({ path: jsonPath(path), bytes: enc.encode(json) });
     const n = used.filter((u) => u.startsWith(`${kind}.`)).length + 1;
     defs.push(defLine(`${kind}.${n}`, { id: writeId(id, await hashBytes(bytes)) }));
     used.push(`${kind}.${n}`);
@@ -62,7 +61,7 @@ export async function saveTake({ device, person, cell = null, where = null, now 
   if (context) {
     const id = make();
     const text = await signed(deviceKey, fileText(head('x', id), [], [storedText(context).replace(/\s*\n\s*/g, ' ').trim()]));
-    await add('x', id, enc.encode(text), { json: toJson(text) });
+    await add('x', id, enc.encode(text));
   }
   if (!used.length) throw new Error('a Take needs at least one strand');
 
@@ -78,8 +77,8 @@ export async function saveTake({ device, person, cell = null, where = null, now 
     below = ['{:chain.1}'];
   }
   const chainText = await signed(deviceKey, fileText(chainHead, defs, [line, ...below]));
-  const chainPath = pathOf({ ...base, where, kind: 'chain', u: shortU(chainId) });
-  files.push({ path: chainPath, bytes: enc.encode(chainText) }, { path: jsonPath(chainPath), bytes: enc.encode(toJson(chainText)) });
+  const chainPath = pathOf({ ...base, where, kind: 'chain', u: uOf(chainId) });
+  files.push({ path: chainPath, bytes: enc.encode(chainText) });
 
   for (const f of files) await store.write(f.path, f.bytes); // originals first, chain last
   return { chain: { path: chainPath, id: chainId }, paths: files.map((f) => f.path) };

@@ -5,7 +5,7 @@
 //                                   :sharing-point^(name)=(full path)!(q_… z_…)@(n_ who wrote)'t(…)
 //                                   · row {:x :l :v} = which kinds may lie here · z_ only for a device
 //                                   (a device is a sharing point with a key) · optional join rule:
-//                                   :_.1((join) (gestures 1) (vouch 2))°(Hörsaal 2)'t(2026.11.10 10.00_12.00)
+//                                   :_.1((join) (gestures 1) (vouch 2))°(Hörsaal 2)'t(2026.11.10 09.00_2026.11.10 11.00)
 //              list of a person     a chain file in her own chain/: one definition per sharing point
 //                                   :sharing-point.1^(name)=(full path)!(q_… z_…), and relation lines
 //                                   (relations.js), e.g. {:v :x} {:sharing-point.1} (always)

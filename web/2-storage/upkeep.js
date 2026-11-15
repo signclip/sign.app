@@ -22,7 +22,7 @@
 
 import { openAll } from './sharing-points.js';
 import { copyRoute } from './routes.js';
-import { restore, newBackupKey, FOLDER } from './backup.js';
+import { restore, newBackupKey, holdsBackup, FOLDER } from './backup.js';
 import { sealBackupKey, openBackupKey, KEYS } from './backup-key.js';
 import { ExistsError } from './memory.js';
 
@@ -80,7 +80,7 @@ async function sealFor(store, key, host) {
  */
 export async function backupKey(store, { keychain, host, paper = async () => null }) {
   let key = await keychain.get(KEYCHAIN_ID);
-  const existing = (await store.list(FOLDER).catch(() => [])).some((f) => f.path.endsWith('.sealed'));
+  const existing = await holdsBackup(store);
   if (!key && existing) {
     key = await openBackupKey(store, { host }).catch(() => null);
     if (!key) {
@@ -131,8 +131,7 @@ export async function reopen(open, entries, opts) {
   return back;
 }
 
-/** Does this store hold an encrypted backup? */
-export const holdsBackup = async (store) => (await store.list(FOLDER).catch(() => [])).some((f) => f.path.endsWith('.sealed'));
+export { holdsBackup }; // only the runs are listed (backup.js)
 
 /**
  * A sharing point dropped on this device: bring its files here, once. A backup is opened (backupKey, the

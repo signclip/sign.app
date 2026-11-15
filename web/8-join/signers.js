@@ -12,7 +12,7 @@
 //            phone, guessing stays slow), code 26 Base32 characters (≈ 130 bit) · a certificate ≈ 0.4 KB.
 
 import { signed, checkWitness, newPassword } from '../1-model/crypto.js';
-import { newId, writeId, shortU, toBase32 } from '../1-model/ids.js';
+import { newId, writeId, uOf, toBase32 } from '../1-model/ids.js';
 import { headLine, defLine, fileText, readFile } from '../1-model/file.js';
 import { buildName, timeLabel } from '../1-model/filename.js';
 
@@ -45,7 +45,7 @@ export async function certify({ by, signer, person, now = Date.now() }) {
   const time = timeLabel(now);
   const text = await signed({ privateKey: by.privateKey }, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": time }),
     [defLine('sharing-point.1', { hint: signer.label, id: `${signer.id} z_${signer.key}` })], [`((signer) {:sharing-point.1})'t(${time})`]));
-  return { path: `${FOLDER}${buildName({ words: ['signer', signer.label], person: person.label, time, u: shortU(id), kind: 'chain', ext: 'sign' })}`, text };
+  return { path: `${FOLDER}${buildName({ words: ['signer', signer.label], person: person.label, time, u: uOf(id), kind: 'chain', ext: 'sign' })}`, text };
 }
 
 /** Read a certificate → { by (q_ of the sealer), signer: { id, key, label } } or null. */

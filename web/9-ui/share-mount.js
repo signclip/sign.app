@@ -32,6 +32,7 @@ import { copyRoute } from '../2-storage/routes.js';
 import { send, filesOf, targets, sendTo, defaults, printFile, saveFiles, copy } from './system-share.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel, readName } from '../1-model/filename.js';
+import { shown } from '../1-model/time.js'; // the surface shows local time
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { writeMove, readMove } from '../2-storage/move-note.js';
 import { addNew, bringIn, peek, pickFolder, loginAt, resumeLogin, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
@@ -333,7 +334,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const admin = await findAdmin().catch(() => null); // only user and server reach the sheet, never the password
     const accounts = admin ? await sheetAccounts().catch(() => []) : [];
     const signerCode = admin && adminStore() ? await paperForDoor(choice !== 'keep').catch(() => null) : null; // admin: the paper becomes a signer too
-    const sheet = sheetData({ person, device, key, paper, signerCode, last: s.last ?? {}, joins: await sheetJoins(), services: { admin: s.adminN, atlas: s.atlasN }, date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
+    const sheet = sheetData({ person, device, key, paper, signerCode, last: s.last ?? {}, joins: await sheetJoins(), services: { admin: s.adminN, atlas: s.atlasN }, date: shown(Date.now(), 'day'), entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
     sheet.spots = await spotsOf(sheet.stats.cells); // where the takes were: o_ cells → their middle (h3, loaded once)
     const pdf = sheetPdf(sheet);
     const name = sheetName(sheet); // (Sign Overview)@(Name)'t(…)!(u_…).pdf, as every file name
@@ -563,7 +564,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
    * account shares it there.
    */
   async function newGroup(n) {
-    const sp = s.open.get(n), name = words().join(' ').trim() || `Gruppe ${timeLabel(Date.now()).slice(0, 10)}`;
+    const sp = s.open.get(n), name = words().join(' ').trim() || `Gruppe ${shown(Date.now(), 'day')}`;
     if (!sp?.spec) return say(t('notReachable'));
     s.flash = `sp:${n}`; draw();
     try {
@@ -584,7 +585,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     } catch { s.index = null; return say(t('notReachable')); }
     return draw();
   }
-  const countedAt = () => { try { const at = Number(localStorage.getItem('sign.atlasAt') || 0); return at ? timeLabel(at).slice(5, 16) : '–'; } catch { return '–'; } };
+  const countedAt = () => { try { const at = Number(localStorage.getItem('sign.atlasAt') || 0); return at ? shown(at).slice(5, 16) : '–'; } catch { return '–'; } };
   const indexTiles = () => [{ label: `← ${countedAt()}`, go: () => { s.index = null; draw(); } }, ...s.index.filter((x) => words().every((w) => (x.c.label ?? x.user).toLowerCase().includes(w.toLowerCase()))).map((x) => ({ label: `@${x.c.label ?? x.user} · ${statsOf(x.c)}` }))];
   /** → on the admin tile: the accounts with their space as tiles; ↓ rests, ↑ wakes, two fingers apart / together = more / less space, the first tile = back (14.11.). */
   async function showAccounts() {
@@ -602,7 +603,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (!s.accounts) return null;
     if (s.account) return lookTiles(s.account);
     return [{ label: '←', go: () => { s.accounts = null; s.account = null; draw(); } }, ...matchAccounts(s.accounts, words()).map((a) => ({ // the context words find accounts, like Similar
-      label: `${a.enabled ? '' : '◌ '}${a.quota > 0 && a.used / a.quota >= 0.9 ? '⚠ ' : ''}@${a.label}${a.lastLogin ? ` · ${timeLabel(a.lastLogin).slice(5, 10)}` : ''}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
+      label: `${a.enabled ? '' : '◌ '}${a.quota > 0 && a.used / a.quota >= 0.9 ? '⚠ ' : ''}@${a.label}${a.lastLogin ? ` · ${shown(a.lastLogin, 'day').slice(5, 10)}` : ''}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
       look: () => openAccount(a), // tap = look at it: its devices and groups
       down: () => setEnabled(ctx.admin, a.user, false).then(showAccounts, () => say(t('notReachable'))), // ↓ rests (◌)
       up: () => setEnabled(ctx.admin, a.user, true).then(showAccounts, () => say(t('notReachable'))), // ↑ wakes

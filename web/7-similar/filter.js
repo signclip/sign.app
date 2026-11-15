@@ -16,18 +16,8 @@ import { combinedSimilar } from './combine.js';
 const TIME = "'t";
 const personOf = (e) => ({ n: e?.head?.id?.n ?? null, label: e?.head?.['@'] ?? null });
 
-/** 't(2026.11) · 't(2026.11.08) · 't(2026.11.01_2026.11.14) → [from, to] as comparable prefixes. */
-export function timeRange(text) {
-  if (!text) return null;
-  const [from, to = from] = String(text).split('_');
-  return [from.trim(), to.trim()];
-}
-export function inTime(t, range) {
-  if (!range) return true;
-  if (!t) return false;
-  const [from, to] = range;
-  return t.slice(0, from.length) >= from && t.slice(0, to.length) <= to;
-}
+import { timeRange, inTime, shown } from '../1-model/time.js'; // ranges of UTC times (G7)
+export { timeRange, inTime };
 
 /** Everything the index holds that has a head: :x strands and chains. */
 const entries = (index) => [...index.tables.strands.values(), ...index.tables.chains.values()].filter((e) => e.head);
@@ -50,7 +40,7 @@ export function facets(index) {
       point.count += 1;
       if (p.n) point.persons.add(p.n);
     }
-    if (e.head[TIME]) months.add(e.head[TIME].slice(0, 7));
+    if (e.head[TIME]) months.add(shown(e.head[TIME], 'month')); // local month, as the surface counts
   }
   return {
     persons: [...persons.values()].sort((a, b) => b.count - a.count),

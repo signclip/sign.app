@@ -7,11 +7,23 @@
 //            (File System Access API: navigator.storage.getDirectory() in every current browser).
 // Test:      tests/share.test.mjs (with a fake handle in memory)
 // Limits:    the browser decides the quota (often up to ~60 % of free disk); Safari removes site
-//            data after 7 days without use unless the PWA is installed.
+//            data after 7 days without use unless the PWA is installed (home screen) or the storage is
+//            persisted: lasting() asks once at start; false = the device is only a cache, so its files
+//            (and person and device id) must also go to a lasting sharing point (15.11., storage review).
 
 import { ExistsError, MissingError } from './memory.js';
 
 const toBytes = (b) => (typeof b === 'string' ? new TextEncoder().encode(b) : b);
+
+/**
+ * Will the browser keep these files? Asks for persistent storage once (no prompt in Chrome, Safari
+ * grants it to installed web apps). → true (kept) · false (may be removed after 7 days without use).
+ * The native app (folder of the app) is always lasting.
+ */
+export async function lasting(storage = globalThis.navigator?.storage) {
+  if (!storage?.persist) return false;
+  try { return (await storage.persisted?.()) || (await storage.persist()); } catch { return false; }
+}
 
 export class LocalStore {
   /** root: a directory handle, e.g. await navigator.storage.getDirectory(). */

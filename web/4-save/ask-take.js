@@ -11,12 +11,11 @@
 //            files, the app shows the newest.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
-import { newId, writeId, shortU } from '../1-model/ids.js';
+import { newId, writeId, uOf } from '../1-model/ids.js';
 import { hashBytes } from '../1-model/hash.js';
 import { signed } from '../1-model/crypto.js';
 import { timeLabel } from '../1-model/filename.js';
-import { toJson } from '../1-model/json.js';
-import { pathOf, partsOf, jsonPath } from '../2-storage/layout.js';
+import { pathOf, partsOf } from '../2-storage/layout.js';
 
 const enc = new TextEncoder();
 
@@ -34,8 +33,7 @@ export async function askTake({ own, chainPath, of, kind, device, person, now = 
     defLine('_.1', { body: `(:${kind})`, echo: `:${of}` }),
   ], [`{:_.1}'t(${at})`, '{:chain.1}']));
   const name = partsOf(chainPath);
-  const path = pathOf({ words: name.words, person: person.label, where: name.where, time: at, kind: 'chain', u: shortU(id) });
+  const path = pathOf({ words: name.words, person: person.label, where: name.where, time: at, kind: 'chain', u: uOf(id) });
   await own.write(path, enc.encode(text));
-  await own.write(jsonPath(path), enc.encode(toJson(text)));
   return path;
 }

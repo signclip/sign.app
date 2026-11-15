@@ -12,12 +12,11 @@
 // EXTEND(S5, binary echo): landmarks (.l.parquet) and masks (.m.mp4) pass bytes instead of text.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
-import { newId, writeId, shortU } from '../1-model/ids.js';
+import { newId, writeId, uOf } from '../1-model/ids.js';
 import { hashBytes } from '../1-model/hash.js';
 import { signed } from '../1-model/crypto.js';
 import { timeLabel, flatWords } from '../1-model/filename.js';
-import { toJson } from '../1-model/json.js';
-import { pathOf, partsOf, jsonPath } from '../2-storage/layout.js';
+import { pathOf, partsOf } from '../2-storage/layout.js';
 
 const enc = new TextEncoder();
 
@@ -32,9 +31,8 @@ export async function addEcho({ own, chainPath, from, kind, row, echo, device, p
   const text = await signed(deviceKey, fileText(headLine(kind, { '!': writeId(id), '~': echo, '@': person.label, "'t": at }), [], [row]));
   const bytes = enc.encode(text);
   const name = partsOf(chainPath);
-  const echoPath = pathOf({ words: flatWords(row), echo, person: person.label, time: at, kind, u: shortU(id) });
+  const echoPath = pathOf({ words: flatWords(row), echo, person: person.label, time: at, kind, u: uOf(id) });
   await own.write(echoPath, bytes);
-  await own.write(jsonPath(echoPath), enc.encode(toJson(text)));
 
   const mine = `${kind}.${kind === src.kind ? src.n + 1 : 1}`;
   const chainId = newId({ q: device, n: person.id, now });
@@ -43,8 +41,7 @@ export async function addEcho({ own, chainPath, from, kind, row, echo, device, p
     defLine(from, { id: writeId(src.id, src.id.hash), echo: ':chain.1' }),
     defLine(mine, { id: writeId(id, await hashBytes(bytes)), echo: `${echo} :${from}` }),
   ], [`{:${mine}}'t(${at})`, '{:chain.1}']));
-  const path = pathOf({ words: name.words, person: person.label, where: name.where, time: at, kind: 'chain', u: shortU(chainId) });
+  const path = pathOf({ words: name.words, person: person.label, where: name.where, time: at, kind: 'chain', u: uOf(chainId) });
   await own.write(path, enc.encode(chainText));
-  await own.write(jsonPath(path), enc.encode(toJson(chainText)));
   return { echo: echoPath, chain: path };
 }

@@ -3,7 +3,7 @@
 // Purpose:   tables named after our terms, all rebuilt from the files at any time:
 //              strands        id → kind, head (from :x files and from the chains that define them); :x also lead = sticky words
 //              chains         id → head, definitions, lines, the chain below (bottom {:chain.1})
-//              sharingPoints  u_ (12 chars, from the file name) → paths in every sharing point
+//              sharingPoints  u_ (whole, from the file name) → paths in every sharing point
 //              context        word (NFC, lower case) → :x strands that contain it
 //              weave          id → files that point to it (define it, came from it, build on it)
 //              takes          chains whose top line waits for a Take ({:_.1})
@@ -19,7 +19,7 @@
 // EXTEND(S6, vectors): vectors for Similar as one more table.
 
 import { readFile } from '../1-model/file.js';
-import { readId, idKey, shortU } from '../1-model/ids.js';
+import { readId, idKey, uOf } from '../1-model/ids.js';
 import { readName, flatWords } from '../1-model/filename.js';
 import { checkWitness } from '../1-model/crypto.js';
 import { leadOf } from '../1-model/context.js';
@@ -78,7 +78,7 @@ export class Index {
   chain(idText) { return this.tables.chains.get(idKey(readId(idText))) ?? null; }
 
   /** Where copies lie (all sharing points), found by u_ in the name. */
-  sharingPoints(idText) { return [...(this.tables.sharingPoints.get(shortU(readId(idText))) ?? [])]; }
+  sharingPoints(idText) { return [...(this.tables.sharingPoints.get(uOf(readId(idText))) ?? [])]; }
 
   /** Files that point to this id: define it, came from it, build on it. */
   weave(idText) { return [...(this.tables.weave.get(idKey(readId(idText))) ?? [])]; }

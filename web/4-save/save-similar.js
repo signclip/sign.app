@@ -13,7 +13,7 @@
 // Limits:    one similar ≈ 300 B + 100 B per sharing point; ≤ 40 sharing points in one similar.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
-import { newId, writeId, shortU } from '../1-model/ids.js';
+import { newId, writeId, uOf } from '../1-model/ids.js';
 import { hashBytes } from '../1-model/hash.js';
 import { buildName, timeLabel } from '../1-model/filename.js';
 import { monthOf } from '../2-storage/layout.js';
@@ -66,7 +66,7 @@ export async function saveSimilar(store, similar, { device, person, now = Date.n
   }
   const text = await signed(deviceKey, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": time }), defs, rows));
   const words = ['similar', ...(similar.words ?? [])].slice(0, 6);
-  const path = `chain/${monthOf(time)}/${buildName({ words, person: person.label, time, u: shortU(id), kind: 'chain', ext: 'sign' })}`;
+  const path = `chain/${monthOf(time)}/${buildName({ words, person: person.label, time, u: uOf(id), kind: 'chain', ext: 'sign' })}`;
   await store.write(path, enc.encode(text));
   return { path, id, text };
 }

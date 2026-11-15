@@ -14,12 +14,11 @@
 // Limits:    one line ≈ 0.3 KB + 0.15 KB per element; at most 64 elements per line (a longer one = two lines).
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
-import { newId, writeId, shortU } from '../1-model/ids.js';
+import { newId, writeId, uOf } from '../1-model/ids.js';
 import { hashBytes } from '../1-model/hash.js';
 import { signed } from '../1-model/crypto.js';
 import { timeLabel } from '../1-model/filename.js';
-import { toJson } from '../1-model/json.js';
-import { pathOf, partsOf, jsonPath } from '../2-storage/layout.js';
+import { pathOf, partsOf } from '../2-storage/layout.js';
 
 export const MAX_ELEMENTS = 64;
 const enc = new TextEncoder();
@@ -52,8 +51,7 @@ export async function addLine({ own, chainPath = null, below: belowBytes = null,
   const id = newId({ q: device, n: person.id, now });
   const text = await signed(deviceKey, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": at }), defs, below ? [line, '{:chain.1}'] : [line]));
   const name = chainPath ? partsOf(chainPath) : { words: [] };
-  const path = pathOf({ words: name.words ?? [], person: person.label, where: name.where, time: at, kind: 'chain', u: shortU(id) });
+  const path = pathOf({ words: name.words ?? [], person: person.label, where: name.where, time: at, kind: 'chain', u: uOf(id) });
   await own.write(path, enc.encode(text));
-  await own.write(jsonPath(path), enc.encode(toJson(text)));
   return { chain: path };
 }

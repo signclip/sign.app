@@ -1,17 +1,18 @@
 // filename.js — file names as a view: readable, findable by any file manager.
 //
-// Purpose:   ^(to)(context words)~(echo)@(person)°(where)'t(date time 0_length)!(u_ 12 chars)(part).kind.ext
+// Purpose:   ^(to)(context words)~(echo)@(person)°(where)'t(date time 0_length)!(u_ 16 chars)(part).kind.ext
 //            (part): one more piece of the same file group, e.g. (password gesture 1) beside a hello (15.11.):
 //            it sorts right after its group, so one hello and its gestures stand together.
 //            The name is never read to decide meaning; the content is the truth (SCHEMA.md B4).
 //            Renaming is allowed: nothing points to paths, only to !( ).
 // Depends:   symbols.js, notation.js
 // Test:      tests/model.test.mjs
-// Limits:    255 bytes (UTF-8, umlauts 2 bytes); meta and id take ~60–90 bytes, context words
+// Limits:    255 bytes (UTF-8, umlauts 2 bytes); meta and id take ~65–95 bytes, context words
 //            are cut at whole words to fit · forbidden: : { } / \ * ? " < > | # %.
 
 import { NAME_FORBIDDEN, NAME_MAX_BYTES } from './symbols.js';
 import { parse } from './notation.js';
+export { timeLabel } from './time.js'; // 't( ) is UTC; written in time.js only
 
 const bytes = (s) => new TextEncoder().encode(s).length;
 const clean = (s) => String(s).replace(NAME_FORBIDDEN, ' ').replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -30,14 +31,6 @@ export function flatWords(contextText) {
   };
   walk(parse(contextText));
   return [...new Set(words.map(clean).filter(Boolean))];
-}
-
-/** Time as written in 't( ): local date and time to the second, then the length from 0 in ms. */
-export function timeLabel(ms, lengthMs = null) {
-  const d = new Date(ms);
-  const p = (n) => String(n).padStart(2, '0');
-  const at = `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}.${p(d.getMinutes())}.${p(d.getSeconds())}`;
-  return lengthMs == null ? at : `${at} 0_${Math.round(lengthMs)}`;
 }
 
 /** Build a file name. Words are cut (whole words) until the name fits 255 bytes. */

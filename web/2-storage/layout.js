@@ -2,7 +2,7 @@
 //
 // Purpose:   as few folders as possible (decision 07.11.):
 //              sharing-point.sign        the sharing point describes itself (who, what may go here)
-//              take/<kind>/2026.11/      originals: v/ .v.mp4 · a/ .a.wav · x/ .x.sign/.json
+//              take/<kind>/2026.11/      originals: v/ .v.mp4 · a/ .a.wav · x/ .x.sign (a .json view is made on demand, never stored)
 //              echo/<kind>/2026.11/      computed: l/ .l.parquet · m/ .m.mp4 · x/ Whisper text, cuts
 //                                        (one folder per strand kind, so a kind can be shared
 //                                        read-only on its own, decision 08.11., 20.02)
@@ -40,11 +40,6 @@ export function pathOf(parts, { echo = false } = {}) {
   if (!folder) return name;
   const byKind = folder === 'take' || folder === 'echo'; // strand folders: each kind can be shared on its own
   return byKind ? `${folder}/${parts.kind}/${monthOf(parts.time)}/${name}` : `${folder}/${monthOf(parts.time)}/${name}`;
-}
-
-/** The .json next to a .sign: same name, other ending. */
-export function jsonPath(signPath) {
-  return signPath.replace(/\.sign$/, '.json');
 }
 
 /** Kind and parts of a path, read from the name only. */

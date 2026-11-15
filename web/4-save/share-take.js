@@ -19,12 +19,11 @@
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
 import { relationLine } from '../2-storage/relations.js';
-import { newId, writeId, shortU, idKey } from '../1-model/ids.js';
+import { newId, writeId, uOf, idKey } from '../1-model/ids.js';
 import { timeLabel } from '../1-model/filename.js';
-import { toJson } from '../1-model/json.js';
 import { hashBytes } from '../1-model/hash.js';
 import { signed } from '../1-model/crypto.js';
-import { pathOf, partsOf, jsonPath } from '../2-storage/layout.js';
+import { pathOf, partsOf } from '../2-storage/layout.js';
 import { ExistsError } from '../2-storage/memory.js';
 
 const enc = new TextEncoder();
@@ -56,7 +55,7 @@ async function strandsOfChain(own, byU, file) {
       if (d.id && FILE_KINDS.includes(d.kind) && !found.has(idKey(d.id))) found.set(idKey(d.id), d);
       if (d.kind === 'chain' && d !== below) embedded.push(d.label ?? writeId(d.id));
     }
-    const path = below ? (byU.get(shortU(below.id)) ?? []).find((p) => p.endsWith('.chain.sign')) : null;
+    const path = below ? (byU.get(uOf(below.id)) ?? []).find((p) => p.endsWith('.chain.sign')) : null;
     f = path ? readFile(dec.decode(await own.read(path))) : null;
   }
   const count = {};
@@ -101,15 +100,14 @@ export async function shareTake({ own, chainPath, targets, once = null, device, 
     if (!chosen.length) { report.skipped.push(entry.label); continue; }
     const copied = [];
     for (const d of chosen) {
-      for (const p of byU.get(shortU(d.id)) ?? []) if (await writeOnce(store, p, await own.read(p))) copied.push(p);
+      for (const p of byU.get(uOf(d.id)) ?? []) if (await writeOnce(store, p, await own.read(p))) copied.push(p);
     }
     const id = newId({ q: device, n: person.id, now });
     const head = headLine('chain', { '!': writeId(id), '@': file.head['@'], '°': file.head['°'], "'t": file.head["'t"] });
     const refs = chosen.map((d) => `:${d.name}`).join(' ');
     const text = await signed(deviceKey, fileText(head, chosen.map((d) => defLine(d.name, { id: writeId(d.id, d.id.hash) })), [`_({${refs}})'t(${file.head["'t"]})`]));
-    const path = pathOf({ words: name.words, person: name.person, where: name.where, time: name.time, kind: 'chain', u: shortU(id) });
+    const path = pathOf({ words: name.words, person: name.person, where: name.where, time: name.time, kind: 'chain', u: uOf(id) });
     await writeOnce(store, path, enc.encode(text));
-    await writeOnce(store, jsonPath(path), enc.encode(toJson(text)));
     report.shared.push({ to: entry.label, kinds, paths: [...copied, path] });
     for (const d of chosen) sharedNames.add(d.name);
     const n = shareRows.length + 1;
@@ -125,9 +123,8 @@ export async function shareTake({ own, chainPath, targets, once = null, device, 
       ...shareRows.map((s) => s.def),
     ];
     const text = await signed(deviceKey, fileText(head, defs, [...shareRows.map((s) => s.row), '{:chain.1}']));
-    const path = pathOf({ to: shareRows.map((s) => s.label), words: name.words, person: person.label, where: name.where, time: at, kind: 'chain', u: shortU(id) });
+    const path = pathOf({ to: shareRows.map((s) => s.label), words: name.words, person: person.label, where: name.where, time: at, kind: 'chain', u: uOf(id) });
     await own.write(path, enc.encode(text));
-    await own.write(jsonPath(path), enc.encode(toJson(text)));
     report.version = path;
   }
   return report;

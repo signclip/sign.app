@@ -9,7 +9,7 @@
 // Limits:    one list of the door per look; old files keep @(old) in their names (names are a view, B4).
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
-import { newId, writeId, shortU } from '../1-model/ids.js';
+import { newId, writeId, uOf } from '../1-model/ids.js';
 import { signed, checkWitness } from '../1-model/crypto.js';
 import { timeLabel, buildName, readName } from '../1-model/filename.js';
 import { nameSignOf, devicesOf } from './join.js';
@@ -22,7 +22,7 @@ export async function sayRename({ store, device, deviceKey, person, account, old
   const id = newId({ q: device.id, n: person.id, now }), at = timeLabel(now);
   const text = await signed(deviceKey ?? null, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": at }),
     [defLine('sharing-point.1', { hint: device.label, id: `${device.id} z_${device.key}` })], [`((rename) (${old}) (account ${account}))'t(${at})`]));
-  const name = buildName({ words: ['rename'], person: person.label, time: at, u: shortU(id), kind: 'chain', ext: 'sign' });
+  const name = buildName({ words: ['rename'], person: person.label, time: at, u: uOf(id), kind: 'chain', ext: 'sign' });
   await store.write(`hello/${name}`, enc.encode(text));
   if (nameSign) await store.write(`hello/${nameSignOf(name)}`, nameSign);
   return `hello/${name}`;

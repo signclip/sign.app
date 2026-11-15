@@ -10,10 +10,10 @@
 //              {:l.1} (quiet)'t(…) · {:chain.1}        what first, the mark behind; a restore skips these ids
 // Depends:   1-model (file, ids, hash, crypto, filename), 2-storage/layout
 // Test:      tests/remove.test.mjs
-// Limits:    one removal ≈ 0.4 KB chain + one copy per file; a strand = 1–2 files (.x has .json).
+// Limits:    one removal ≈ 0.4 KB chain + one copy per file; a strand = 1 file.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
-import { newId, writeId, shortU } from '../1-model/ids.js';
+import { newId, writeId, uOf } from '../1-model/ids.js';
 import { hashBytes } from '../1-model/hash.js';
 import { signed } from '../1-model/crypto.js';
 import { timeLabel, readName } from '../1-model/filename.js';
@@ -24,7 +24,7 @@ const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 /** Paths of a strand in a store, found by the u_ in the file name. */
 export async function pathsOfStrand(store, id) {
-  const u = shortU(id);
+  const u = uOf(id);
   return (await store.list()).map((f) => f.path).filter((p) => readName(p.slice(p.lastIndexOf('/') + 1))?.u === u);
 }
 
@@ -60,13 +60,13 @@ export async function removeStrands({ own, chainPath, names, chips = {}, atlas =
     ...defs.map((d) => defLine(d.name, { id: writeId(d.id, d.id.hash), echo: ':chain.1' })),
   ], [`{${refs}} (quiet)'t(${at})`, '{:chain.1}']));
   const name = partsOf(chainPath);
-  result.chain = pathOf({ words: ['quiet', ...name.words], person: person.label, time: at, kind: 'chain', u: shortU(id) });
+  result.chain = pathOf({ words: ['quiet', ...name.words], person: person.label, time: at, kind: 'chain', u: uOf(id) });
   await own.write(result.chain, enc.encode(text));
   if (atlas && chips.training) { await atlas.write(`hello/${result.chain.split('/').pop()}`, enc.encode(text)); result.quietToAtlas = true; }
   return result;
 }
 
-/** u_ (12 chars, as in file names) of removed strands, from chain texts: a restore skips their files. */
+/** u_ (as in file names) of removed strands, from chain texts: a restore skips their files. */
 export function quietIds(texts) {
   const out = new Set();
   for (const t of texts) {
@@ -74,7 +74,7 @@ export function quietIds(texts) {
     for (const row of f.rows) {
       const m = /^\{([^{}]*)\} \(quiet\)/.exec(row.text);
       if (!m) continue;
-      for (const ref of m[1].split(' ')) { const d = f.defs.get(ref.slice(1)); if (d?.id) out.add(shortU(d.id)); }
+      for (const ref of m[1].split(' ')) { const d = f.defs.get(ref.slice(1)); if (d?.id) out.add(uOf(d.id)); }
     }
   }
   return out;

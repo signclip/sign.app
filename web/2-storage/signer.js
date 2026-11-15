@@ -15,7 +15,7 @@
 
 import { readDescription, trusted, signerKeys, describe } from './sharing-point.js';
 import { signed } from '../1-model/crypto.js';
-import { newId, shortU } from '../1-model/ids.js';
+import { newId, uOf } from '../1-model/ids.js';
 import { buildName } from '../1-model/filename.js';
 import { monthOf, SELF } from './layout.js';
 
@@ -50,7 +50,7 @@ export async function newVersion({ store, signer, change, now = Date.now(), time
   const oldText = dec.decode(await store.read(SELF));
   const old = readDescription(oldText);
   const text = await signed(signer.deviceKey, describe({ ...old, ...change, id: old.id, by: signer.label, time }));
-  const u = shortU(newId({ q: signer.device, n: 'n_0', now }));
+  const u = uOf(newId({ q: signer.device, n: 'n_0', now }));
   const kept = `chain/${monthOf(time)}/${buildName({ words: ['sharing-point', old.label], time, u, kind: 'sharing-point', ext: 'sign' })}`;
   await store.move(SELF, kept);
   await store.write(SELF, enc.encode(text));

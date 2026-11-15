@@ -12,7 +12,7 @@
 // Limits:    one request ≈ 0.3 KB + 80 B per strand; honouring = one list + one delete per file.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
-import { newId, writeId, shortU } from '../1-model/ids.js';
+import { newId, writeId, uOf } from '../1-model/ids.js';
 import { signed, checkWitness } from '../1-model/crypto.js';
 import { timeLabel, buildName } from '../1-model/filename.js';
 import { pathsOfStrand } from '../4-save/remove.js';
@@ -26,7 +26,7 @@ export async function askRemove({ store, strands, device, person, deviceKey = nu
   const text = await signed(deviceKey, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": at }),
     strands.map((s) => defLine(s.name, { id: writeId(s.id, s.id.hash) })),
     [`{${strands.map((s) => `:${s.name}`).join(' ')}} (quiet)'t(${at})`]));
-  const path = `hello/${buildName({ words: ['quiet'], person: person.label, time: at, u: shortU(id), kind: 'chain', ext: 'sign' })}`;
+  const path = `hello/${buildName({ words: ['quiet'], person: person.label, time: at, u: uOf(id), kind: 'chain', ext: 'sign' })}`;
   await store.write(path, enc.encode(text));
   return path;
 }

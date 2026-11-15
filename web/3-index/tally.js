@@ -15,17 +15,17 @@
 // Test:      tests/model.test.mjs (emergency sheet)
 // Limits:    one pass, ~1 µs per file → 10⁵ takes ≈ 0.1–0.3 s · a take without length counts 0 s · list: ≤ 200,000 takes (~60 B each in memory).
 
+import { msOf } from '../1-model/time.js';
 import { idKey } from '../1-model/ids.js';
 
 const DAY = 86_400_000, WEEK = 7 * DAY;
 const KINDS = ['v', 'a', 'x', 'l', 'm'];
 
-/** "2026.11.14 12.30.05 0_4200" → { at: ms, ms: 4200 } (local time, as the app writes it), or null. */
+/** "2026.11.14 12.30.05 0_4200" → { at: ms, ms: 4200 } (UTC, as every 't( ) is written), or null. */
 export function readTime(label) {
-  const m = /^(\d{4})\.(\d\d)\.(\d\d)(?: (\d\d)\.(\d\d)\.(\d\d))?(?: 0_(\d+))?/.exec(String(label ?? ''));
-  if (!m) return null;
-  const [, y, mo, d, h = 0, mi = 0, s = 0, len = 0] = m;
-  return { at: new Date(+y, mo - 1, +d, +h, +mi, +s).getTime(), ms: Number(len) };
+  const at = msOf(label); // UTC, the one parser (time.js)
+  if (at == null) return null;
+  return { at, ms: Number(/ 0_(\d+)$/.exec(String(label))?.[1] ?? 0) };
 }
 
 const bump = (map, key, by = 1) => map.set(key, (map.get(key) ?? 0) + by);

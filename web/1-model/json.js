@@ -1,7 +1,7 @@
-// json.js — the .json next to every .sign: the same tree, symbols as keys, indented.
+// json.js — a JSON view of any .sign: the same tree, symbols as keys, indented.
 //
-// Purpose:   tools (Python, tables, other apps) read JSON; we write .sign. Both are made at the
-//            same moment and say the same; if they differ, the .sign wins (decision 06.11.).
+// Purpose:   tools (Python, tables, other apps) read JSON; we store only .sign. The JSON is made on
+//            demand (export, tools) and never stored (15.11.: 4 files per Take instead of 6).
 // Depends:   notation.js, file.js
 // Test:      tests/model.test.mjs (text → JSON → text gives the same text)
 // Keys:      ":" kind or short form · ":v.1" definition · "{}" rows · "(" values · "{" references ·

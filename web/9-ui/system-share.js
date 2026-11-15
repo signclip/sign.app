@@ -97,7 +97,6 @@ export async function filesOf(store, ids) {
   const out = [];
   for (const id of ids) {
     for (const p of await pathsOfStrand(store, id)) {
-      if (p.endsWith('.json')) continue;
       const name = p.slice(p.lastIndexOf('/') + 1);
       out.push(new File([await store.read(p)], name, { type: TYPES[name.split('.').pop()] ?? 'application/octet-stream' }));
     }

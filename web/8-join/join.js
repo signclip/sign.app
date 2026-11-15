@@ -16,7 +16,7 @@
 // Limits:    request ≈ 0.5 KB, answer ≈ 0.5 KB + 100 B per sharing point; one advance ≤ 5 moves.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
-import { newId, writeId, shortU } from '../1-model/ids.js';
+import { newId, writeId, uOf } from '../1-model/ids.js';
 import { hashBytes } from '../1-model/hash.js';
 import { signed, seal, unseal, checkWitness } from '../1-model/crypto.js';
 import { timeLabel, buildName, readName } from '../1-model/filename.js';
@@ -34,7 +34,7 @@ async function chainFile({ by, device, deviceKey, now, defs = [], line, raw = nu
   const top = below ? [defLine('chain.1', { id: writeId(below.id, below.hash) })] : [];
   const text = await signed(deviceKey ?? null, fileText(headLine('chain', { '!': writeId(id), '@': by.label, "'t": at }),
     [...top, ...defs], [raw ? `${raw}'t(${at})` : `(${line.map((c) => (c.startsWith('{') ? c : `(${c})`)).join(' ')})'t(${at})`, ...(below ? ['{:chain.1}'] : [])]));
-  return { text, name: buildName({ words, person: by.label, time: at, u: shortU(id), kind: 'chain', ext: 'sign' }) };
+  return { text, name: buildName({ words, person: by.label, time: at, u: uOf(id), kind: 'chain', ext: 'sign' }) };
 }
 /** The name sign beside a hello: same name, picture strand. */
 export const nameSignOf = (helloName) => buildName({ ...readName(helloName), kind: 'v', ext: 'mp4' });

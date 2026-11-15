@@ -32,7 +32,7 @@
 
 import './persons-boot.js'; // first: several persons on this device (persons.js)
 import { translator } from '../0-i18n/t.js';
-import { LocalStore } from '../2-storage/local.js';
+import { LocalStore, lasting } from '../2-storage/local.js';
 import { buildIndex } from '../3-index/index.js';
 import { saveTake } from '../4-save/save-take.js';
 import { removeStrands } from '../4-save/remove.js';
@@ -49,7 +49,7 @@ import { transcribe, contextOf as wordsRow } from '../5-take/whisper.js';
 import { toMono, resample } from '../5-take/resample.js';
 import { addEcho } from '../4-save/add-echo.js';
 import { similar } from '../7-similar/filter.js';
-import { newPerson, newSource, shortU, writeId } from '../1-model/ids.js';
+import { newPerson, newSource, uOf, writeId } from '../1-model/ids.js';
 import { readFile } from '../1-model/file.js';
 import { withTakes } from './view/chips.js';
 import { withSticky, afterTake as stepSeries, nextOfSeries, readContext, contextTree, fromField, insertGesture } from '../1-model/context.js';
@@ -116,6 +116,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const person = { id: kept('sign.person', newPerson), label: kept('sign.name', () => t('take.name')) };
   const device = kept('sign.device', newSource);
   const store = new LocalStore(await navigator.storage.getDirectory());
+  store.lasting = await lasting(); // false (Safari tab, not installed): this device is only a cache (local.js)
 
   // a video shows only once its first frame plays (no black box, no grey play button); then the shapes follow
   for (const v of document.querySelectorAll('#screen video')) {
@@ -479,7 +480,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   /** The take chain of a picture or video file, found by its u_ (newest version). Limits: walks all chains, fine to ~10⁴. */
   function chainOfVisual(path) {
     const u = readName(path.slice(path.lastIndexOf('/') + 1))?.u;
-    const hits = [...index.tables.chains.values()].filter((c) => index.tables.takes.has(c.key) && [...c.defs.values()].some((d) => d.kind === 'v' && d.id && shortU(d.id) === u));
+    const hits = [...index.tables.chains.values()].filter((c) => index.tables.takes.has(c.key) && [...c.defs.values()].some((d) => d.kind === 'v' && d.id && uOf(d.id) === u));
     return hits.sort((a, b) => String(b.head["'t"] ?? '').localeCompare(String(a.head["'t"] ?? '')))[0]?.key ?? null;
   }
   /** Lay elements (index keys) on the current chain: a new line on top (add-line.js). */
