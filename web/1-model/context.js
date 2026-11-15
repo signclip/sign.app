@@ -183,3 +183,29 @@ export function leadOf(text) {
   for (const n of nodes) walk(n);
   return [...out];
 }
+
+/**
+ * Write a gesture at a spot in the series (15.11.): tapped in the row = there, below the row = at the end.
+ * at: the path of a gesture in contextTree(text) ([i] top level, [i, j] inside prefix i …) or null = at the end ·
+ * how: 'after' = behind that gesture · 'in' = into that prefix, as its last element.
+ * → { text, at } with at = the spot of what was written (the next one goes behind it).
+ */
+export function insertGesture(text, at, how, add) {
+  const nodes = parse(text), more = parse(add).filter((n) => n.t !== 'sym');
+  const real = (list) => list.map((n, ix) => [n, ix]).filter(([n]) => n.t !== 'sym');
+  const asGroup = (n) => { if (n.body.t !== 'group') n.body = { t: 'group', items: [n.body], meta: [] }; return n.body.items; };
+  const end = () => { nodes.push(...more); return { text: write(nodes), at: [real(nodes).length - 1] }; };
+  if (!at?.length || !more.length) return end();
+  let list = nodes;
+  const path = [];
+  for (let d = 0; d < at.length; d++) {
+    const [n, ix] = real(list)[at[d]] ?? [];
+    if (!n) return end();
+    const last = d === at.length - 1;
+    if (last && how === 'in' && n.t === 'prefix') { const items = asGroup(n); items.push(...more); return { text: write(nodes), at: [...path, at[d], real(items).length - 1] }; }
+    if (last || n.t !== 'prefix') { list.splice(ix + 1, 0, ...more); return { text: write(nodes), at: [...path, at[d] + more.length] }; }
+    path.push(at[d]);
+    list = asGroup(n);
+  }
+  return end();
+}

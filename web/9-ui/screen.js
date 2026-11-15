@@ -76,6 +76,7 @@ export function targetOf(role) {
     case 'strand': return { target: 'strand', kind: rest };
     case 'chip': case 'gesture': return { target: 'chip', text: rest };
     case 'sticky': return { target: 'chip', sticky: true };
+    case 'queue': { const [how, at, ...text] = rest.split(':'); return { target: 'chip', text: text.join(':'), queue: { how, at: at.split('.').map(Number) } }; } // a chip in the row below: tapped = write there (15.11.)
     case 'similar': return { target: 'similar-item', index: Number(rest) };
     case 'line': return { target: 'item', index: Number(rest) };
     case 'line-arc': return { target: 'line-arc' };

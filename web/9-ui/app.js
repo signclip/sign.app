@@ -52,7 +52,7 @@ import { similar } from '../7-similar/filter.js';
 import { newPerson, newSource, shortU, writeId } from '../1-model/ids.js';
 import { readFile } from '../1-model/file.js';
 import { withTakes } from './view/chips.js';
-import { withSticky, afterTake as stepSeries, nextOfSeries, readContext, contextTree, fromField } from '../1-model/context.js';
+import { withSticky, afterTake as stepSeries, nextOfSeries, readContext, contextTree, fromField, insertGesture } from '../1-model/context.js';
 import { write as writeNotation, parse as parseNotation } from '../1-model/notation.js';
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse, look } from './state.js';
@@ -764,7 +764,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   /** Open or close the context field: the bottom arc straightens into the field (or bends back), ~300 ms. */
   const openContext = (on, ms = 300) => {
     const field = $('#context');
-    if (!on) { field.hidden = true; field.classList.remove('shown'); say.blur(); }
+    if (!on) { field.hidden = true; field.classList.remove('shown'); say.blur(); data.insertAt = null; data.chipScroll = 0; }
     else { field.hidden = false; say.focus(); } // there at once but unseen, so the keyboard may open inside the touch
     const from = data.open ?? 0, to = on ? 1 : 0, t0 = performance.now();
     const frame = (now) => {
@@ -811,7 +811,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const text = fromField(say.value); // ( ) nest, [ ] spells, missing brackets are closed
     say.value = '';
     if (!text) return openContext(false);
-    series = `${series} ${text}`.trim();
+    const put = insertGesture(series, data.insertAt?.at ?? null, data.insertAt?.how ?? null, text); // at the tapped spot, or at the end
+    series = put.text;
+    if (data.insertAt) data.insertAt = { at: put.at, how: 'after' }; // the next one goes behind it
     showSeries();
   });
 
@@ -843,6 +845,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   async function act(gesture, role, extra = {}) {
     let hit = { ...targetOf(role), ...extra };
     if (hit.target === 'strand' && hit.kind === 'x' && gesture === 'tap' && !st.hold) hit = { ...hit, target: 'context' }; // the context arc: a tap opens / closes its field (15.11.)
+    if (hit.queue && gesture === 'tap' && !st.hold) hit = { ...hit, target: 'queue' }; // the row below: a tap writes there (15.11.)
     if (hit.target === 'delete') return gesture === 'tap' ? removeLast(hit.what) : null;
     const mode = st.mode === 'line' ? 'line' : st.similar ? 'similar' : 'take';
     const held = st.hold?.target ?? null; // what the other finger holds (parallel gesture)
@@ -1033,7 +1036,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         if (!st.similar) await openMany();
         if (!data.double && !data.manyFull) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); }
         return null;
-      case 'context-open': return (data.open ?? 0) > 0.5 ? null : openContext(true); // under the take: open, write at once
+      case 'context-open': data.insertAt = null; paint(); return (data.open ?? 0) > 0.5 ? null : openContext(true); // under the take: open, write at the end
+      case 'write-here': data.insertAt = hit.queue; paint(); return (data.open ?? 0) > 0.5 ? say.focus() : openContext(true); // a spot in the row: write there (the keyboard stays)
+      case 'chips-later': case 'chips-earlier': data.chipScroll = (data.chipScroll ?? 0) + (row.action === 'chips-later' ? -1 : 1) * 160; return paint(); // a long row scrolls sideways
       case 'context-arc': // the arc: closed → open · open: chips aside / back · nothing → closed (15.11.)
         if (!((data.open ?? 0) > 0.5)) return openContext(true);
         return chipsAside() || openContext(false);
@@ -1098,7 +1103,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const handlers = {
     down: (e) => {
       const role = screen.roleAt(e);
-      const doubles = role === 'point' || role?.startsWith('chip:') || role === 'sticky'; // these wait for a second tap
+      const doubles = role === 'point' || role?.startsWith('chip:') || role?.startsWith('queue:') || role === 'sticky'; // these wait for a second tap
       handlers.doubleTap = doubles ? () => act('double-tap', role) : undefined;
       return role;
     },

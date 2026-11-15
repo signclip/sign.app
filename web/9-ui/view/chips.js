@@ -50,8 +50,8 @@ function nodeOf(g, inherit = {}) {
  */
 export function withTakes(gestures) {
   let n = 0;
-  const walk = (g) => (g.head ? { ...g, items: g.items.map(walk) } : { ...g, take: ['now', 'next'][n++] ?? 'later' });
-  const out = gestures.map(walk);
+  const walk = (g, at) => (g.head ? { ...g, at, items: g.items.map((x, j) => walk(x, [...at, j])) } : { ...g, at, take: ['now', 'next'][n++] ?? 'later' });
+  const out = gestures.map((g, i) => walk(g, [i])); // at: the path in the series, for writing at a tapped spot (15.11.)
   const flying = (g) => {
     if (!g.head) return g;
     const inner = flying(g.items[0]);
@@ -59,6 +59,21 @@ export function withTakes(gestures) {
   };
   if (out[0]) flying(out[0]).fly = true;
   return out;
+}
+
+/**
+ * The chips of this take apart from the rest (15.11.): → { now: groups for the top of the window, rest: groups below }.
+ * now = the element taken now, inside the prefixes it belongs to; rest = sticky, offers and everything after it.
+ * Without a 'now' (heard words, nothing written) all stays below.
+ */
+export function splitNow(groups = []) {
+  const find = (g) => (g.head ? g.items.some(find) : g.take === 'now');
+  const top = groups.findIndex((g) => !g.stable && !g.offer && find(g));
+  if (top < 0) return { now: [], rest: groups };
+  const only = (g) => (g.head ? { ...g, items: g.items.filter(find).map(only) } : g); // the path down to it
+  const without = (g) => (g.head ? { ...g, items: g.items.filter((x) => !(x.head ? false : x.take === 'now')).map(without).filter((x) => !x.head || x.items.length) } : g);
+  const rest = groups.flatMap((g, i) => (i !== top ? [g] : g.head ? [without(g)].filter((x) => x.items.length) : []));
+  return { now: [only(groups[top])], rest };
 }
 
 /** Depth of bubbles under a node (0 for a chip). */
@@ -85,7 +100,7 @@ function heightOf(n, k, level) {
  *   heard: from Whisper · offer: dashed, origin 'similar' | 'password' · items may nest (bubbles in bubbles).
  * timeMs · cx, y (middle of the row), k (scale), w (screen width). → shapes [{ type: 'bubble' | 'chip' | 'path', … }]
  */
-export function chipShapes(groups = [], { timeMs = null, cx, y, k = 1, w = 390 }) {
+export function chipShapes(groups = [], { timeMs = null, cx, y, k = 1, w = 390, queue = false, caret = null, scroll = 0 }) {
   const sticky = groups.filter((g) => g.stable).flatMap((g) => (g.items ? [g.head, ...g.items.map((i) => i.text)].flat().filter(Boolean) : [g.text]));
   const own = groups.filter((g) => !g.stable && !g.offer), offers = groups.filter((g) => !g.stable && g.offer);
   const row = [];
@@ -98,13 +113,20 @@ export function chipShapes(groups = [], { timeMs = null, cx, y, k = 1, w = 390 }
   let x = 0;
   for (const g of row) {
     const node = nodeOf(g);
-    put(node, x, 1, { y, k, timeMs, out });
+    put(node, x, 1, { y, k, timeMs, out, queue });
     x += widthOf(node, k, 1) + GAP * k;
   }
   const total = x - GAP * k;
+  let caretX = null;
+  if (caret) { // where the next written gesture goes: a thin line behind the tapped chip, or inside the tapped bubble at its end
+    const hit = out.find((s) => s.at && s.at.join('.') === caret.at.join('.') && (caret.how === 'in' ? s.type === 'bubble' : true));
+    if (hit) { caretX = hit.x + hit.w + (caret.how === 'in' ? -PAD * k : (GAP * k) / 2); out.push({ type: 'path', d: `M${caretX} ${hit.y + 4 * k}V${hit.y + hit.h - 4 * k}`, cls: 'caret' }); }
+  }
   const fly = out.find((s) => s.cls === 'fly'), now = out.find((s) => s.type === 'chip' && /\bnow\b/.test(s.cls));
-  const at = fly ? +/^M(-?[\d.]+)/.exec(fly.d)[1] : now ? now.x + now.w / 2 : null; // the gesture taken now, or the word at the time
-  const shift = total > w - 24 * k && at != null ? cx - at : cx - total / 2;
+  const at = caretX ?? (fly ? +/^M(-?[\d.]+)/.exec(fly.d)[1] : now ? now.x + now.w / 2 : null); // the caret, the gesture taken now, or the word at the time
+  const long = total > w - 24 * k;
+  const base = long && at != null ? cx - at : long ? cx - w / 2 + 12 * k : cx - total / 2;
+  const shift = long ? Math.min(cx - w / 2 + 12 * k, Math.max(cx + w / 2 - 12 * k - total, base + scroll)) : base; // long: scrolls sideways, never past its ends (15.11.)
   return out.map((s) => move(s, shift));
 }
 
@@ -121,12 +143,13 @@ function put(n, x, level, o) {
   const g = n.group, h = heightOf(n, k, level), width = widthOf(n, k, level);
   const words = [...n.head.map((c) => c.text), ...n.items.map(textOf)].join(' ');
   const offer = n.ctx.offer ? `offer:${words}` : null;
-  out.push({ type: 'bubble', x, y: y - h / 2, w: width, h, cls: `bubble d${Math.min(level, 4)}${g.sticky ? ' sticky' : ''}${offer ? ` offer ${n.ctx.origin ?? ''}`.trimEnd() : ''}`,
-    role: offer ?? (g.sticky ? 'sticky' : `gesture:${words}`) });
+  const spot = o.queue && g.at && !g.sticky ? `queue:in:${g.at.join('.')}:${words}` : null; // tapped in the row: write into this bubble
+  out.push({ type: 'bubble', x, y: y - h / 2, w: width, h, at: g.at, cls: `bubble d${Math.min(level, 4)}${g.sticky ? ' sticky' : ''}${offer ? ` offer ${n.ctx.origin ?? ''}`.trimEnd() : ''}`,
+    role: offer ?? (g.sticky ? 'sticky' : spot ?? `gesture:${words}`) });
   if (g.fly && !g.sticky) out.push(flyOver(x + width / 2, y - h / 2, k));
   const from = out.length;
   let cx = x + padOf(level, k);
-  for (const c of n.head) { out.push(...chipOf({ ...c, offer: n.ctx.offer, origin: n.ctx.origin }, cx, o)); cx += chipW(c.text, k) + INNER * k; }
+  for (const c of n.head) { out.push(...chipOf({ ...c, offer: n.ctx.offer, origin: n.ctx.origin, at: g.sticky ? null : g.at, how: 'in' }, cx, o)); cx += chipW(c.text, k) + INNER * k; }
   for (const item of n.items) { put(item, cx, level + 1, o); cx += widthOf(item, k, level + 1) + INNER * k; }
   if (offer) for (const sh of out.slice(from)) if (sh.role) sh.role = offer; // an offer is taken as a whole gesture
 }
@@ -134,10 +157,12 @@ function put(n, x, level, o) {
 const textOf = (n) => (n.chip ? n.chip.text : [...n.head.map((c) => c.text), ...n.items.map(textOf)].join(' '));
 
 /** One chip (and its wave, and its arrow if it flies alone). */
-function chipOf(c, x, { y, k, timeMs }) {
+function chipOf(c, x, o) {
+  const { y, k, timeMs } = o;
   const w = chipW(c.text, k), shapes = [];
   const tone = c.offer ? `offer${c.origin ? ` ${c.origin}` : ''}${c.picked ? ' picked' : ''}` : c.head ? 'head' : toneOf(c, c.take, timeMs);
-  shapes.push({ type: 'chip', x, y, w, h: H * k, text: c.text, cls: `chip ${tone}${c.heard ? ' heard' : ''}`, role: c.offer ? `offer:${c.text}` : c.wait ? null : `chip:${c.text}` });
+  const spot = o.queue && c.at && !c.offer ? `queue:${c.how ?? 'after'}:${c.at.join('.')}:${c.text}` : null; // tapped in the row: write behind it (a prefix word: into its bubble)
+  shapes.push({ type: 'chip', x, y, w, h: H * k, at: c.how === 'in' ? null : c.at, text: c.text, cls: `chip ${tone}${c.heard ? ' heard' : ''}`, role: c.offer ? `offer:${c.text}` : c.wait ? null : spot ?? `chip:${c.text}` });
   if (c.heard) { // heard, not typed: a fine wave inside the bottom edge
     const y0 = y + 12 * k, x0 = x + 14 * k, n = Math.max(2, Math.floor((w - 28 * k) / (8 * k)));
     shapes.push({ type: 'path', d: `M${x0} ${y0}${' q2 -3 4 0 t4 0'.repeat(n)}`, cls: 'wave-heard' });

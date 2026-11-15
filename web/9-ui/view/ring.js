@@ -33,7 +33,7 @@
 //            (±60°) stay on screen: 352 px on 390 px; ≤ 12 Similar tiles; chips one row; one layout < 1 ms.
 
 import { look, KINDS } from '../state.js';
-import { chipShapes, rowHeight } from './chips.js';
+import { chipShapes, rowHeight, splitNow } from './chips.js';
 import { timelineShapes } from './timeline.js';
 import { withHint } from './hint.js';
 import { arcShapes } from './arc.js';
@@ -87,7 +87,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const F = F0 + (FL - F0) * lowness;
   const cyMid = h / 2 + (st.screen === 'delete' ? 20 * k : 0), cyLow = h - 60 * k - FL / 2; // the window in the middle of the screen, upright or across, phone or tablet (15.11., user)
   const cy0 = cyMid + (cyLow - cyMid) * lowness;
-  const deep = Math.max(0, rowHeight([...(data.chips ?? []), ...(data.offers ?? [])], k) - 32 * k); // bubbles in bubbles: more room above the typing row
+  const deep = Math.max(0, rowHeight(splitNow([...(data.chips ?? []), ...(data.offers ?? [])]).rest, k) - 32 * k); // bubbles in bubbles: more room above the typing row
   const gapOpen = ((data.open ?? 0) > 0.5 ? 72 * k + deep : 40 * k), room = (data.viewH ?? h) - 34 * k; // the keyboard takes the lower part
   const bottom0 = onShape(windowOf(data.shape ?? 'circle', { cx, cy: cy0, F }), 180, 0)[1];
   const cy = cy0 - ((data.open ?? 0) > 0.5 ? Math.max(0, bottom0 + gapOpen - room) : 0); // the keyboard is up: the live picture moves up with the field (14.11.)
@@ -250,25 +250,33 @@ function soundBars({ st, data, win, cx, cw, k, add }) {
 }
 
 /**
- * Chips (15.11.): closed = on the take window, just above the context arc (an overlay on the picture) · open = in the
- * field's box, above the typing row · full-screen replay = above the point · a plain line: none. Similar · Doppel:
- * each window shows its own context – mine on mine, the result's (offers from similar) on the reference window.
+ * Chips (15.11.): this take's own chips at the top of the take window (they fly into the chain when it is taken) ·
+ * the rest below – sticky, prefixes, what comes after: closed on the window above the context arc, open in the field;
+ * a tap in that row writes there (caret), a tap below it at the end; long rows scroll sideways. Full-screen replay:
+ * one row above the point. Similar · Doppel: each window its own context (the result's on the reference window).
  */
 function chipArea({ st, data, cx, win, k, cw, F, shapes, fieldY, deep }, point, ref = null) {
   if (st.screen === 'line') return;
   if (st.full && st.mode !== 'line') return;
-  const open = (data.open ?? 0) > 0.5; // the context field is open: the chips sit in it, its lowest row stays free to type
+  const open = (data.open ?? 0) > 0.5; // the context field is open: the rest sits in it, its lowest row stays free to type
   const offers = data.offers ?? [];
   const theirs = ref ? offers.filter((o) => o.origin === 'similar') : [];
   const mine = [...(data.chips ?? []), ...offers.filter((o) => !theirs.includes(o))];
-  const held = st.hold?.target === 'chip' ? [`chip:${st.hold.text}`, `gesture:${st.hold.text}`] : [];
-  const mark = (s) => (held.includes(s.role) ? { ...s, cls: `${s.cls} hold` } : s); // the held context, as property
+  const held = st.hold?.target === 'chip' ? st.hold.text : null;
+  const mark = (s) => (held && s.role && s.role.split(':').pop() === held ? { ...s, cls: `${s.cls} hold` } : s); // the held context, as property
   if (theirs.length) shapes.push(...chipShapes(theirs, { cx: ref.cx, y: onShape(ref.window, 180, 0)[1] - 10 * k - rowHeight(theirs, k) / 2, k, w: ref.d * 0.8 }));
   if (!open && !st.full && look(st, 'x') === 'off') return; // context off: no chips; on: they show, empty = one dashed chip (15.11.)
-  const onWindow = !open && !st.full;
-  const y = st.full ? point.cy - 70 * k : open ? fieldY - 42 * k - deep / 2 : onShape(win, 180, 0)[1] - 26 * k - deep / 2; // the row (32 px, more with bubbles) ends 10 px above the window's lower edge (the arc), or 2 px above the typing row
-  const width = onWindow ? F * 0.8 : cw; // on the window: the row scrolls inside its lower part
-  shapes.push(...chipShapes(mine, { timeMs: data.timeMs, cx, y, k, w: width }).map(mark));
+  if (st.full) { shapes.push(...chipShapes(mine, { timeMs: data.timeMs, cx, y: point.cy - 70 * k, k, w: cw }).map(mark)); return; }
+  const { now, rest } = splitNow(mine);
+  const [ex, ey] = extentOf(win);
+  const inWindow = (list) => [{ type: 'clip-in', id: `clip${shapes.length}`, d: outlinePath(win) }, ...list, { type: 'clip-out' }];
+  if (now.length) shapes.push(...inWindow(chipShapes(now, { timeMs: data.timeMs, cx, y: win.cy - ey * 0.62, k, w: ex * 1.5 }).map(mark))); // the take's own: in the upper part of the window, where it is still wide
+  const width = open ? cw - 24 * k : ex * 1.6; // closed: across the lower part of the window (its width there ≈ 1.6 r)
+  const y = open ? fieldY - 42 * k - deep / 2 : win.cy + ey * 0.6; // open: 2 px above the typing row · closed: in the lower part of the window
+  const caret = open ? data.insertAt ?? null : null;
+  const row = chipShapes(rest, { timeMs: data.timeMs, cx, y, k, w: width, queue: true, caret, scroll: data.chipScroll ?? 0 }).map(mark);
+  const x0 = cx - width / 2, box = `M${x0} ${y - 60 * k}H${x0 + width}V${y + 60 * k}H${x0}Z`;
+  shapes.push(...(open ? [{ type: 'clip-in', id: `clip${shapes.length}`, d: box }, ...row, { type: 'clip-out' }] : inWindow(row)));
 }
 
 /** A template (Vorlage) beside the own take: smaller, blue, lower left inside the window. */
@@ -365,6 +373,8 @@ const SVG = {
   thumb: (s) => (s.path // in the form of my window (14.11.)
     ? `<clipPath id="${s.id}"><path d="${s.path}"/></clipPath>${s.href ? `<image href="${esc(s.href)}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${s.id})"/>` : ''}<path d="${s.path}" class="${s.cls}${s.href ? ' seen' : ''}"${roleOf(s)}/>`
     : `${s.href ? `<image href="${esc(s.href)}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" preserveAspectRatio="xMidYMid slice" style="clip-path: inset(0 round ${s.round ? s.s / 2 : 12}px)"/>` : ''}<rect x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" rx="${s.round ? s.s / 2 : 12}" class="${s.cls}${s.href ? ' seen' : ''}"${roleOf(s)}/>`),
+  'clip-in': (s) => `<clipPath id="${s.id}"><path d="${s.d}"/></clipPath><g clip-path="url(#${s.id})">`, // a long chip row stays inside its window or box (15.11.)
+  'clip-out': () => '</g>',
   chip: (s) => `<g class="${s.cls}"${roleOf(s)}>`
     + `<rect x="${s.x}" y="${s.y - s.h / 2}" width="${s.w}" height="${s.h}" rx="${s.h / 2}"/>`
     + `<text x="${s.x + s.w / 2}" y="${s.y + 5}" text-anchor="middle">${esc(s.text)}</text></g>`,

@@ -130,6 +130,9 @@ export const TABLE = [
   ['before', 'right', 'item', 'any', 'before'],
   // a chip
   ['chip-on-off', 'tap', 'chip', 'any', 'this context on / off for similar'],
+  ['write-here', 'tap', 'queue', 'any', 'a chip or bubble in the row below the take: the field opens, what is written goes behind it (into a bubble: as its last element); tap under the row = at the end (15.11.)'],
+  ['chips-later', 'left', 'chip', 'any', 'a long chip row: the later ones come in from the right (15.11.)'],
+  ['chips-earlier', 'right', 'chip', 'any', 'a long chip row: the earlier ones come back from the left (15.11.)'],
   ['sticky', 'double-tap', 'chip', 'any', 'sticky on / off: in front for the series, a prefix for every take'],
   ['context-out', 'down', 'chip', 'any', 'take this context away: a new line on top'],
   ['grip', 'hold', 'chip', 'any', 'grip this context: the other finger records or finds with it'],
@@ -187,8 +190,8 @@ export function checkTable() {
 }
 
 // what each verb may do (the grammar, checked)
-const LATER = ['next', 'replay-on', 'reference-next'];
-const EARLIER = ['before', 'replay-back', 'reference-before'];
+const LATER = ['next', 'replay-on', 'reference-next', 'chips-later'];
+const EARLIER = ['before', 'replay-back', 'reference-before', 'chips-earlier'];
 const OUT = ['share', 'share-last', 'share-strand'];
 const BACK = ['similar-farther']; // pushed back over the edge it came from
 const AWAY = ['remove', 'remove-last', 'remove-strand'];
