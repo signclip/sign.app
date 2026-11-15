@@ -39,7 +39,7 @@ import { removeStrands } from '../4-save/remove.js';
 import { saveSimilar } from '../4-save/save-similar.js';
 import { addLine } from '../4-save/add-line.js';
 import { askRemove } from '../8-join/remove-request.js';
-import { deviceKeys } from './device-keys.js';
+import { deviceKeys, joins } from './device-keys.js';
 const sealKey = async () => (await deviceKeys().catch(() => null))?.device ?? null; // every .sign this device writes gets its y_ (SCHEMA B2)
 import { readName } from '../1-model/filename.js';
 import { openDevices, startTake, browserTap } from '../5-take/recorder.js';
@@ -420,6 +420,23 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     paint();
     clearTimeout(reshape.soon);
     reshape.soon = setTimeout(saveSettings, 400); // kept when the fingers rest
+  }
+
+  /**
+   * The start (15.11., user): at once clear whose state this is and how it starts — no account yet (onboarding), a hello
+   * waits, join is there, a Sign account is there; and the start: waits for the button, starts by itself after the
+   * waits shown (seconds), records at once, or the persons to choose. Name sign or password gestures as a login need
+   * recognition (S5/S6) and come with the model.
+   */
+  async function showStart() {
+    const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current());
+    const onboarding = settings.onboarding && onboard.at < STEPS.length;
+    const j = project?.label ? await joins.get(project.label).catch(() => null) : null;
+    const account = onboarding ? 'onboarding' : !j ? 'none' : j.state === 'hello' ? 'hello' : j.state === 'within' || j.account ? 'sign' : 'join';
+    const mode = me?.start === 'choose' && P.persons().length > 1 ? 'choose' : me?.start === 'record' ? 'record' : st.ready ? 'auto' : 'button';
+    data.start = { account, mode, waits: { startMs: settings.waitStartMs, stopMs: settings.waitStopMs } };
+    if (mode === 'auto') data.waits = data.start.waits; // the two rings, with their seconds
+    setTimeout(() => { delete data.start; if (mode === 'auto') delete data.waits; paint(); }, 2500);
   }
 
   // ---------- always ready: the waits, pinched on the point (14.11., no settings) ----------
@@ -1163,6 +1180,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   $('#share').addEventListener('pointerup', (e) => { if (innerWidth - e.clientX < 24) act('edge-out', 'middle-right'); });
   addEventListener('resize', paint);
   $('#replay').addEventListener('timeupdate', (e) => { data.timeMs = e.target.currentTime * 1000; });
+  await showStart().catch(() => {}); // whose state, how it starts: 2.5 s in the window (15.11.)
   paint();
   $('#screen').classList.add('ready'); // the window and its arcs at once, centred
   freshCamera(); // then the camera, its picture inside the window

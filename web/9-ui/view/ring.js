@@ -36,6 +36,7 @@ import { chipShapes } from './chips.js';
 import { timelineShapes } from './timeline.js';
 import { withHint } from './hint.js';
 import { arcShapes } from './arc.js';
+import { startShapes } from './start.js';
 import { windowOf, onShape, pointsOn, pathThrough, outlinePath, extentOf } from './shape.js';
 
 /** The four arcs around the window in degrees (0 = top, clockwise); the line is the upper one. */
@@ -125,6 +126,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
     for (let x = 0; x < w; x += other ? 18 * k : w) g.add('sheet', { x, y: 0, w: other ? 12 * k : w, h: 5 * k, r: 0, cls: `from ${other ? 'other' : 'own'}` });
   }
   if (half) similarTiles(g, side ? h - 14 * k : point.cy - ring - 10 * k, side ? [0, cx - cw / 2 - 8 * k] : [0, w]); // half: above the line (wide: beside it), a result can be dragged onto it
+  if (data.start && !st.full && !many) g.shapes.push(...startShapes(data.start, { win, point, k, ring })); // the start: whose state, how it starts (15.11.)
   if (data.focus && !st.full) g.add('circle', { cx: data.focus.x, cy: data.focus.y, r: (34 - 12 * (data.focusT ?? 0)) * k, fade: 1 - (data.focusT ?? 0) * 0.8, cls: 'focus-mark' }); // where it focuses
   if (data.feedback && !many) { // saved: a green ring going out · gone: a red dashed ring going in (R7); p 0 → 1 over 0.9 s
     const p = data.feedbackP ?? 0;
