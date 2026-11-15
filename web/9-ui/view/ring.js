@@ -10,7 +10,7 @@
 //                                             sound pulses outward in the room up to the screen's edge (14.11.)
 //                         context  140 … 220  the context field below it (chips; pulled down = open, writing:
 //                                             the arc straightens into the field, animated)
-//                         landmarks −30 … 30 close around the window under the point, slightly wavy (14.11.)
+//                         landmarks a ~ as wide as the button, right under it (15.11.)
 //                         visual   220 … 300  video without sound; on it a small
 //                                              point: picture (14.11.): on = the point becomes a photo button
 //                       look: new = pale (will be recorded) · keep = solid · off = thin grey (state.look); 5° apart
@@ -80,7 +80,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const cx = w / 2 + (cw / 2 + 8 * k) * sideness; // beside: the take to the right of the middle, the other to the left
   const FL = Math.min(F0, (h - 130 * k - 2 * ring - 8 * k) / 2); // two windows, the point between them
   const F = F0 + (FL - F0) * lowness;
-  const cyMid = (st.screen === 'delete' ? 424 : 404) * k, cyLow = h - 60 * k - FL / 2;
+  const cyMid = h / 2 + (st.screen === 'delete' ? 20 * k : 0), cyLow = h - 60 * k - FL / 2; // the window in the middle of the screen, upright or across, phone or tablet (15.11., user)
   const cy0 = cyMid + (cyLow - cyMid) * lowness;
   const gapOpen = ((data.open ?? 0) > 0.5 ? 72 : 40) * k, room = (data.viewH ?? h) - 34 * k; // the keyboard takes the lower part
   const bottom0 = onShape(windowOf(data.shape ?? 'circle', { cx, cy: cy0, F }), 180, 0)[1];
@@ -132,18 +132,19 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   }
   if (!many || half) g.add('point', { ...point, cls: `${pointClass(st)}${data.photo ? ' photo' : ''}${data.paused && st.screen === 'record' ? ' paused' : ''}`, role: 'point' });
 
-  return { video, template, point, window: win, fieldY, hideLive: many && !half, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
+  const noPicture = look(st, 'v') === 'off' && st.screen !== 'line' && !st.full; // visual off: no picture, the window in the background colour (15.11.)
+  return { video, template, point, window: win, fieldY, hideLive: (many && !half) || noPicture, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
 }
 
 /** One arc per strand, 2° short of its neighbours: new (dashed) · keep (solid) · off (grey); recording turns new solid. */
-function strandArcs({ st, data, win, k, w, h, add, edge, grow, fieldY, cx }) {
+function strandArcs({ st, data, win, k, w, h, add, edge, grow, fieldY, cx, ring }) {
   for (const kind of KINDS) {
     if (data.hidden?.includes(kind) || !ARCS[kind]) continue; // hidden: still records when on
     const looks = look(st, kind);
     const live = st.screen === 'record' && looks === 'new';
     const [from, to] = ARCS[kind];
     const out = 6 * k; // every arc close around the window (14.11.)
-    const along = (wn) => (kind === 'l' ? wave(wn, from, to, out, k) : pointsOn(wn, from + GAP, to - GAP, out));
+    const along = (wn) => (kind === 'l' ? tilde(wn, ring, k) : pointsOn(wn, from + GAP, to - GAP, out));
     const onEdge = () => (kind === 'l' ? topWave(edge, pts.length, k) // landmarks: as long as before (60 of 240°), on top of the U
       : pts.map((_, i) => onU(edge, (from + GAP + Math.min(i * 3, to - from - 2 * GAP) - 60) / 240))); // 60…300° → the U from its right top to its left top: each arc keeps its share and order
     let pts = along(win);
@@ -156,11 +157,10 @@ function strandArcs({ st, data, win, k, w, h, add, edge, grow, fieldY, cx }) {
   }
 }
 
-/** Landmarks: a short arc, one and a half gentle waves (±3 px), so it reads as points in motion. */
-function wave(win, from, to, out, k) {
-  const pts = [];
-  for (let d = from; d <= to; d += 1) pts.push(onShape(win, d, out + 3 * k * Math.sin(((d - from) / (to - from)) * 3 * Math.PI)));
-  return pts;
+/** Landmarks (15.11.): a ~ as wide as the button, right under it inside the window's top edge, ±4 px; 61 points. */
+function tilde(win, ring, k) {
+  const [x, top] = onShape(win, 0, 0);
+  return Array.from({ length: 61 }, (_, i) => { const t = i / 60; return [x - ring + 2 * ring * t, top + 12 * k - 4 * k * Math.sin(t * 2 * Math.PI)]; });
 }
 
 /**
@@ -201,10 +201,11 @@ function straighten(pts, t, { cx, y }) {
   });
 }
 
-/** The picture point on the visual arc: on = a take is one picture (.v.png, lossless), the point a photo button. */
+/** The picture point at the upper end of the visual arc: on = a take is one picture (.v.png, lossless), the point a photo button. */
 function photoPoint({ data, win, k, add }) {
   const [from, to] = ARCS.v;
-  const [cx, cy] = onShape(win, (from + to) / 2, 6 * k); // on the arc itself: the arc reaches the screen's edge
+  void from;
+  const [cx, cy] = onShape(win, to - GAP, 6 * k); // at the arc's upper end (15.11.): tap = one picture (.png)
   add('circle', { cx, cy, r: 10 * k, cls: `photo${data.photo ? ' on' : ''}`, role: 'photo' });
 }
 
@@ -218,7 +219,8 @@ function flowArcs({ data, win, k, add }) {
 }
 
 /** The sound pulsing outward from the audio arc, up to 3 px before the screen's edge: the newest level the longest. */
-function soundBars({ data, win, cx, cw, k, add }) {
+function soundBars({ st, data, win, cx, cw, k, add }) {
+  if (look(st, 'a') === 'off') return; // audio off: no level (15.11.); on: the level shows, also before a take
   const w = cx + cw / 2; // the column's right edge
   const [from, to] = ARCS.a;
   const room = Math.max(4 * k, w - 3 * k - onShape(win, 90, 0)[0] - 12 * k); // from the arc's outer side to the edge
@@ -235,7 +237,7 @@ function chipArea({ st, data, cx, cy, win, k, cw: w, shapes, fieldY }, point) {
   if (st.screen === 'line') return;
   if (st.full && st.mode !== 'line') return;
   const open = (data.open ?? 0) > 0.5; // the context field is open: the chips sit in it, its lowest row stays free to type
-  if (!data.chips?.length && !data.offers?.length && !open && !st.full) return; // nothing written, field closed: no lonely dashed chip (14.11.)
+  if (!open && !st.full && look(st, 'x') === 'off') return; // context off: no field; on: the field shows, empty = one dashed chip (15.11.)
   const y = st.full ? point.cy - 70 * k : open ? fieldY - 42 * k : fieldY; // chips 32 px high, centred: they end 2 px above the typing row
   const held = st.hold?.target === 'chip' ? [`chip:${st.hold.text}`, `gesture:${st.hold.text}`] : [];
   shapes.push(...chipShapes([...(data.chips ?? []), ...(data.offers ?? [])], { timeMs: data.timeMs, cx, y, k, w }) // own chips, then the offers of the result above
@@ -341,7 +343,9 @@ const SVG = {
     + `<text x="${s.x + s.w / 2}" y="${s.y + 5}" text-anchor="middle">${esc(s.text)}</text></g>`,
   hint: (s) => `<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" class="${s.cls}" style="--dx:${s.dx}px;--dy:${s.dy}px"/>`,
   point: (s) => {
-    const core = s.cls.includes('recording')
+    const core = s.cls.includes('paused') // the icons (15.11.): ● start · ■ stop · ❚❚ paused (double-tap goes on)
+      ? `<rect x="${s.cx - 13}" y="${s.cy - 15}" width="9" height="30" rx="3" class="core"/><rect x="${s.cx + 4}" y="${s.cy - 15}" width="9" height="30" rx="3" class="core"/>`
+      : s.cls.includes('recording')
       ? `<rect x="${s.cx - 16}" y="${s.cy - 16}" width="32" height="32" rx="8" class="core"/>` // stop
       : `<circle cx="${s.cx}" cy="${s.cy}" r="${s.d / 2}" class="core"/>`;
     return `<g class="${s.cls}"${roleOf(s)}><circle cx="${s.cx}" cy="${s.cy}" r="${(s.d / 2) * 1.35}" class="ring"/>${core}</g>`;

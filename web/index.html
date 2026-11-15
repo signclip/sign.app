@@ -13,7 +13,7 @@
       --bg: #faf9f7; --rest: #e4e2dd; --fg: #222; --mut: #8a8984; --card: #fff; --line: #e8e6e1;
       --rc: #f5c6b8; --rc-stroke: #f5a08a; --sc: #b9d4ee; --sc-stroke: #8fb6e0;
       --hold: #5fbf92; --hl: #ffe9a0; --video: #2F323A;
-      --edge: #BA7517; --c-head: #993C1D; --c-now: #F0997B; --c-next: #F5C4B3; --c-later: #FAECE7;
+      --c-head: #993C1D; --c-now: #F0997B; --c-next: #F5C4B3; --c-later: #FAECE7;
     }
     @media (prefers-color-scheme: dark) { :root { --bg: #171716; --fg: #eeece7; --card: #222; --line: #333; --hl: #5f5010; --rest: #2b2b29; } }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, sans-serif; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
@@ -57,12 +57,12 @@
     .wait-ring { fill: none; stroke: var(--rc-stroke); stroke-width: 2; pointer-events: none; } .wait-ring.start { stroke-dasharray: 3 4; }
     .bar { stroke-width: 3; stroke-linecap: round; opacity: .7; } .bar.now { opacity: 1; stroke-width: 4; } .bar.own { stroke: var(--rc-stroke); } .bar.other { stroke: var(--sc-stroke); }
     /* chips (15.11., view/chips.js): yellow bubble = belongs together · dark = stays (sticky, prefix) · coral inside = when
-       (now strong, next lighter, later lighter still) · arrow = flies into the chain · one edge for all that is one; edges ≥ 3.5:1 */
-    .chip rect { stroke: var(--edge); stroke-width: 1.5; } .chip text { font: 500 14px Inter, system-ui, sans-serif; fill: #4A1B0C; }
+       (now strong, next lighter, later lighter still) · arrow = flies into the chain · one edge for all that is one, the sticky's colour (15.11.) */
+    .chip rect { stroke: var(--c-head); stroke-width: 1.5; } .chip text { font: 500 14px Inter, system-ui, sans-serif; fill: #4A1B0C; }
     .chip.own rect, .chip.next rect { fill: var(--c-next); } .chip.now rect { fill: var(--c-now); stroke-width: 2.5; } .chip.now text { font-weight: 600; }
     .chip.later rect { fill: var(--c-later); } .chip.head rect { fill: var(--c-head); } .chip.head text { fill: #fff; }
-    .chip.wait rect { fill: none; stroke-dasharray: 5 4; } .wave-heard { fill: none; stroke: var(--edge); stroke-width: 1; pointer-events: none; }
-    .bubble { fill: var(--hl); stroke: var(--edge); stroke-width: 1.5; } .fly { fill: none; stroke: #712B13; stroke-width: 1.5; stroke-linecap: round; pointer-events: none; }
+    .chip.wait rect { fill: none; stroke-dasharray: 5 4; } .wave-heard { fill: none; stroke: var(--c-head); stroke-width: 1; pointer-events: none; }
+    .bubble { fill: var(--hl); stroke: var(--c-head); stroke-width: 1.5; } .fly { fill: none; stroke: #712B13; stroke-width: 1.5; stroke-linecap: round; pointer-events: none; }
     .chip.offer rect { fill: #fff; stroke: #888780; stroke-dasharray: 4 3; } .chip.offer text { fill: #444441; } .bubble.offer { fill: none; stroke: #888780; stroke-dasharray: 4 3; }
     .chip.offer.similar rect { fill: #E6F1FB; stroke: #378ADD; } .chip.offer.similar text { fill: #0C447C; } .bubble.offer.similar { stroke: #378ADD; }
     .chip.offer.password rect { fill: #E1F5EE; stroke: #1D9E75; } .chip.offer.password text { fill: #085041; } .bubble.offer.password { stroke: #1D9E75; }

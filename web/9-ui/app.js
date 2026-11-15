@@ -55,7 +55,7 @@ import { withTakes } from './view/chips.js';
 import { withSticky, afterTake as stepSeries, nextOfSeries, readContext, contextTree, fromField } from '../1-model/context.js';
 import { write as writeNotation, parse as parseNotation } from '../1-model/notation.js';
 import { actionFor } from './gestures.js';
-import { startState, next, toRecord, toKeep, toUse } from './state.js';
+import { startState, next, toRecord, toKeep, toUse, look } from './state.js';
 import { MANY } from './view/ring.js';
 import { formOf, formBy, snapForm, extentOf, inside as insideWindow } from './view/shape.js';
 import { mountScreen, targetOf } from './screen.js';
@@ -122,10 +122,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     v.addEventListener('playing', () => v.classList.add('on'));
     v.addEventListener('emptied', () => { if (!v.dataset.picture) v.classList.remove('on'); }); // a picture (poster) shows at once
   }
-  $('#live').addEventListener('playing', () => $('#screen').classList.add('ready'), { once: true });
-  setTimeout(() => $('#screen').classList.add('ready'), 2500); // no camera (denied, none): the shapes come anyway
-  let camera = await openDevices(navigator.mediaDevices, { facing: settings.facing }).catch(() => null);
-  $('#live').srcObject = camera;
+  // start (15.11., user): first the background with the window centred, never a bare camera picture; the camera opens
+  // after the first paint, so its picture fades in inside the window (freshCamera at the end of the start)
+  let camera = null;
 
   // ---------- what is going on ----------
   let st = startState(settings.auto); // one strand selection for everything, kept until changed
@@ -267,7 +266,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const onActivity = (e) => {
     activity.push(e);
     while (activity.length > 100) activity.shift();
-    if (take.recorder) { // sound level as bars on the top arc
+    if (take.recorder || look(st, 'a') !== 'off') { // the sound level on the audio arc: during a take, and whenever audio is on (15.11.)
       data.levels = [...data.levels.slice(-19), Math.max(0, Math.min(1, (20 * Math.log10(Math.max(e.sound ?? 0, 1e-5)) + 60) / 50))]; // in dB: −60 … −10 dB → 0 … 1, so quiet and loud differ (14.11.)
       paint();
     }
@@ -1135,7 +1134,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   { // how this person starts (14.11.): as left (default) · records at once · the persons of this device to choose
     const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current());
     if (me?.start === 'choose' && P.persons().length > 1) menu.choose();
-    else if (me?.start === 'record') setTimeout(() => { if (camera && !take.recorder) act('tap', 'point'); }, 900);
+    else if (me?.start === 'record') { const tryRecord = (n) => setTimeout(() => { if (camera && !take.recorder) act('tap', 'point'); else if (n) tryRecord(n - 1); }, 900); tryRecord(4); } // the camera comes just after the start
   }
   // Android "back" (14.11.): one step back, never out of the app by surprise: sharing menu → full screen → Similar → context field
   globalThis.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
@@ -1165,4 +1164,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   addEventListener('resize', paint);
   $('#replay').addEventListener('timeupdate', (e) => { data.timeMs = e.target.currentTime * 1000; });
   paint();
+  $('#screen').classList.add('ready'); // the window and its arcs at once, centred
+  freshCamera(); // then the camera, its picture inside the window
 }
