@@ -15,6 +15,7 @@
 //            app is open, and after one tap on its tile per session for permission); upkeep runs only while
 //            the app is open (native app: EXTEND(S10, background) a background task).
 
+import { note as debugNote } from './debug.js';
 import { findList, changeList, rulesOf } from '../2-storage/list.js';
 import { readList } from '../2-storage/sharing-point.js';
 import { openAll, afterTake, sources, runRules, reconnect } from '../2-storage/sharing-points.js';
@@ -520,18 +521,22 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
    * Is one of my Nextcloud logins an admin of its instance (14.11.)? Then this device is the admin app: hellos in its
    * folders get an account each, and → on that tile shows the accounts. Asked once per login and session.
    */
+  // 15.11. (storage review): every load looks again, so a login added later (Admin, Atlas, Groups) counts at once,
+  // not only after a restart; a login is asked once whether it may manage accounts, an unreachable one again later.
+  const askedAdmin = new Map(); // "server user" → true | false (null = not reachable: not kept)
   async function findAdmin() {
-    if (ctx.admin !== undefined) return ctx.admin;
-    ctx.admin = null;
     for (const [n, sp] of s.open) {
       if (sp.spec?.kind !== 'nextcloud') continue;
       const login = { server: sp.spec.server, user: sp.spec.user, password: await keychain.get(sp.entry.id) };
       if (!login.password) continue;
-      if (project?.groups && login.user.toLowerCase() === project.groups.toLowerCase()) { s.groupsN = n; ctx.groups = login; } // the account that holds the group folders (15.11.)
-      if (project?.atlas && login.user.toLowerCase() === project.atlas.toLowerCase()) { s.atlasN = n; ctx.atlas = login; atlasCount(login).catch(() => {}); } // this device also holds the atlas login
-      if (!ctx.admin && await isAdmin(login)) { ctx.admin = login; s.adminN = n; }
+      const user = login.user.toLowerCase(), key = `${login.server} ${user}`;
+      if (project?.groups && user === project.groups.toLowerCase() && s.groupsN !== n) { s.groupsN = n; ctx.groups = login; } // the account that holds the group folders (15.11.)
+      if (project?.atlas && user === project.atlas.toLowerCase() && s.atlasN !== n) { s.atlasN = n; ctx.atlas = login; atlasCount(login).catch(() => {}); } // this device also holds the atlas login
+      if (ctx.admin) continue;
+      if (!askedAdmin.has(key)) { const yes = await isAdmin(login, { group: project?.group ?? undefined }); if (yes !== null) askedAdmin.set(key, yes); }
+      if (askedAdmin.get(key)) { ctx.admin = login; s.adminN = n; debugNote({ admin: user }); // in sign-debug.txt: which login is the admin }
     }
-    return ctx.admin;
+    return ctx.admin ?? null;
   }
   /**
    * atlas (14.11.): every account's Sign/ is shared read only with atlas; atlas counts what lies there and writes

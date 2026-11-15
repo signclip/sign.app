@@ -33,7 +33,7 @@
 //            (±60°) stay on screen: 352 px on 390 px; ≤ 12 Similar tiles; chips one row; one layout < 1 ms.
 
 import { look, KINDS } from '../state.js';
-import { chipShapes, rowHeight, splitNow } from './chips.js';
+import { chipShapes, rowHeight, splitNow, moveY } from './chips.js';
 import { timelineShapes } from './timeline.js';
 import { withHint } from './hint.js';
 import { arcShapes } from './arc.js';
@@ -140,6 +140,9 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   }
   if (!many || half) g.add('point', { ...point, cls: `${pointClass(st)}${data.photo ? ' photo' : ''}${data.paused && st.screen === 'record' ? ' paused' : ''}`, role: 'point' });
 
+  const centre = (role) => { const s = g.shapes.find((x) => x.role === role && x.cls !== 'hit'); return !s ? null : s.s ? [s.x + s.s / 2, s.y + s.s / 2, s.s] : s.x1 != null ? [(s.x1 + s.x2) / 2, s.y1, 24 * k] : null; };
+  if (data.cutMark) { const c = centre(data.cutMark); if (c) g.add('line', { x1: c[0], y1: c[1] - c[2] * 0.75, x2: c[0], y2: c[1] + c[2] * 0.75, cls: 'cut-mark' }); } // split (15.11.): past the mark a line across the take
+  if (data.joinMark) { const [a, b] = data.joinMark.map(centre); if (a && b) g.add('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], cls: 'join-mark' }); } // join: a band between the two
   const noPicture = look(st, 'v') === 'off' && st.screen !== 'line' && !st.full; // visual off: no picture, the window in the background colour (15.11.)
   const field = { x: cx - cw / 2 + 12 * k, w: cw - 24 * k }; // the typing row lies in the box (one column, centred), on phone, tablet, portrait and landscape
   return { video, template, point, window: win, fieldY, field, hideLive: (many && !half) || noPicture, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
@@ -271,12 +274,26 @@ function chipArea({ st, data, cx, win, k, cw, F, shapes, fieldY, deep }, point, 
   const [ex, ey] = extentOf(win);
   const inWindow = (list) => [{ type: 'clip-in', id: `clip${shapes.length}`, d: outlinePath(win) }, ...list, { type: 'clip-out' }];
   if (now.length) shapes.push(...inWindow(chipShapes(now, { timeMs: data.timeMs, cx, y: win.cy - ey * 0.62, k, w: ex * 1.5 }).map(mark))); // the take's own: in the upper part of the window, where it is still wide
-  const width = open ? cw - 24 * k : ex * 1.6; // closed: across the lower part of the window (its width there ≈ 1.6 r)
-  const y = open ? fieldY - 42 * k - deep / 2 : win.cy + ey * 0.6; // open: 2 px above the typing row · closed: in the lower part of the window
+  const width = open ? cw - 24 * k : ex * 1.9; // closed: along the whole lower edge
+  const y = open ? fieldY - 42 * k - deep / 2 : win.cy + ey * 0.6; // open: 2 px above the typing row · closed: laid along the lower edge below
   const caret = open ? data.insertAt ?? null : null;
-  const row = chipShapes(rest, { timeMs: data.timeMs, cx, y, k, w: width, queue: true, caret, scroll: data.chipScroll ?? 0 }).map(mark);
+  let row = chipShapes(rest, { timeMs: data.timeMs, cx, y, k, w: width, queue: true, caret, scroll: data.chipScroll ?? 0 }).map(mark);
+  if (!open) row = alongEdge(row, { cx, cy: win.cy, ex, ey, gap: 6 * k }); // each element right on the window's lower edge, following its curve (15.11.)
   const x0 = cx - width / 2, box = `M${x0} ${y - 60 * k}H${x0 + width}V${y + 60 * k}H${x0}Z`;
   shapes.push(...(open ? [{ type: 'clip-in', id: `clip${shapes.length}`, d: box }, ...row, { type: 'clip-out' }] : inWindow(row)));
+}
+
+/** Chips along the lower edge: every element of the row moved down until its bottom is gap above the edge at its middle. */
+function alongEdge(shapes, { cx, cy, ex, ey, gap }) {
+  const box = new Map();
+  for (const s of shapes) if (s.g != null && (s.type === 'chip' || s.type === 'bubble')) {
+    const b = box.get(s.g) ?? { x0: Infinity, x1: -Infinity, bottom: -Infinity };
+    box.set(s.g, { x0: Math.min(b.x0, s.x), x1: Math.max(b.x1, s.x + s.w), bottom: Math.max(b.bottom, s.y + s.h) });
+  }
+  const edgeAt = (x) => { const t = Math.min(1, Math.abs(x - cx) / ex); return cy + ey * Math.sqrt(1 - t * t); }; // the lower edge (ellipse; a rounded square lies outside it)
+  const dyOf = (b) => { const lowest = Math.min(edgeAt(b.x0), edgeAt(b.x1)); return lowest - gap - b.bottom; }; // its outer corner stays inside
+  const more = (s) => { const [, x, y] = /^M(-?[\d.]+) (-?[\d.]+)/.exec(s.d).map(Number); return moveY(s, edgeAt(x) - gap * 3.7 - (y + 7 * gap / 6)); }; // ‹ › beside the chips at that spot of the edge
+  return shapes.map((s) => (s.g != null && box.has(s.g) ? moveY(s, dyOf(box.get(s.g))) : s.cls === 'more' ? more(s) : s));
 }
 
 /** A template (Vorlage) beside the own take: smaller, blue, lower left inside the window. */

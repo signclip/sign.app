@@ -14,6 +14,7 @@
 // Name sign:  the first take of the onboarding goes into the drop beside the hello (join.js nameSignOf).
 // Limits:    one hello per device and group; a renew reaches members on their next start.
 
+import { readFile } from '../1-model/file.js';
 import { Nextcloud } from '../2-storage/nextcloud.js';
 import { readDescription, signerKeys } from '../2-storage/sharing-point.js';
 import { readPaste } from '../2-storage/spec.js';
@@ -112,10 +113,14 @@ export async function groupUpkeep(store) {
     return out;
   };
   const first = (p) => name(p)?.words?.[0];
-  const joined = new Set(paths.filter((q) => first(q) === 'join').map((q) => name(q)?.person).filter((l) => hellos.some((p) => name(p)?.person === l)));
-  for (const label of joined) { // her n_ comes from her hello (it names the folder within/@(label)!(n_))
-    const h = hellos.find((p) => name(p)?.person === label);
-    try { const { person } = readHello(new TextDecoder().decode(await store.read(h))); await advance({ store, person, folder: (await knownFolder(store, label, person.id)) ?? undefined }); } catch { /* wait */ } // a known name: into her account folder
+  const markers = paths.filter((q) => first(q) === 'join' && q.endsWith('.chain.sign'));
+  for (const label of new Set(markers.map((q) => name(q)?.person).filter(Boolean))) { // her n_: from her hello, or (hello already in within/, join ↑) from her ((join)) marker
+    const h = hellos.find((p) => name(p)?.person === label) ?? markers.find((p) => name(p)?.person === label);
+    try {
+      const text = new TextDecoder().decode(await store.read(h)), head = readFile(text).head;
+      const person = markers.includes(h) ? { id: head.id.n, label: head['@'] } : readHello(text).person;
+      await advance({ store, person, folder: (await knownFolder(store, label, person.id)) ?? undefined }); // a known name: into her account folder
+    } catch { /* wait */ }
   }
   for (const p of paths.filter((x) => first(x) === 'quiet').slice(0, 20)) {
     await honorRemove({ store, requestPath: p, authorKeys: await keysOf(name(p)?.person) }).catch(() => {});

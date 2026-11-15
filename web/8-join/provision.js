@@ -59,9 +59,16 @@ const ocs = async (admin, path, { method = 'GET', body = null, fetch = globalThi
   return d.ocs.data;
 };
 
-/** Is this login an admin of its Nextcloud (group admin)? Then this device is the admin app (14.11.). → boolean */
-export async function isAdmin(login, { fetch = globalThis.fetch } = {}) {
-  try { return (await ocs(login, `users/${encodeURIComponent(login.user)}`, { fetch })).groups?.includes('admin') === true; } catch { return false; }
+/**
+ * May this login manage the Sign accounts? Then this device is the admin app (14.11.). Yes for an admin of the
+ * instance and for a group admin (subadmin) of the Sign group (15.11.): Nextcloud lets a subadmin create, change and
+ * delete the accounts of her group, nothing else. → true · false · null (not reachable now: ask again later)
+ */
+export async function isAdmin(login, { group = GROUP, fetch = globalThis.fetch } = {}) {
+  try {
+    const d = await ocs(login, `users/${encodeURIComponent(login.user)}`, { fetch });
+    return d.groups?.includes('admin') === true || (d.subadmin ?? []).includes(group);
+  } catch (err) { return /: (401|403|404)\b|statuscode|997|998/.test(String(err.message)) ? false : null; }
 }
 
 /**

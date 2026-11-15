@@ -1,5 +1,6 @@
 // door.js — the admin's door as four piles (15.11.): hello · join · within · quiet, and the step a swipe makes.
-//            hello ↑ = welcome (share-group) · ↓ = quiet · join ↑ = within at once (no waiting for the device's ((join)))
+//            hello ↑ = welcome (share-group) · ↓ = quiet · join ↑ = within at once (no waiting for the device's ((join));
+//            the answer stays in join/ until the device took it, then groupUpkeep moves it after, 15.11.)
 //            · join ↓ = back: answer and hello to quiet/, an again-note (join u_ again) asks the device to say hello anew
 //            · within ↓ = quiet · quiet ↑ = within again. Nothing is deleted, every move changes the state word.
 //
@@ -36,10 +37,14 @@ const groupOf = async (store, helloPath) => {
   return { person, files: [helloPath, ...(await withHello(store, helloPath)), answer].filter(Boolean) };
 };
 
-/** join ↑: hello, its takes and the answer into the account folder (a known one for a new device). */
+/**
+ * join ↑: hello and its takes into the account folder (a known one for a new device). The answer stays in join/:
+ * the device reads it there through the door; once its ((join)) is in hello/, groupUpkeep moves both after (15.11.).
+ */
 export async function toWithin(store, helloPath) {
   const { person, files } = await groupOf(store, helloPath);
-  return moveAll(store, files, 'within', (await knownFolder(store, person.label, person.id)) ?? accountFolder(person), 'within');
+  const answer = files.find((p) => p.startsWith('join/'));
+  return moveAll(store, files.filter((p) => p !== answer), 'within', (await knownFolder(store, person.label, person.id)) ?? accountFolder(person), 'within');
 }
 
 /** join ↓: answer and hello to quiet/; the again-note in join/ tells the device to say hello anew (new takes). */
@@ -48,7 +53,7 @@ export async function backToHello(store, helloPath, { now = Date.now() } = {}) {
   const u = readName(nameOf(helloPath)).u;
   await moveAll(store, files, 'quiet', accountFolder(person), 'quiet');
   const note = buildName({ words: ['join', u, 'again'], time: timeLabel(now), u, kind: 'chain', ext: 'sign' });
-  await store.write(`join/${note}`, enc.encode(`:chain'(${timeLabel(now)})\n((again))\n`));
+  await store.write(`join/${note}`, enc.encode(`:chain't(${timeLabel(now)})\n((again))\n`));
   return `join/${note}`;
 }
 /** Is this answer an again-note? (device: say hello anew) */

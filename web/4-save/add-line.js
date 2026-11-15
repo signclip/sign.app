@@ -6,6 +6,7 @@
 //              {:chain.2} {:chain.3}'t(…)        after: one bracket each, one after another
 //              {:chain.2 :chain.3}'t(…)          together: one bracket, at the same time
 //              {:chain.1}
+//              {:chain.2'(0_1200)} {:chain.2'(1200_2400)}  split (15.11.): one take as two parts, '( ) in ms, no new file
 //            Without a chain below (nothing recorded yet) the new chain is the first: no :chain.1.
 //            The chain below may also come as bytes from elsewhere (below): in Similar · Doppel the result is the
 //            line underneath and the new take is laid on it (14.11.).
@@ -26,7 +27,7 @@ const dec = new TextDecoder();
 
 /**
  * own: store · chainPath: the chain to lay onto, or null · below: its bytes instead (a chain of another store) · elements: [{ bytes }] the chains' file bytes (their id
- * and hash are read from them) · together: false = after · device, person, deviceKey, now.
+ * and hash are read from them), part: [fromMs, toMs] = only that part ('( )) · together: false = after · device, person, deviceKey, now.
  * → { chain: path of the new chain on top }
  */
 export async function addLine({ own, chainPath = null, below: belowBytes = null, elements, together = false, device, person, deviceKey = null, now = Date.now() }) {
@@ -41,11 +42,12 @@ export async function addLine({ own, chainPath = null, below: belowBytes = null,
     defs.push(defLine('chain.1', { id: writeId(below.head.id, await hashBytes(bytes)) }));
   }
   const names = [];
-  for (const { bytes } of elements) {
-    const head = readFile(dec.decode(bytes)).head;
-    const name = `chain.${defs.length + 1}`;
-    defs.push(defLine(name, { id: writeId(head.id, await hashBytes(bytes)) }));
-    names.push(`:${name}`);
+  const seen = new Map(); // the same take twice (split): one definition
+  for (const { bytes, part } of elements) {
+    const head = readFile(dec.decode(bytes)).head, hash = await hashBytes(bytes);
+    let name = seen.get(hash);
+    if (!name) { name = `chain.${defs.length + 1}`; seen.set(hash, name); defs.push(defLine(name, { id: writeId(head.id, hash) })); }
+    names.push(part ? `:${name}'(${Math.round(part[0])}_${Math.round(part[1])})` : `:${name}`);
   }
   const line = together ? `{${names.join(' ')}}'t(${at})` : `${names.map((n) => `{${n}}`).join(' ')}'t(${at})`;
   const id = newId({ q: device, n: person.id, now });

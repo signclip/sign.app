@@ -23,7 +23,7 @@
 export const GESTURES = ['tap', 'double-tap', 'hold', 'up', 'down', 'up-out', 'down-out', 'left', 'right', 'edge-in', 'edge-out', 'drag', 'pinch', 'spread', 'squeeze', 'stretch'];
 export const MODES = ['take', 'similar', 'line', 'any'];
 /** What the other finger can hold (the property of a parallel gesture). */
-export const HELD = ['strand', 'chip', 'live'];
+export const HELD = ['strand', 'chip', 'live', 'item'];
 
 /** The verbs: one meaning per movement, for every what (help and onboarding teach these, not the rows). */
 export const VERBS = {
@@ -51,7 +51,7 @@ export const TABLE = [
   ['take', 'tap', 'point', 'any', 'all switched-on strands start / stop together'],
   ['take-while-held', 'hold', 'point', 'any', 'all switched-on strands record while held'],
   ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait · during a take: pause / go on'],
-  ['waits', 'pinch', 'point', 'any', 'two fingers on the point: time, the line wider / narrower, or (always ready) the waits longer / shorter (rings show it)'],
+  ['waits', 'pinch', 'point', 'any', 'two fingers on the point: across = into the take\'s time (wider / narrower) · up-down = the waits longer / shorter (rings show them) (15.11.)'],
   ['share-last', 'up-out', 'point', 'any', 'out over the upper edge: the sharing points as circles, tap = share there'],
   ['aside-last', 'down', 'point', 'any', 'set the last take aside (it stays, dashed)'],
   ['remove-last', 'down-out', 'point', 'any', 'out over the lower edge: delete, chips take · strand · part, then share-first · out of similar · out of training'],
@@ -77,6 +77,8 @@ export const TABLE = [
   ['focus', 'tap', 'live', 'any', 'focus where tapped'],
   ['grip', 'hold', 'live', 'any', 'grip the picture (the visual strand): the other finger acts on it'],
   ['zoom', 'pinch', 'live', 'any', 'two fingers on the picture: the camera nearer / farther'],
+  ['split', 'stretch', 'item', 'any', 'a take of the line held, the other finger pulls away from it: past the mark (a line across it shows) it is two parts, cut in its middle (15.11.)', 'item'],
+  ['join', 'stretch', 'item>item', 'any', 'two takes held, pushed together: one after the other in a new line (15.11.)', 'item'],
   ['form', 'stretch', 'live', 'any', 'picture held, the other finger pulls: across = narrower / wider · up-down = lower / higher · slanted = squarer / rounder', 'live'],
   ['switch-camera', 'left', 'live', 'any', 'the other camera slides in (front / back), also during a take: the picture changes, the sound goes on'],
   ['switch-camera', 'right', 'live', 'any', 'the same, the other way'],

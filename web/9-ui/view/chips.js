@@ -118,9 +118,10 @@ export function chipShapes(groups = [], { timeMs = null, cx, y, k = 1, w = 390, 
 
   const out = [];
   let x = 0;
-  for (const g of row) {
-    const node = nodeOf(g);
+  for (const [gi, g] of row.entries()) {
+    const node = nodeOf(g), from = out.length;
     put(node, x, 1, { y, k, timeMs, out, queue });
+    for (let s = from; s < out.length; s++) out[s].g = gi; // which element of the row: they move together
     x += widthOf(node, k, 1) + GAP * k;
   }
   const total = x - GAP * k;
@@ -189,6 +190,12 @@ function chipOf(c, x, o) {
 const flyOver = (x, top, k) => ({ type: 'path', d: `M${x} ${top - 3 * k}V${top - 13 * k}M${x - 5 * k} ${top - 8 * k}L${x} ${top - 14 * k}L${x + 5 * k} ${top - 8 * k}`, cls: 'fly' });
 
 /** Move a shape sideways. */
+/** Move a shape down by dy (absolute M, L, V in paths; relative parts stay). */
+export function moveY(s, dy) {
+  if (s.type !== 'path') return { ...s, y: s.y + dy };
+  return { ...s, d: s.d.replace(/([MLV])(-?[\d.]+)(?: (-?[\d.]+))?/g, (m, op, a, b) => (op === 'V' ? `V${+a + dy}` : `${op}${a}${b != null ? ` ${+b + dy}` : ''}`)) };
+}
+
 function move(s, dx) {
   if (s.type !== 'path') return { ...s, x: s.x + dx };
   return { ...s, d: s.d.replace(/([MLV])(-?[\d.]+)(?: (-?[\d.]+))?/g, (m, op, a, b) => (op === 'V' ? m : `${op}${(+a + dx)}${b != null ? ` ${b}` : ''}`)) };

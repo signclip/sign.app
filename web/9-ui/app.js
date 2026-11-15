@@ -501,6 +501,27 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     data.versions = Math.max(1, index.versions(writeId(head.id)).length);
     return r.chain;
   }
+  /** Split a take of the line in its middle (15.11.): a new line with its two parts ('( ) in ms), nothing copied. */
+  async function splitTake(i) {
+    const key = await keyOfItem(i), el = key && await chainBytes(key);
+    if (!el) return null;
+    const length = Number(/ 0_(\d+)/.exec(readFile(dec.decode(el.bytes)).head["'t"] ?? '')?.[1] ?? 0);
+    if (!length) return null; // a picture has no time to cut
+    const half = Math.round(length / 2);
+    const r = await addLine({ own: store, chainPath: take.lastChain, elements: [{ ...el, part: [0, half] }, { ...el, part: [half, length] }], device, person, deviceKey: await sealKey() });
+    take.lastChain = r.chain;
+    index = await reindex();
+    navigator.vibrate?.([12, 40, 12]); // felt: two parts
+    return arrive();
+  }
+  /** Two takes of the line pushed together (15.11.): one after the other in a new line, the older first. */
+  async function joinTakes(a, b) {
+    const keys = (await Promise.all([Math.max(a, b), Math.min(a, b)].map(keyOfItem))).filter(Boolean); // a larger i is further back in time: the older one first
+    if (keys.length < 2) return null;
+    await layOn(keys, false);
+    navigator.vibrate?.(20);
+    return arrive();
+  }
   /** An element of the line (its position beside the point) → the key of its take. */
   async function keyOfItem(i) {
     const all = await takeVisuals();
@@ -969,6 +990,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       }
       case 'zoom': case 'waits': return null; // pinch goes straight to the camera (picture), or on the point to time / the waits (handlers.pinch)
       case 'form': return null; // the picture held, the other finger pulls: handlers.stretch shapes the window as it moves
+      case 'split': case 'join': return null; // a take held, the other finger pulls or pushes: handlers.stretch shows the mark, stretchEnd does it
       case 'switch-camera':
         if (take.recorder && !take.relay) return null; // without the canvas the recorder would end
         settings = choose(settings, 'facing', settings.facing === 'user' ? 'environment' : 'user');
@@ -1108,6 +1130,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   let propertyRole = null; // the finger that holds a property (gripped, or parallel gesture)
   let paired = false; // the other finger acted while it was held: its lifting is no drag
   let spentRole = null; // that finger just let go after acting as a property: its drag end is not a drag
+  let pendingHold = null, usedHold = null, cutting = null; // a take of the line held: split or join by a second finger (15.11.)
+  const SPLIT_AT = 1.6, JOIN_AT = 0.6; // the marks: pulled to 1.6 × the start distance = split · pushed to 0.6 × = join
   /** The window's edges on the screen: [top, bottom] in client px, or null. */
   const windowEdges = () => {
     const win = screen.last?.window;
@@ -1131,9 +1155,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (role?.startsWith('offer:')) return adopt(role.slice(6)); // a greyed context of the result above: now mine
       return act('tap', role, { x, y });
     },
-    hold: (role) => act('hold', role),
-    parallel: async (heldRole) => { // a second finger came while one is held: the held thing is (or becomes) the property
+    hold: (role) => { if (targetOf(role).target === 'item') { pendingHold = role; return null; } return act('hold', role); }, // a take of the line: its hold acts on lifting, so it can still be split or joined (15.11.)
+    parallel: async (heldRole, role) => { // a second finger came while one is held: the held thing is (or becomes) the property
       paired = true;
+      if (targetOf(heldRole).target === 'item') { cutting = { held: heldRole, other: role, total: 1 }; return; } // split or join: decided by the pull
       const hold = propertyOf(heldRole);
       if (!hold || propertyRole === heldRole) return; // already gripped: the other finger just acts
       propertyRole = heldRole;
@@ -1159,9 +1184,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (role === 'live') return zoomBy(camera, factor);
       if (role === 'line-arc' || role?.startsWith('line:')) { data.lineZoom = Math.max(LINE_ZOOM[0], Math.min(LINE_ZOOM[1], (data.lineZoom ?? 1) * factor)); return paint(); } // the takes apart / together
       if (role !== 'point') return null; // elsewhere the pinch ends as a step (pinchEnd)
-      const f = how.fx ?? factor;
-      if (data.items?.length && ['line', 'record', 'stream'].includes(st.screen)) { data.timeZoom = Math.max(0.25, Math.min(8, (data.timeZoom ?? 1) * f)); return paint(); }
-      return st.ready ? waitsBy(f) : null;
+      const fx = how.fx ?? factor, fy = how.fy ?? 1;
+      if (Math.abs(Math.log(fy)) > Math.abs(Math.log(fx))) return waitsBy(fy); // up-down (15.11.): the waits longer / shorter (rings show them)
+      if (data.items?.length && ['line', 'record', 'stream'].includes(st.screen)) { data.timeZoom = Math.max(0.25, Math.min(8, (data.timeZoom ?? 1) * fx)); return paint(); } // across: into the take's time
+      return null;
     },
     pinchEnd: (factor, role) => { // spread = nearer / more, squeeze = farther / less, where the first finger lay
       const g = pinchStep(factor);
@@ -1174,13 +1200,31 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       return act(g, role ?? 'top-zone');
     },
     stretch: (heldRole, factor, how) => { // one finger holds the picture, the other pulls: the window's form changes
+      if (cutting && heldRole === cutting.held) { // a take held: apart = split, onto another take = join (15.11.)
+        cutting.total *= factor;
+        const join = cutting.other?.startsWith('line:') && cutting.other !== cutting.held;
+        data.cutMark = !join && cutting.total > SPLIT_AT ? cutting.held : null; // past the mark: a line across the take
+        data.joinMark = join && cutting.total < JOIN_AT ? [cutting.held, cutting.other] : null;
+        paint();
+        return true;
+      }
       if (heldRole !== 'live') return false;
       reshape(formBy(rawShape ?? data.shape, factor, how));
       return true;
     },
-    stretchEnd: () => { rawShape = null; saveSettings(); },
+    stretchEnd: () => {
+      if (cutting) { // the pull ends: split or join if it went past its mark, else nothing
+        const { held, other } = cutting, split = data.cutMark, join = data.joinMark;
+        cutting = null; usedHold = held; data.cutMark = null; data.joinMark = null; paint();
+        if (split) return splitTake(Number(held.slice(5)));
+        if (join) return joinTakes(Number(held.slice(5)), Number(other.slice(5)));
+        return null;
+      }
+      rawShape = null; saveSettings();
+    },
     dragEnd: (el, moved, role) => {
       if (role === spentRole) { spentRole = null; return null; } // a property was held for the other finger, not carried
+      if (role === pendingHold) { pendingHold = null; if (usedHold === role) { usedHold = null; return null; } if (!moved) return act('hold', role); } // held alone and lifted: its hold now (add-to)
       const from = targetOf(role);
       const onto = el?.closest?.('[data-role]')?.dataset.role;
       if (from.target === 'strand' && onto?.startsWith('strand:')) return act('drag', role, { drag: `${role}>${onto}` });

@@ -137,7 +137,8 @@ export async function advance({ store, person, folder = accountFolder(person) })
   const asks = texts.filter(([, t]) => /\n\(\(hello\) /.test(t)).map(([p]) => p);
   const taken = texts.some(([, t]) => /\n\(\(join\)\)'t/.test(t) || / \(consent\)'t/.test(t));
   if (!taken) return [];
-  const all = [...inHello, ...(await answersIn(store, asks))];
+  const us = texts.filter(([, t]) => /\n\(\(join\)\)'t/.test(t)).flatMap(([p]) => readName(nameOf(p))?.words.filter((w) => w.startsWith('u_')) ?? []);
+  const all = [...inHello, ...(await answersIn(store, asks)), ...(await answersOfU(store, us))]; // the hello may be in within/ already (join ↑)
   const moved = [];
   for (const p of [...new Set(all)]) {
     const to = `within/${folder}/${withState(nameOf(p), 'within')}`;
@@ -146,6 +147,7 @@ export async function advance({ store, person, folder = accountFolder(person) })
   }
   return moved;
 }
+const answersOfU = async (store, us) => (us.length ? (await store.list('join/')).map((f) => f.path).filter((p) => us.some((u) => readName(nameOf(p))?.words.includes(u))) : []);
 const answersIn = async (store, asks) => { const ps = (await store.list('join/')).map((f) => f.path); return asks.map((a) => answerFor(ps, a)).filter(Boolean); };
 
 /**
@@ -169,7 +171,7 @@ export async function quietDevice(store, helloPath) {
   const moved = [];
   for (const p of mine) { const to = `quiet/${folder}/${withState(nameOf(p), 'quiet')}`; await store.move(p, to); moved.push(to); }
   const at = timeLabel(Date.now()); // a note in join/ (read by the device through the door, 15.11.): it logs itself out, its app password deletes itself
-  if (u) await store.write(`join/${buildName({ words: ['join', u, 'quiet'], time: at, u, kind: 'chain', ext: 'sign' })}`, enc.encode(`:chain'(${at})\n((quiet))\n`));
+  if (u) await store.write(`join/${buildName({ words: ['join', u, 'quiet'], time: at, u, kind: 'chain', ext: 'sign' })}`, enc.encode(`:chain't(${at})\n((quiet))\n`));
   return moved;
 }
 
