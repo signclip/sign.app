@@ -92,6 +92,12 @@ export function matchAccounts(accounts, words = []) {
 }
 
 /** Let an account rest (no login, no sync; its files stay) or wake it again (OCS disable / enable). */
+/** A new login password for an existing account (15.11.: a new device of a known person gets its own app password;
+ * the app passwords of her other devices keep working). Never shown, never stored. */
+export async function setPassword(admin, user, password, { fetch = globalThis.fetch } = {}) {
+  await ocs(admin, `users/${encodeURIComponent(user)}`, { method: 'PUT', body: new URLSearchParams({ key: 'password', value: password }).toString(), fetch });
+}
+
 export async function setEnabled(admin, user, on, { fetch = globalThis.fetch } = {}) {
   await ocs(admin, `users/${encodeURIComponent(user)}/${on ? 'enable' : 'disable'}`, { method: 'PUT', fetch });
 }

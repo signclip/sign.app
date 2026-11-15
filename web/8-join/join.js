@@ -131,7 +131,7 @@ export async function consent({ store, marker, kinds, at, device, deviceKey = nu
  * hello, the marker and the answer leave hello/ and join/ for within/, the signer's overview of what
  * is done. A consent → also into within/. Returns the new paths.
  */
-export async function advance({ store, person }) {
+export async function advance({ store, person, folder = accountFolder(person) }) { // folder: a known account (a new device of hers, 15.11.)
   const inHello = (await store.list('hello/')).map((f) => f.path).filter((p) => readName(nameOf(p))?.person === person.label);
   const texts = await Promise.all(inHello.map(async (p) => [p, dec.decode(await store.read(p))]));
   const asks = texts.filter(([, t]) => /\n\(\(hello\) /.test(t)).map(([p]) => p);
@@ -140,7 +140,7 @@ export async function advance({ store, person }) {
   const all = [...inHello, ...(await answersIn(store, asks))];
   const moved = [];
   for (const p of [...new Set(all)]) {
-    const to = `within/${accountFolder(person)}/${withState(nameOf(p), 'within')}`;
+    const to = `within/${folder}/${withState(nameOf(p), 'within')}`;
     await store.move(p, to);
     moved.push(to);
   }

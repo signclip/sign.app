@@ -9,7 +9,8 @@
 //              stock     numbers, strands at their arcs, weeks, trends, rooms, the index
 //              context   all context clusters in one picture
 //              accounts  (admin) hello · join · within · quiet, tiles sized by bytes
-//            One colour = one meaning on every page (view/sheet-charts.js INK). A new sheet = a new paper password.
+//            One colour = one meaning on every page (view/sheet-charts.js INK). The paper password stays the same on every
+//            sheet; a new one only with the current one copied as second factor (paperChoice).
 // Depends:   1-model/pdf.js, 3-index/tally.js, 3-index/clusters.js, view/sheet-cover.js, view/sheet-pages.js
 // Test:      tests/model.test.mjs (emergency sheet)
 // Limits:    A4 · paper password 26 Base32 characters (≈ 130 bit) in groups of 4 · no password of a login ever
@@ -91,6 +92,18 @@ function frame(p, sheet, no, of, name) {
   p.line(M, 812, M + W, 812, { stroke: INK.line, width: 0.6 });
   p.text(M, 824, 'nicht fotografieren · nicht in eine Cloud · ein neues Blatt ersetzt dieses', { size: 6.5, color: INK.mut });
   p.text(M + W, 824, `'t(${timeLabel(sheet.now)})  ${no} / ${of}`, { size: 6.5, color: INK.mut, align: 'right' });
+}
+
+/**
+ * Keep the paper password or make a new one (15.11.): every sheet prints the same paper password, so all printed sheets
+ * stay valid together. A new one only when asked, with a second factor: the current paper password, copied (from the
+ * paper or the PDF), at the moment the sheet is made. Someone holding only the phone cannot shut out the paper.
+ * stored: the paper password in the keychain or null · typed: what was copied, or null → 'keep' | 'new' | 'first'.
+ */
+export function paperChoice(stored, typed) {
+  const plain = (t) => String(t ?? '').toUpperCase().replace(/[\s-]/g, '');
+  if (!stored) return 'first';
+  return typed && plain(typed) === plain(stored) ? 'new' : 'keep';
 }
 
 /** sheet (sheetData) → the pages. */

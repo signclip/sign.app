@@ -21,7 +21,9 @@ import { openAll, afterTake, sources, runRules, reconnect } from '../2-storage/s
 import { dueRules, remember, retry, backupKey, summary, reopen, bringHome, sealPaper, PAPER_ID } from '../2-storage/upkeep.js';
 import { newPaperPassword } from '../2-storage/backup-key.js';
 import { readFile } from '../1-model/file.js';
-import { sheetPdf, sheetData, sheetName } from './emergency.js';
+import { sheetPdf, sheetData, sheetName, paperChoice } from './emergency.js';
+
+const SIGNER_PAPER_ID = 'paper-signer'; // the signer code on the sheet and the path of its certificate in the door
 import { partsOf } from '../2-storage/layout.js';
 import { quietIds } from '../4-save/remove.js';
 import { deviceKeys, joins } from './device-keys.js';
@@ -32,7 +34,8 @@ import { shareTake } from '../4-save/share-take.js';
 import { timeLabel, readName } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { addNew, peek, pickFolder, loginAt, resumeLogin, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
-import { nameSignOf, withHello, quietHello, devicesOf, quietDevice } from '../8-join/join.js';
+import { quietHello, devicesOf, quietDevice } from '../8-join/join.js';
+import { helloTakes, accountTakes } from '../8-join/known.js';
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
@@ -108,7 +111,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
 
   // ---------- upkeep: what is due runs by itself (2-storage/upkeep.js) ----------
   const host = async () => { const { pickup } = await deviceKeys(); return { id: device, pickup: pickup.public, privateKey: pickup.privateKey }; };
-  const paper = async () => { const text = (await clipboardText()).trim().toUpperCase(); return /^[0-9A-Z]{26}$/.test(text) ? text : null; };
+  const paper = async () => { const text = (await clipboardText()).toUpperCase().replace(/[\s-]/g, ''); return /^[0-9A-Z]{26}$/.test(text) ? text : null; }; // as printed: groups of 4 with spaces
   async function skip() { // removed takes never come back through a copy or a restore
     const texts = [];
     for (const { path } of await own.list('chain/')) if (path.includes('quiet') && path.endsWith('.sign')) texts.push(dec.decode(await own.read(path)));
@@ -247,26 +250,34 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   }
 
   /** Admin: a signer code for the paper, certified by this device into the door (lost phone → the code certifies the new one). */
-  async function paperForDoor() {
+  async function paperForDoor(renew) {
+    const kept = JSON.parse((await keychain.get(SIGNER_PAPER_ID)) ?? 'null');
+    if (kept && !renew) return kept.code; // the same code as on the sheets already printed
     const { newSignerCode, paperSigner, certify } = await import('../8-join/signers.js');
     const code = newSignerCode(), paper = await paperSigner(code), me = await deviceKeys();
     const cert = await certify({ by: { id: device, label: person.label, privateKey: me.device.privateKey }, signer: paper, person });
     await adminStore().write(cert.path, new TextEncoder().encode(cert.text));
+    if (kept?.path) await adminStore().remove(kept.path).catch(() => {}); // the old paper no longer certifies
+    await keychain.set(SIGNER_PAPER_ID, JSON.stringify({ code, path: cert.path }));
     return code;
   }
   /** The emergency sheet (14.11.): a paper password for the backups (kept in the keychain, sealed into each backup), with every
    *  sharing point, the access IDs and what the index adds up to, as PDF (emergency.js). */
   async function emergency() {
-    const key = await checkKey(ctx), paper = newPaperPassword();
-    await keychain.set(PAPER_ID, paper); // a new sheet: the old paper password stops opening
-    for (const r of s.rules.filter((x) => x.mark === 'backup')) {
-      const store = s.open.get(r.to)?.store;
-      if (!store) continue;
-      try { await sealPaper(store, await backupKey(store, { keychain, host: await host() }), paper, { replace: true }); } catch { /* sealed at its next backup */ }
+    const key = await checkKey(ctx), stored = await keychain.get(PAPER_ID);
+    const choice = paperChoice(stored, stored ? await clipboardText().catch(() => null) : null); // new only with the current one copied
+    const paper = choice === 'keep' ? stored : newPaperPassword();
+    if (choice !== 'keep') {
+      await keychain.set(PAPER_ID, paper); // 'new': the old paper password stops opening
+      for (const r of s.rules.filter((x) => x.mark === 'backup')) {
+        const store = s.open.get(r.to)?.store;
+        if (!store) continue;
+        try { await sealPaper(store, await backupKey(store, { keychain, host: await host() }), paper, { replace: true }); } catch { /* sealed at its next backup */ }
+      }
     }
     const admin = await findAdmin().catch(() => null); // only user and server reach the sheet, never the password
     const accounts = admin ? await sheetAccounts().catch(() => []) : [];
-    const signerCode = admin && adminStore() ? await paperForDoor().catch(() => null) : null; // admin: the paper becomes a signer too
+    const signerCode = admin && adminStore() ? await paperForDoor(choice !== 'keep').catch(() => null) : null; // admin: the paper becomes a signer too
     const sheet = sheetData({ person, device, key, paper, signerCode, joins: await sheetJoins(), date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
     const pdf = sheetPdf(sheet);
     const name = sheetName(sheet); // (Sign Overview)@(Name)'t(…)!(u_…).pdf, as every file name
@@ -403,10 +414,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'app') { const app = rowApps()[Number(a)]; if (!app) return null; if (!app.glyph) usedApp(app); return outside(app); } // one app of the row: straight there
     if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.look ? x.look() : null; } // an account: tap = look at it
     if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
-    if (what === 'hello') { // tap = look: the name sign that came with the hello, in the window (14.11.; ← = welcome)
-      const x = s.hellos[Number(a)], store = s.open.get(x?.n)?.store;
-      return store ? onLook(`hello/${nameSignOf(x.helloPath.slice(x.helloPath.lastIndexOf('/') + 1))}`, store) : null;
-    }
+    if (what === 'hello') return lookHellos(s.helloGroups?.[Number(a)]?.n); // tap = all waiting hellos of this group as Similar tiles (15.11.)
     if (what === 'accept-there') {
       const { url } = s.acceptThere;
       s.acceptThere = null;
@@ -484,16 +492,30 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   const others = () => { const p = globalThis.signPersons; return p ? p.persons().filter((x) => x.id !== p.current()) : []; };
   const START = ['direct', 'record', 'choose']; // straight to the take as left · records at once · the persons to choose at start
   /**
-   * Admin, a hello double-tapped (15.11.): name sign and password gestures as tiles, like Similar (tap = big, ← → = next);
-   * if an account of that name is already in within/ (a known person on a new device), its first gestures follow to compare.
+   * Admin (15.11.): the hellos waiting in one group as Similar tiles, many of them, each hello's name sign and password
+   * gestures together (they sort by name). A known name (new device) brings the originals: Doppel shows the new take
+   * above and the original below. In Doppel: ← = welcome (account, or for a known person only a device password),
+   * ↓ = not now (quiet/), → = the next take.
    */
-  async function lookGestures(x) {
-    const store = s.open.get(x?.n)?.store;
+  async function lookHellos(n) {
+    const store = s.open.get(n)?.store;
     if (!store) return null;
-    const items = (await withHello(store, x.helloPath)).filter((p) => p.endsWith('.mp4') || p.endsWith('.png'));
-    const known = (await store.list('within/').catch(() => [])).map((f) => f.path)
-      .filter((p) => (/\(password gesture [123]\)\.v\.mp4$/.test(p) || /\(within password [123]\)/.test(p)) && p.includes(`/@(${x.name})!(`)).sort().slice(0, 3);
-    return onLookAll([...items, ...known].map((path) => ({ path, from: store })));
+    const items = [];
+    for (const x of s.hellos.filter((h) => h.n === n)) {
+      if (items.length >= 40) break; // the tiles of one look; decided ones make room
+      const { takes } = await helloTakes(store, x).catch(() => ({ takes: [] }));
+      for (const t of takes) items.push({ ...t, from: store, hello: x.helloPath,
+        accept: () => welcome(ctx, x).then(load).then(draw),
+        quiet: () => quietHello({ store, helloPath: x.helloPath }).then(load).then(draw) });
+    }
+    return items.length ? onLookAll(items) : null;
+  }
+  /** An account's name signs and password gestures (all its devices), oldest first, as Similar tiles. */
+  async function lookAccount(a) {
+    const store = adminStore(), folder = store && (await store.list('within/').catch(() => [])).map((f) => f.path).find((p) => p.toLowerCase().includes(`!(${a.user.toLowerCase()})/`));
+    if (!folder) return say(t('notReachable'));
+    const paths = await accountTakes(store, folder.slice(7, folder.indexOf('/', 7)));
+    return paths.length ? onLookAll(paths.map((path) => ({ path, from: store }))) : null;
   }
   /** The project's own Nextcloud (its door's server), where the admin logs in. */
   const projectServer = () => { try { return new URL(project?.doors?.[0]?.read ?? project?.read).origin; } catch { return null; } };
@@ -509,10 +531,13 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     say('');
     return draw();
   }
+  /** Takes and strands of an account, from atlas: '12 Takes · v 12 · a 9 · x 12 · l 3'. */
+  const statsOf = (c) => (c ? [`${c.chains ?? 0} Takes`, ...['v', 'a', 'x', 'l'].map((k) => `${k} ${c[k] ?? 0}`)].join(' · ') : '–');
   function lookTiles({ a, devices, groups, store }) {
     const again = () => openAccount(a), fail = () => say(t('notReachable'));
     return [
       { label: `← ${a.label}`, go: () => { s.account = null; draw(); } },
+      { label: statsOf(a.counts), look: () => lookAccount(a) }, // what the account holds (atlas: takes per strand); tap = its gestures
       ...devices.map((d) => ({ label: d.device.label, down: () => quietDevice(store, d.helloPath).then(again, fail) })),
       ...groups.all.map((g) => (groups.mine.includes(g)
         ? { label: `(${g})`, down: () => setGroup(ctx.admin, a.user, g, false).then(again, fail) } // in this group: ↓ = out
@@ -525,7 +550,9 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const browse = s.accounts ? accountTiles() : s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const ws = words().map((w) => w.toLowerCase());
-    const hellos = s.hellos.filter((x) => ws.every((w) => x.name.toLowerCase().includes(w))).map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to · context words find hellos too
+    const waiting = s.hellos.filter((x) => ws.every((w) => x.name.toLowerCase().includes(w))); // context words find hellos too
+    s.helloGroups = [...new Set(waiting.map((x) => x.n))].map((n) => ({ n, label: String(waiting.filter((x) => x.n === n).length) })); // one circle per group, its count (15.11.)
+    const hellos = s.helloGroups;
     const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.accounts || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
@@ -552,7 +579,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     slideEnd: () => { if (!s.apps?.drag) return null; s.apps.x = (s.apps.x ?? 0) + s.apps.drag; s.apps.drag = 0; return draw(); },
     tap: () => tapped(role), // waits 300 ms: it may become a double-tap
     doubleTap: () => { // 14.11.: on a sharing point = encrypted ↔ readable (the line from this device turns double / single)
-      if (role?.startsWith('hello:')) return lookGestures(s.hellos[Number(role.split(':')[1])]); // the password gestures, then the account's earlier ones
+      if (role?.startsWith('hello:')) return lookHellos(s.helloGroups?.[Number(role.split(':')[1])]?.n);
       if (role?.startsWith('person:') || role === 'sp:0') { // how a person starts: direct → records at once → chooses
         const P = globalThis.signPersons, id = role === 'sp:0' ? P?.current() : role.slice(7), now = P?.persons().find((x) => x.id === id)?.start ?? 'direct';
         P?.setStart(id, START[(START.indexOf(now) + 1) % START.length]);
@@ -575,9 +602,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         return draw();
       }
       if ((role?.startsWith('app:') || role === 'out:system' || role === 'row-area') && dir === 'up') return outside(); // ↑ on the row: the system share sheet // ↑ on the row: the classic Android / iOS share sheet
-      if (role?.startsWith('hello:') && dir === 'left') return welcome(ctx, s.hellos[Number(role.split(':')[1])]).then(load).then(draw); // ← hello → join: welcomed
-      if (role?.startsWith('hello:') && (dir === 'down' || dir === 'down-far')) { const x = s.hellos[Number(role.split(':')[1])], store = s.open.get(x?.n)?.store; return store ? quietHello({ store, helloPath: x.helloPath }).then(load).then(draw, () => say(t('notReachable'))) : null; } // ↓ hello = not now: to quiet/, nothing deleted
-      if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → back: look again (new hellos, a failed welcome tried anew)
+      if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → look again (new hellos); deciding is in the tiles (15.11.)
+      if (role?.startsWith('browse:') && s.accounts && dir === 'right') return back(); // → in the accounts: one step back
       const n = circleOf(role);
       if (n && n === s.adminN && dir === 'right') return showAccounts(); // → on the admin tile: who has how much space
       if ((n === 0 || (n && n === s.adminN)) && dir === 'up') return emergency(); // ↑ on my own tile: the emergency sheet as PDF in the share sheet (the check key goes along as text)
@@ -663,8 +689,16 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (!on) s.pending = null; // closed: nothing prepared waits
     if (on) { s.appear = true; draw(); look(); loadApps().catch(() => {}); }
   }
+  /** One step back (Android back, → in the accounts): an account → the accounts → closed. → true if it stepped */
+  function back() {
+    if (s.account) { s.account = null; draw(); return true; }
+    if (s.accounts) { s.accounts = null; draw(); return true; }
+    return false;
+  }
+
   return {
     show,
+    back,
     /** Start 'choose' (14.11.): the persons of this device breathe, tap = in. */
     choose: () => { s.choosing = true; show(true); },
     async afterTake(paths) {

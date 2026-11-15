@@ -83,6 +83,7 @@ export const TABLE = [
   ['reference-out', 'up', 'reference', 'any', 'back to Similar · viele'],
   ['reference-next', 'left', 'reference', 'any', 'the next result'],
   ['reference-before', 'right', 'reference', 'any', 'the result before'],
+  ['look-quiet', 'down', 'reference', 'any', 'admin, a hello in Doppel (15.11.): not now → quiet/, the next hello; ← there = welcome'],
   // the line in its arc over the point, the chain under it (view/arc.js)
   ['straighten', 'down', 'line-arc', 'any', 'pull the line straight (animated): one row of pictures'],
   ['bend', 'up', 'line-arc', 'any', 'back into the arc'],

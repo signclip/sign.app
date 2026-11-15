@@ -6,7 +6,8 @@
 // Test:      tests/connect.test.mjs
 // Limits:    the secret travels only sealed (join.js); keychain = { set(q_, secret) } given by the app.
 
-import { createAccount, appPasswordFor, makeFolder, shareFolder } from './provision.js';
+import { createAccount, appPasswordFor, makeFolder, shareFolder, setPassword } from './provision.js';
+import { newPassword } from '../1-model/crypto.js';
 /** Each person's own folder in her account. */
 export const FOLDER = 'Sign';
 import { helloBack, readHello } from './join.js';
@@ -30,6 +31,20 @@ export async function welcome({ door, helloPath, admin, signer, also = [], quota
   const appPassword = await appPasswordFor(login, { fetch });
   const own = { label: ask.person.label, path: webdavUrl(admin.server, account.user, FOLDER), id: newSource() };
   const secret = JSON.stringify({ server: admin.server, user: account.user, appPassword, id: own.id });
+  return helloBack({ store: door, helloPath, secret, sharingPoints: [own, ...also], signer, now });
+}
+
+/**
+ * Signer app, a known person on a new device (15.11.): no new account; the account gets a new login password, the
+ * device its own app password for the same Sign/. user: the account (n_ small) the admin compared the takes with.
+ */
+export async function welcomeDevice({ door, helloPath, admin, signer, user, also = [], fetch = globalThis.fetch, now = Date.now() }) {
+  const ask = readHello(dec.decode(await door.read(helloPath)));
+  const login = { server: admin.server, user, password: newPassword() + newPassword() };
+  await setPassword(admin, user, login.password, { fetch });
+  const appPassword = await appPasswordFor(login, { fetch });
+  const own = { label: ask.person.label, path: webdavUrl(admin.server, user, FOLDER), id: newSource() };
+  const secret = JSON.stringify({ server: admin.server, user, appPassword, id: own.id });
   return helloBack({ store: door, helloPath, secret, sharingPoints: [own, ...also], signer, now });
 }
 

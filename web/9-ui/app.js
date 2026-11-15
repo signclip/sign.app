@@ -556,6 +556,34 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (st.similar) return showSimilar(true);
     return openMany();
   }
+  /** Doppel of a hello from a known person (15.11.): the original take plays below, where the live picture is. */
+  async function pairOn(path, from) {
+    const v = $('#replay');
+    if (!path) return pairOff();
+    v.src = URL.createObjectURL(new Blob([await from.read(path)], { type: 'video/mp4' }));
+    Object.assign(v, { loop: true, muted: true, hidden: false });
+    v.dataset.pair = '1';
+    v.play().catch(() => {});
+  }
+  function pairOff() {
+    const v = $('#replay');
+    if (!v.dataset.pair) return;
+    delete v.dataset.pair;
+    v.pause(); v.removeAttribute('src'); Object.assign(v, { loop: false, muted: false, hidden: true });
+  }
+  /** Admin, in Doppel: decide the hello this take belongs to (accept / quiet); its takes leave, the next one shows. */
+  async function decide(how) {
+    const at = data.look?.[data.doubleAt];
+    if (!at?.[how]) return null;
+    try { await at[how](); } catch { return null; } // not reachable: it stays
+    const rest = data.look.filter((x) => x.hello !== at.hello);
+    if (!rest.length) { pairOff(); return act('edge-out', 'upper-right'); }
+    const next = Math.min(data.look.slice(0, data.doubleAt).filter((x) => x.hello !== at.hello).length, rest.length - 1);
+    for (const k of [...thumbs.keys()]) if (k.startsWith('look:')) thumbs.delete(k);
+    data.look = rest;
+    showSimilar(true);
+    return reference(next);
+  }
   /** A tile key → { store, path } of its picture or video: an index key, or look:i. */
   const atOf = (key) => {
     if (!key?.startsWith('look:')) return takeOf(key) && visualOf(takeOf(key));
@@ -585,6 +613,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     data.double = key;
     data.doubleAt = i;
     if (!data.look) await offerContext(takeOf(key));
+    await pairOn(data.look?.[Number(key.slice(5))]?.pair, data.look?.[Number(key.slice(5))]?.from);
     return paint();
   }
   /** An index key (chain or strand) → its take chain entry. */
@@ -878,7 +907,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         step('similar-out');
         data.words = [];
         data.double = null; // Doppel ends with Similar
-        if (data.look) { delete data.look; $('#template').removeAttribute('src'); } // a hello looked at: done
+        if (data.look) { delete data.look; $('#template').removeAttribute('src'); pairOff(); } // a hello looked at: done
         data.manyFull = false;
         delete data.reveal; delete data.grow; delete data.lowT;
         $('#template').removeAttribute('src');
@@ -940,8 +969,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'context-close': return openContext(false);
       // ---------- in the table, not wired yet: each says where it docks ----------
       case 'take-over': return reference(hit.index); // Similar · Doppel: the result above, the live picture below
-      case 'reference-out': data.double = null; data.offers = []; $('#template').removeAttribute('src'); return paint(); // back to viele
+      case 'reference-out': data.double = null; data.offers = []; $('#template').removeAttribute('src'); pairOff(); return paint(); // back to viele
+      case 'look-quiet': return decide('quiet'); // admin: this hello not now
       case 'reference-next': case 'reference-before': { // ← next · → before, in the order of the tiles
+        if (data.look?.[data.doubleAt]?.accept && row.action === 'reference-next') return decide('accept'); // admin: ← = welcome, then the next hello (15.11.)
         const n = data.similar.length;
         return n ? reference((data.doubleAt + (row.action === 'reference-next' ? 1 : -1) + n) % n) : null;
       }
@@ -1048,9 +1079,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
   // Android "back" (14.11.): one step back, never out of the app by surprise: sharing menu → full screen → Similar → context field
   globalThis.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
-    if (!$('#share').hidden) return menu.show(false);
+    if (!$('#share').hidden) return menu.back() || menu.show(false); // an account → the accounts → closed
     if (st.full) return act('down', 'top-middle');
-    if (data.double) { data.double = null; data.offers = []; $('#template').removeAttribute('src'); return paint(); } // Doppel → viele
+    if (data.double) { data.double = null; data.offers = []; $('#template').removeAttribute('src'); pairOff(); return paint(); } // Doppel → viele
     if (st.similar) return act('edge-out', 'upper-right');
     if ((data.open ?? 0) > 0) return openContext(false);
     return globalThis.Capacitor.Plugins.App.minimizeApp?.();
