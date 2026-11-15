@@ -77,7 +77,7 @@ async function clipboardText() {
  * project: { label, read, drop } the project's door (project.json): the first join, without a group text.
  * → { show(on), afterTake(paths), runRules(), dropKind(n, kind) }
  */
-export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, gestures = async () => [], project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {}, onLookAll = () => {}, words = () => [], index = () => null }) {
+export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, helloTakes = async () => [], project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {}, onLookAll = () => {}, words = () => [], index = () => null }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
@@ -246,7 +246,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     draw();
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, gestures, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on) };
+  const ctx = { s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on) };
 
   // ---------- doing what a gesture says ----------
   async function shareTo(n, kinds = null) {
@@ -534,7 +534,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (project?.atlas && user === project.atlas.toLowerCase() && s.atlasN !== n) { s.atlasN = n; ctx.atlas = login; atlasCount(login).catch(() => {}); } // this device also holds the atlas login
       if (ctx.admin) continue;
       if (!askedAdmin.has(key)) { const yes = await isAdmin(login, { group: project?.group ?? undefined }); if (yes !== null) askedAdmin.set(key, yes); }
-      if (askedAdmin.get(key)) { ctx.admin = login; s.adminN = n; debugNote({ admin: user }); // in sign-debug.txt: which login is the admin }
+      if (askedAdmin.get(key)) { ctx.admin = login; s.adminN = n; debugNote({ admin: user }); } // in sign-debug.txt: which login is the admin
     }
     return ctx.admin ?? null;
   }

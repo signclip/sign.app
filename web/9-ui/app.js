@@ -234,9 +234,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     lastChain: async () => take.shareChain ?? take.lastChain, // an element of the line (↑ on it), else the last take
     selection: () => toRecord(st), // double-tap on a sharing point = these strands always go there
     once: () => take.shareOnce, // a strand held while ↑ on the point: only it is shared this time
-    gestures: async () => { // the password gestures go with the door's hello (15.11.: the admin compares them by eye until the model can)
+    helloTakes: async ({ door = false } = {}) => { // the name sign (and at the door the password gestures) go with the hello as takes of their own (15.11.)
       let list = []; try { list = JSON.parse(localStorage.getItem('sign.passwords') || '[]'); } catch { /* none */ }
-      return (await Promise.all(list.map((p) => store.read(p).catch(() => null)))).filter(Boolean);
+      let name = null; try { name = localStorage.getItem('sign.nameSign'); } catch { /* private mode */ }
+      return [...(name ? [{ from: store, visual: name, part: 'name sign', words: ['hello'] }] : []),
+        ...(door ? list.slice(0, 3).map((visual, i) => ({ from: store, visual, part: `password gesture ${i + 1}`, // in front: its word ((password Apfel) → (Apfel))
+          words: (readName(visual.slice(visual.lastIndexOf('/') + 1))?.words ?? []).filter((w) => w !== 'password') })) : [])];
     },
     nameSign: async () => { // the first take of the onboarding goes along with every hello
       try { const p = localStorage.getItem('sign.nameSign'); return p ? await store.read(p) : null; } catch { return null; }

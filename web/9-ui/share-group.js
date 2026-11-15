@@ -11,7 +11,7 @@
 // Depends:   browser; 2-storage (nextcloud, sharing-point, spec), 8-join (group, join), 9-ui (device-keys,
 //            system-share)
 // Test:      the parts in tests/join.test.mjs; this needs a browser.
-// Name sign:  the first take of the onboarding goes into the drop beside the hello (join.js nameSignOf).
+// Name sign:  the first take of the onboarding goes with the hello as a take of its own (join.js sayHello, 15.11.).
 // Limits:    one hello per device and group; a renew reaches members on their next start.
 
 import { readFile } from '../1-model/file.js';
@@ -226,7 +226,7 @@ async function sayHelloTo(ctx, label, { door = false } = {}) {
   const drop = door ? doorLinks(ctx.s.open.get(g.read.n)?.store, open) : open; // a door's drop link is hello/ itself
   const keys = await deviceKeys();
   const device = { id: ctx.device, label: ctx.person.label, key: keys.device.public };
-  const helloPath = await sayHello({ store: drop, device, deviceKey: keys.device, person: ctx.person, target: label, pickup: keys.pickup.public, nameSign: await ctx.nameSign?.(), gestures: door ? await ctx.gestures?.().catch(() => []) ?? [] : [] });
+  const helloPath = await sayHello({ store: drop, device, deviceKey: keys.device, person: ctx.person, target: label, pickup: keys.pickup.public, takes: await ctx.helloTakes?.({ door }).catch(() => []) ?? [] }); // name sign (and at the door the password gestures) as takes of their own
   await joins.set(label, { helloPath, state: 'hello', door });
 }
 

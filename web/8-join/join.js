@@ -2,7 +2,10 @@
 //
 // Purpose:   what the person sees in the share menu, and the folders of a signer behind it.
 //            Each file lies in exactly one folder; the first word of its name says the state.
-//              1 hello        name sign recorded → (hello …) in hello/ (drop only), its video beside it
+//              1 hello        name sign recorded → (hello …) in hello/ (drop only); the name sign and the password
+//                             gestures go along as takes of their own (15.11.): every file of each take, named
+//                             (hello)@(Lena)…(name sign) and (word)@(Lena)…(password gesture 1…3), and the hello
+//                             points to their chains by !( ) (never by name)
 //              2 hello back   a signer with a z_ of this sharing point seals the access + her sharing
 //                             points → (join …) in join/ (read-only link); the device checks the seal
 //              3 join         swipe left: the device takes the access locally, drops ((join));
@@ -22,6 +25,9 @@ import { signed, seal, unseal, checkWitness } from '../1-model/crypto.js';
 import { timeLabel, buildName, readName } from '../1-model/filename.js';
 import { withState, accountFolder, nameOf } from './state.js';
 import { relationLine } from '../2-storage/relations.js';
+import { monthOf } from '../2-storage/layout.js';
+import { ExistsError } from '../2-storage/memory.js';
+import { KINDS } from '../1-model/symbols.js';
 
 export { STATES, withState, accountFolder, stateOf } from './state.js';
 
@@ -36,13 +42,47 @@ async function chainFile({ by, device, deviceKey, now, defs = [], line, raw = nu
     [...top, ...defs], [raw ? `${raw}'t(${at})` : `(${line.map((c) => (c.startsWith('{') ? c : `(${c})`)).join(' ')})'t(${at})`, ...(below ? ['{:chain.1}'] : [])]));
   return { text, name: buildName({ words, person: by.label, time: at, u: uOf(id), kind: 'chain', ext: 'sign' }) };
 }
-/** The name sign beside a hello: same name, picture strand. */
+/** The name sign beside a rename note: same name, picture strand (rename.js). */
 export const nameSignOf = (helloName) => buildName({ ...readName(helloName), kind: 'v', ext: 'mp4' });
-/** The i-th password gesture beside a hello: the hello's own name + (password gesture i), so they sort together (15.11.). */
-export const gestureOf = (helloName, i) => buildName({ ...readName(helloName), part: `password gesture ${i + 1}`, kind: 'v', ext: 'mp4' });
-/** Everything that came with one hello (name sign, password gestures), found by its u_. → paths, name sign first */
-export const withHello = async (store, helloPath) => { const u = readName(nameOf(helloPath)).u;
-  return (await store.list('hello/')).map((f) => f.path).filter((p) => p !== helloPath && readName(nameOf(p))?.u === u).sort((a, b) => (readName(nameOf(a)).part ? 1 : 0) - (readName(nameOf(b)).part ? 1 : 0) || a.localeCompare(b)); };
+
+const STRAND = (d) => d.id?.u && !['chain', 'sharing-point', '?', '_'].includes(d.kind);
+const rank = (p) => { const part = readName(nameOf(p))?.part ?? ''; return part === 'name sign' ? 0 : Number(/(\d+)$/.exec(part)?.[1] ?? 9); };
+const kindRank = (p) => (/\.chain\.sign$/.test(p) ? 9 : /\.v\.(mp4|png|webm)$/.test(p) ? 0 : 1);
+
+/**
+ * The files of one take on the device, from its visual strand: the chain that defines it and every strand that chain
+ * defines (15.11.). Limits: one listing of chain/<month>/ and one per strand folder. → [paths], the chain last
+ */
+export async function takeFiles(store, visualPath) {
+  const n = readName(nameOf(visualPath)), month = monthOf(n.time);
+  for (const c of (await store.list(`chain/${month}/`)).map((f) => f.path).filter((p) => p.endsWith('.chain.sign') && readName(nameOf(p))?.time === n.time)) {
+    const strands = [...readFile(dec.decode(await store.read(c))).defs.values()].filter(STRAND);
+    if (!strands.some((d) => d.id.u === n.u)) continue;
+    const files = [];
+    for (const d of strands) {
+      const folder = `${d.echo ? 'echo' : KINDS[d.kind]?.folder ?? 'take'}/${d.kind}/${month}/`;
+      files.push(...(await store.list(folder)).map((f) => f.path).filter((p) => readName(nameOf(p))?.u === d.id.u));
+    }
+    return [...files, c];
+  }
+  return [visualPath];
+}
+
+/**
+ * Everything that came with one hello, in the folder it lies in now (hello/, within/…, quiet/…): the takes its hello
+ * points to (name sign, password gestures), every file of each (15.11.). → paths, name sign first, each take's chain last
+ */
+export async function withHello(store, helloPath) {
+  const folder = helloPath.slice(0, helloPath.lastIndexOf('/') + 1);
+  const chains = new Set([...readFile(dec.decode(await store.read(helloPath))).defs.values()].filter((d) => d.kind === 'chain' && d.id?.u).map((d) => d.id.u));
+  if (!chains.size) return [];
+  const here = (await store.list(folder)).map((f) => f.path).filter((p) => p.slice(folder.length).indexOf('/') < 0);
+  const us = new Set(chains);
+  for (const p of here.filter((x) => x.endsWith('.chain.sign') && chains.has(readName(nameOf(x))?.u))) {
+    for (const d of readFile(dec.decode(await store.read(p))).defs.values()) if (STRAND(d)) us.add(d.id.u);
+  }
+  return here.filter((p) => p !== helloPath && us.has(readName(nameOf(p))?.u)).sort((a, b) => rank(a) - rank(b) || kindRank(a) - kindRank(b) || a.localeCompare(b));
+}
 /** Signer: ↓ on a hello = not now. It and all that came with it move to quiet/<account>/, nothing is deleted. */
 export async function quietHello({ store, helloPath }) {
   const { person } = readHello(dec.decode(await store.read(helloPath)));
@@ -54,16 +94,27 @@ const belowOf = async (bytes) => ({ id: readFile(dec.decode(bytes)).head.id, has
 
 /**
  * 1 · Device: say hello. device: { id, label, key } · pickup: ECDH public key · target: label ·
- * nameSign: the video of the name sign (bytes) or null; it lies beside the hello with the same name, .v.mp4.
+ * takes: [{ from (store of the device), visual (path of the take's visual strand), part ('name sign' · 'password gesture 1…3'),
+ * words (front of the name: ['hello'] for the name sign; none = the take's own context words) }] (15.11.).
+ * Each take goes whole (every strand and its chain, bytes unchanged, only renamed); the hello comes last and points to them.
  */
-export async function sayHello({ store, device, deviceKey = null, person, target, pickup, nameSign = null, gestures = [], now = Date.now() }) {
-  const f = await chainFile({ by: person, device: device.id, deviceKey, now, words: ['hello', target],
-    defs: [defLine('sharing-point.1', { hint: device.label, id: `${device.id} z_${device.key}` })],
-    line: ['hello', target, `pickup ${pickup}`, '{:sharing-point.1}'] });
+export async function sayHello({ store, device, deviceKey = null, person, target, pickup, takes = [], now = Date.now() }) {
+  const defs = [defLine('sharing-point.1', { hint: device.label, id: `${device.id} z_${device.key}` })], refs = [];
+  for (const t of takes) {
+    for (const p of await takeFiles(t.from, t.visual)) {
+      const n = readName(nameOf(p)), bytes = await t.from.read(p);
+      await store.write(`hello/${buildName({ ...n, to: [], words: t.words ?? n.words, person: person.label, part: t.part })}`, bytes)
+        .catch((err) => { if (!(err instanceof ExistsError)) throw err; }); // sent once already (same take, same bytes)
+      if (!p.endsWith('.chain.sign')) continue;
+      const name = `chain.${refs.length + 2}`;
+      defs.push(defLine(name, { id: writeId(readFile(dec.decode(bytes)).head.id, await hashBytes(bytes)) }));
+      refs.push(`:${name}`);
+    }
+  }
+  const f = await chainFile({ by: person, device: device.id, deviceKey, now, words: ['hello', target], defs,
+    line: ['hello', target, `pickup ${pickup}`, '{:sharing-point.1}', ...(refs.length ? [`{${refs.join(' ')}}`] : [])] });
   const path = `hello/${f.name}`;
-  await store.write(path, enc.encode(f.text));
-  if (nameSign) await store.write(`hello/${nameSignOf(f.name)}`, nameSign);
-  for (const [i, g] of gestures.slice(0, 3).entries()) await store.write(`hello/${gestureOf(f.name, i)}`, g); // password gestures (15.11.), for the admin's eye
+  await store.write(path, enc.encode(f.text)); // the hello last: whoever finds it finds its takes
   return path;
 }
 
@@ -167,7 +218,8 @@ export async function devicesOf(store, user) {
 /** Signer: one device goes quiet (↓, "Gerät sperren"): its hello, name sign and answer move to quiet/; its seals count until now. */
 export async function quietDevice(store, helloPath) {
   const folder = helloPath.split('/')[1], u = readName(nameOf(helloPath))?.u;
-  const mine = (await store.list(`within/${folder}/`)).map((f) => f.path).filter((p) => { const n = readName(nameOf(p)); return n?.u === u || n?.words?.includes(u); });
+  const takes = new Set(await withHello(store, helloPath)); // its name sign and password gestures (15.11.)
+  const mine = (await store.list(`within/${folder}/`)).map((f) => f.path).filter((p) => { const n = readName(nameOf(p)); return takes.has(p) || n?.u === u || n?.words?.includes(u); });
   const moved = [];
   for (const p of mine) { const to = `quiet/${folder}/${withState(nameOf(p), 'quiet')}`; await store.move(p, to); moved.push(to); }
   const at = timeLabel(Date.now()); // a note in join/ (read by the device through the door, 15.11.): it logs itself out, its app password deletes itself

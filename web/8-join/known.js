@@ -30,7 +30,7 @@ export const userOf = (folder) => /!\(([^()]*)\)$/.exec(folder)?.[1]?.toLowerCas
 export function pieceOf(path) {
   const n = readName(nameOf(path));
   if (!n) return null;
-  if (n.part) return n.part;
+  if (n.part) return n.part === 'name sign' ? '' : n.part;
   return n.words[1] === 'password' ? `password gesture ${n.words[2]}` : '';
 }
 
