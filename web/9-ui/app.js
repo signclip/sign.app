@@ -51,7 +51,7 @@ import { addEcho } from '../4-save/add-echo.js';
 import { similar } from '../7-similar/filter.js';
 import { newPerson, newSource, uOf, writeId } from '../1-model/ids.js';
 import { readFile } from '../1-model/file.js';
-import { withTakes } from './view/chips.js';
+import { withTakes, markTyping } from './view/chips.js';
 import { withSticky, afterTake as stepSeries, nextOfSeries, readContext, contextTree, fromField, insertGesture } from '../1-model/context.js';
 import { write as writeNotation, parse as parseNotation } from '../1-model/notation.js';
 import { actionFor } from './gestures.js';
@@ -166,7 +166,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   take.lastChain = newestOwnChain(); // after a restart the chain gestures go on where they were
 
   const screen = mountScreen({ root: $('#screen'), live: $('#live'), replay: $('#replay'), template: $('#template'), pair: $('#pair'), overlay: $('#overlay') });
-  const paint = () => screen.paint(st, { ...data, hint: hintOf(onboard.at, settings.onboarding) });
+  const nameHint = () => (naming() && data.offers?.some((o) => o.origin === 'name') ? { role: `offer:${person.label}`, gesture: 'down' } : null); // the preset name: ↓ takes it away – and that is how chips go (15.11.)
+  const paint = () => screen.paint(st, { ...data, hint: nameHint() ?? hintOf(onboard.at, settings.onboarding) });
   /** An action was done: the onboarding goes one step on if it was its step; at the end it switches off. */
   const learned = (action) => {
     if (!settings.onboarding) return;
@@ -179,14 +180,18 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     paint();
   };
   /**
-   * Password gestures (15.11.): at the first two steps three drawn words wait as pale chips; tap one = it is the word
-   * (it turns solid), ↓ on them = three others. The third gesture is one's own: type a word in the field, or none.
+   * Password gestures (15.11.): two words drawn from the vocabulary (words.js) and one's own, recorded one after the
+   * other like a series: the word of this take at the top of the window (now), the next ones below; the third is an
+   * empty mint chip – tap it and write one's own word (or none). ↓ on a word = only that one is drawn anew.
    */
-  function suggestGesture(again = false) {
+  function suggestGesture(swap = null) {
     const i = GESTURE_STEPS.indexOf(onboard.at);
-    if (!settings.onboarding || i < 0 || i > 1) { if (data.gestureChoices) { data.gestureChoices = null; data.gestureWord = null; data.offers = []; } return; }
-    if (!data.gestureChoices || again) { data.gestureChoices = drawWords(3); data.gestureWord = null; }
-    data.offers = data.gestureChoices.map((text) => ({ text, offer: true, origin: 'password', picked: text === data.gestureWord }));
+    if (!settings.onboarding || i < 0) { if (data.gestureChoices) { data.gestureChoices = null; data.gestureWord = null; data.offers = (data.offers ?? []).filter((o) => o.origin !== 'password'); } return; }
+    if (!data.gestureChoices) data.gestureChoices = drawWords(2);
+    const k = swap == null ? -1 : data.gestureChoices.indexOf(swap);
+    if (k >= 0) { let w; do { [w] = drawWords(1); } while (data.gestureChoices.includes(w)); data.gestureChoices[k] = w; }
+    data.gestureWord = data.gestureChoices[i] ?? null; // the third: one's own (typed), not drawn
+    data.offers = [...data.gestureChoices, ''].slice(i).map((text, j) => ({ text, offer: true, origin: 'password', take: ['now', 'next'][j] ?? 'later', wait: !text }));
   }
   const step = (action, extra = {}) => {
     const before = st.fields;
@@ -309,6 +314,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     step(action, extra);
     if (st.screen !== 'record') return;
     take.began = action;
+    commitTyped(); // typed but no Enter: the take takes it (15.11.)
     const first = parseNotation(series).find((n) => n.t !== 'sym'); // written context: the next gesture of the series
     take.context = action === 'take-with-context' ? contextOf(st.hold?.text) : first ? nextOfSeries(series) : ''; // a prefix series: prefix + its next element
     if (settings.onboarding && GESTURE_STEPS.includes(onboard.at)) { // a password gesture: the picked word (1, 2) or one's own typed word (3)
@@ -317,7 +323,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       take.gesture = true;
     }
     take.fromSeries = action !== 'take-with-context' && Boolean(first);
-    if (data.adopted?.length) { take.context = [take.context, ...data.adopted.map((x) => `(${x})`)].filter(Boolean).join(' '); data.adopted = []; } // offers taken from the result above
+    const fromResult = (data.offers ?? []).filter((o) => o.origin === 'similar').map(offerText); // the result's context comes along by itself (15.11.); ↓ on one = it stays out
+    if (data.adopted?.length || fromResult.length) { take.context = [take.context, ...[...(data.adopted ?? []), ...fromResult].map((x) => `(${x})`)].filter(Boolean).join(' '); data.adopted = []; } // offers taken from the result above
     if (data.photo && toRecord(st).includes('v')) { // the picture point is on: one picture, no sound, saved at once
       const picture = await snapshot($('#live'));
       take.recorder = { stop: async () => ({ lengthMs: 0, picture, video: null, audio: null }), frame() {} };
@@ -401,7 +408,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       try { if (video) localStorage.setItem('sign.passwords', JSON.stringify([...list, video].slice(-3))); } catch { /* private mode */ }
       take.gesture = false;
       if (onboard.at === GESTURE_STEPS[2]) menu.joinProject().catch(() => {}); // all three there: hello to the project's door
-      data.gestureWord = null; data.gestureChoices = null;
+      if (onboard.at === GESTURE_STEPS[2]) { data.gestureWord = null; data.gestureChoices = null; } // the words stay for the next steps
     }
     learned(take.began);
     if (settings.flows.includes('a>x') && recorded.audio && kinds.includes('a')) flowAudio(saved.chain.path, recorded.audio).catch((err) => console.warn('whisper', err));
@@ -758,9 +765,23 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
 
   // ---------- the context field: chips, and writing (one gesture per Enter; the series goes one on per take) ----------
   const say = $('#say');
+  /** The series as it shows: what is being typed is in it already, live, at its spot (15.11.); a space = and, as in the notation. */
   function showSeries() {
-    setChips(withTakes(contextTree(series))); // bubbles in bubbles; one take per element: now, next, some time later; ↑ = flies
+    const typing = say.value.trim() ? insertGesture(series, data.insertAt?.at ?? null, data.insertAt?.how ?? null, fromField(say.value)) : null;
+    setChips(withTakes(markTyping(contextTree(typing?.text ?? series), typing?.at))); // bubbles in bubbles; one take per element: now, next, some time later; ↑ = flies
     paint();
+  }
+  /** What is typed goes in for good: Enter, or the take starts (15.11.). → true if something was there. */
+  function commitTyped() {
+    const raw = say.value;
+    if (!raw.trim()) return false;
+    say.value = '';
+    if (naming()) { nameIs(raw.replace(/[()[\]{}]/g, '').replace(/\s+/g, ' ').trim()); return true; } // my name (a space stays: Anna Maria)
+    const put = insertGesture(series, data.insertAt?.at ?? null, data.insertAt?.how ?? null, fromField(raw)); // at the tapped spot, or at the end
+    series = put.text;
+    if (data.insertAt) data.insertAt = { at: put.at, how: 'after' }; // the next one goes behind it
+    showSeries();
+    return true;
   }
   /** Open or close the context field: the bottom arc straightens into the field (or bends back), ~300 ms. */
   const openContext = (on, ms = 300) => {
@@ -779,7 +800,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     requestAnimationFrame(frame);
   };
   /** Onboarding (15.11.): the name. A preset in a pale chip like a template – not mine until tapped; typing writes my own. */
-  const naming = () => settings.onboarding && STEPS[onboard.at]?.[0] === 'name';
+  function naming() { return settings.onboarding && STEPS[onboard.at]?.[0] === 'name'; }
   function askName() {
     $('#context').classList.add('breathe');
     say.value = '';
@@ -806,22 +827,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       series = writeNotation(items);
       return showSeries();
     }
-    if (naming() && e.key === ' ') e.preventDefault(); // writing the name: a space is Enter (15.11.)
-    else if (e.key !== 'Enter') return;
-    if (naming()) { const typed = say.value.replace(/[()[\]{}]/g, '').trim(); say.value = ''; return nameIs(typed || person.label); } // nothing typed: the preset
-    const text = fromField(say.value); // ( ) nest, [ ] spells, missing brackets are closed
-    say.value = '';
-    if (!text) return openContext(false);
-    const put = insertGesture(series, data.insertAt?.at ?? null, data.insertAt?.how ?? null, text); // at the tapped spot, or at the end
-    series = put.text;
-    if (data.insertAt) data.insertAt = { at: put.at, how: 'after' }; // the next one goes behind it
-    showSeries();
+    if (e.key !== 'Enter') return;
+    if (!commitTyped()) return naming() ? nameIs(person.label) : openContext(false); // nothing typed: the name's preset, else the field closes
   });
+  say.addEventListener('input', () => showSeries()); // live: every letter shows in its chip at once
 
   takeVisuals().then((all) => { data.line = { count: all.length, at: 0 }; return lineThumbs(); }).catch(() => {}); // the line is there from the start
   setTimeout(() => askAgain().catch(() => {}), 5000); // remove requests that could not go out before (the sharing points open first)
 
-  globalThis.visualViewport?.addEventListener('resize', () => { data.viewH = globalThis.visualViewport.height; paint(); }); // the keyboard: the field stays above it
+  globalThis.visualViewport?.addEventListener('resize', () => { data.viewH = globalThis.visualViewport.height - $('#screen').getBoundingClientRect().top; paint(); }); // the keyboard: the field stays above it (measured from the screen's top, under the notch)
 
   if (naming()) askName(); // onboarding starts with the name: write it right away
 
@@ -1111,7 +1125,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     tap: (x, y, role) => {
       if (!$('#share').hidden && role !== 'point') return menu.show(false); // a tap beside the circles closes them
       if (role?.startsWith('offer:') && data.deleteChoices) { const k = role.slice(6) === 'Backup' ? 'backup' : 'model'; data.deleteChoices[k] = !data.deleteChoices[k]; data.offers = data.offers.map((o) => (o.text === role.slice(6) ? { ...o, picked: data.deleteChoices[k] } : o)); navigator.vibrate?.(10); return paint(); } // before deleting: keep a copy?
-      if (role?.startsWith('offer:') && data.gestureChoices) { data.gestureWord = role.slice(6); suggestGesture(); return paint(); } // this word for the password gesture
+      if (role === 'offer:' && data.gestureChoices) { data.insertAt = null; return openContext(true); } // the empty mint chip: write one's own password word
+      if (role?.startsWith('offer:') && data.gestureChoices) return null; // the drawn words come in their order, one take each
       if (role?.startsWith('offer:') && naming()) return nameIs(role.slice(6)); // the preset name: tapped = mine
       if (role?.startsWith('offer:')) return adopt(role.slice(6)); // a greyed context of the result above: now mine
       return act('tap', role, { x, y });
@@ -1138,7 +1153,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (!edges) return undefined;
       return dir === 'up' ? y1 < edges[0] : y1 > edges[1];
     },
-    swipe: (dir, role) => { if (role?.startsWith('offer:') && dir.startsWith('down') && data.gestureChoices) { suggestGesture(true); return paint(); } // three other words
+    swipe: (dir, role) => { if (role?.startsWith('offer:') && role !== 'offer:' && dir.startsWith('down') && data.gestureChoices) { suggestGesture(role.slice(6)); return paint(); } // only this word, drawn anew
       if (role?.startsWith('offer:') && dir.startsWith('down')) { data.offers = data.offers.filter((o) => offerText(o) !== role.slice(6)); return paint(); } return act(dir, role); }, // ↓ on an offer: away
     pinch: (factor, role, how = {}) => { // continuous, view only: on the picture = camera zoom · on the point = time (line zoom, or the waits)
       if (role === 'live') return zoomBy(camera, factor);

@@ -18,7 +18,7 @@
     }
     @media (prefers-color-scheme: dark) { :root { --bg: #171716; --fg: #eeece7; --card: #222; --line: #333; --hl: #5f5010; --rest: #2b2b29; --nest: #4a3f14; --nest-b: #d9b24a; } }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, sans-serif; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-    #screen { position: absolute; inset: 0; }
+    #screen { position: absolute; top: env(safe-area-inset-top, 0px); right: env(safe-area-inset-right, 0px); bottom: env(safe-area-inset-bottom, 0px); left: env(safe-area-inset-left, 0px); } /* notch, island, home bar, Android bars: the screen lies inside (15.11.) */
     #screen video { position: absolute; object-fit: cover; background: transparent; opacity: 0; transition: opacity .45s ease-out; }
     #screen video.on { opacity: 1; } /* only once a frame plays: no black box, no grey play button */
     video::-webkit-media-controls, video::-webkit-media-controls-start-playback-button { display: none !important; -webkit-appearance: none; }
@@ -46,7 +46,7 @@
     @keyframes appear { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
     @media (prefers-reduced-motion: reduce) { .appear { animation: none; } } /* a corner of the window to drag */
     * { -webkit-tap-highlight-color: transparent; } [data-role]:focus { outline: none; } /* the arcs answer themselves, no blue box */
-    #screen { background: var(--rest); } /* 14.11.: the grey around the window is the whole background */
+    #screen, body { background: var(--rest); } /* 14.11.: the grey around the window is the whole background, also under notch and home bar */
     .strand { fill: none; stroke-width: 7; stroke-linecap: round; }
     .strand.new { stroke: var(--rc-stroke); opacity: .55; } /* will be recorded: pale, solid (14.11.) */
     .strand.keep, .strand.own { stroke: var(--rc-stroke); }
@@ -67,10 +67,14 @@
     .chip.own rect, .chip.next rect { fill: var(--c-next); } .chip.now rect { fill: var(--c-now); stroke: var(--b-now); stroke-width: 2.5; } .chip.now text { font-weight: 600; }
     .chip.later rect { fill: var(--c-later); stroke: var(--b-later); stroke-width: 1; } .chip.head rect { fill: var(--c-head); stroke: var(--c-head); } .chip.head text { fill: #fff; }
     .chip.wait rect { fill: none; stroke-dasharray: 5 4; } .wave-heard { fill: none; stroke: var(--c-head); stroke-width: 1; pointer-events: none; }
+    .chip.typing { animation: breathe 1.4s ease-in-out infinite; } /* being typed: there live, until Enter or the take */
+    .more { fill: none; stroke: var(--b-now); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; } /* more chips this way */
     .bubble { fill: var(--nest); stroke: var(--nest-b); stroke-width: 1.5; } .caret { stroke: var(--b-now); stroke-width: 2.5; stroke-linecap: round; pointer-events: none; animation: breathe 1.2s ease-in-out infinite; } .fly { fill: none; stroke: #712B13; stroke-width: 1.5; stroke-linecap: round; pointer-events: none; }
     .chip.offer rect { fill: #fff; stroke: #888780; stroke-dasharray: 4 3; } .chip.offer text { fill: #444441; } .bubble.offer { fill: none; stroke: #888780; stroke-dasharray: 4 3; }
     .chip.offer.similar rect, .chip.offer.name rect { fill: #E6F1FB; stroke: #378ADD; } .chip.offer.similar text, .chip.offer.name text { fill: #0C447C; } .bubble.offer.similar { stroke: #378ADD; } /* the preset name looks like a template (15.11.) */
-    .chip.offer.password rect { fill: #E1F5EE; stroke: #1D9E75; } .chip.offer.password text { fill: #085041; } .bubble.offer.password { stroke: #1D9E75; }
+    .chip.offer.password rect { fill: #E1F5EE; stroke: #1D9E75; stroke-dasharray: none; } .chip.offer.password text { fill: #085041; } .bubble.offer.password { stroke: #1D9E75; }
+    .chip.offer.password.now rect { fill: #9FE1CB; stroke-width: 2.5; } .chip.offer.password.later rect { fill: #F1FAF6; stroke-width: 1; } .chip.offer.password.wait rect { fill: #E1F5EE; stroke-dasharray: 5 4; animation: breathe 1.6s ease-in-out infinite; } /* one's own: empty, waiting */
+    .chip.offer.similar rect, .bubble.offer.similar { stroke-dasharray: none; } /* the result's context comes along by itself: not dashed (15.11.) */
     .chip.picked rect { stroke-width: 2.5; stroke-dasharray: none; }
     .thread { fill: none; stroke-width: 3; } .thread.own { stroke: var(--rc-stroke); opacity: .5; } .thread.other { stroke: var(--sc-stroke); }
     .thumb { stroke-width: 3; fill: var(--video); } .thumb.own { stroke: var(--rc-stroke); } .thumb.other { stroke: var(--sc-stroke); } .thumb.far { opacity: .4; }
@@ -95,7 +99,7 @@
     #similar .chip { background: var(--sc); color: #0C447C; } #similar .chip.on { outline: 2px solid var(--sc-stroke); }
     .similar-band { fill: var(--sc); opacity: .18; }
     #context { position: absolute; left: var(--field-x, 12px); width: var(--field-w, calc(100% - 24px)); top: calc(var(--field-y, 640px) - 24px); } /* right under the bottom arc; Android's buttons stay free */
-    #context input { -webkit-user-select: text; user-select: text; width: 100%; box-sizing: border-box; font: 500 17px Inter, system-ui, sans-serif; padding: 12px 16px; border-radius: 22px; border: none; background: transparent; color: var(--fg); outline: none; } /* the row to type in: the box around it holds the chips above (SVG field-box) */
+    #context input { -webkit-user-select: text; user-select: text; width: 100%; box-sizing: border-box; font: 500 17px Inter, system-ui, sans-serif; padding: 12px 16px; border-radius: 22px; border: none; background: transparent; color: transparent; caret-color: var(--b-now); outline: none; } /* the letters show in their chip, live (15.11.): here only the caret */ /* the row to type in: the box around it holds the chips above (SVG field-box) */
     .field-box { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 1.5; }
     /* sharing points after ↑ on the point (view/points.js): a layer over the screen, only the shapes take touches */
     #share { position: absolute; inset: 0; pointer-events: none; }
@@ -156,10 +160,10 @@
     <video id="pair" hidden playsinline muted loop disablepictureinpicture poster="data:image/gif;base64,R0lGODlhAQABAAAAACw="></video>
     <video id="template" hidden playsinline muted loop disablepictureinpicture poster="data:image/gif;base64,R0lGODlhAQABAAAAACw="></video>
     <div id="overlay"></div>
+    <div id="context" hidden><input id="say" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="context"></div>
   </div>
   <div id="chips" hidden></div>
   <div id="similar" hidden></div>
-  <div id="context" hidden><input id="say" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="context"></div>
   <div id="share" hidden></div>
   <script type="module">
     import { start } from './9-ui/app.js';

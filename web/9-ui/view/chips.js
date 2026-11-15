@@ -37,7 +37,7 @@ function toneOf(chip, take, timeMs) {
 
 /** A gesture or nested group → a tree node: { head: [chip], items: [node] } or a chip. */
 function nodeOf(g, inherit = {}) {
-  const ctx = { fly: g.fly, take: g.take ?? inherit.take, offer: g.offer ?? inherit.offer, origin: g.origin ?? inherit.origin, picked: g.picked ?? inherit.picked, heard: g.heard ?? inherit.heard };
+  const ctx = { fly: g.fly, take: g.take ?? inherit.take, offer: g.offer ?? inherit.offer, origin: g.origin ?? inherit.origin, picked: g.picked ?? inherit.picked, heard: g.heard ?? inherit.heard, typing: g.typing ?? inherit.typing };
   if (!g.items) return { chip: { ...g, ...ctx } };
   const head = [g.head].flat().filter(Boolean).map((text) => ({ text, head: true }));
   return { group: g, ctx, head, items: g.items.map((x) => nodeOf(x, { ...ctx, fly: false })) };
@@ -61,6 +61,13 @@ export function withTakes(gestures) {
   return out;
 }
 
+/** Mark what is being typed (path at in the tree): it shows live, softly breathing, until Enter or the take (15.11.). */
+export function markTyping(tree, at) {
+  if (!at?.length) return tree;
+  const mark = (list, [i, ...more]) => list.map((g, j) => (j !== i ? g : more.length && g.items ? { ...g, items: mark(g.items, more) } : { ...g, typing: true }));
+  return mark(tree, at);
+}
+
 /**
  * The chips of this take apart from the rest (15.11.): → { now: groups for the top of the window, rest: groups below }.
  * now = the element taken now, inside the prefixes it belongs to; rest = sticky, offers and everything after it.
@@ -68,7 +75,7 @@ export function withTakes(gestures) {
  */
 export function splitNow(groups = []) {
   const find = (g) => (g.head ? g.items.some(find) : g.take === 'now');
-  const top = groups.findIndex((g) => !g.stable && !g.offer && find(g));
+  const top = groups.findIndex((g) => !g.stable && (!g.offer || g.take) && find(g)); // offers with a take: the password words
   if (top < 0) return { now: [], rest: groups };
   const only = (g) => (g.head ? { ...g, items: g.items.filter(find).map(only) } : g); // the path down to it
   const without = (g) => (g.head ? { ...g, items: g.items.filter((x) => !(x.head ? false : x.take === 'now')).map(without).filter((x) => !x.head || x.items.length) } : g);
@@ -123,11 +130,18 @@ export function chipShapes(groups = [], { timeMs = null, cx, y, k = 1, w = 390, 
     if (hit) { caretX = hit.x + hit.w + (caret.how === 'in' ? -PAD * k : (GAP * k) / 2); out.push({ type: 'path', d: `M${caretX} ${hit.y + 4 * k}V${hit.y + hit.h - 4 * k}`, cls: 'caret' }); }
   }
   const fly = out.find((s) => s.cls === 'fly'), now = out.find((s) => s.type === 'chip' && /\bnow\b/.test(s.cls));
-  const at = caretX ?? (fly ? +/^M(-?[\d.]+)/.exec(fly.d)[1] : now ? now.x + now.w / 2 : null); // the caret, the gesture taken now, or the word at the time
+  const typing = out.find((s) => s.type === 'chip' && /\btyping\b/.test(s.cls));
+  const at = typing ? typing.x + typing.w / 2 : caretX ?? (fly ? +/^M(-?[\d.]+)/.exec(fly.d)[1] : now ? now.x + now.w / 2 : null); // what is typed, the caret, the gesture taken now, or the word at the time
   const long = total > w - 24 * k;
   const base = long && at != null ? cx - at : long ? cx - w / 2 + 12 * k : cx - total / 2;
   const shift = long ? Math.min(cx - w / 2 + 12 * k, Math.max(cx + w / 2 - 12 * k - total, base + scroll)) : base; // long: scrolls sideways, never past its ends (15.11.)
-  return out.map((s) => move(s, shift));
+  const more = []; // a long row: a small ‹ / › at the side where more is, never a second line (15.11.)
+  if (long) {
+    const L = cx - w / 2 + 12 * k, R = cx + w / 2 - 12 * k, mark = (x, dir) => ({ type: 'path', d: `M${x + 4 * k * dir} ${y - 7 * k}L${x - 3 * k * dir} ${y}L${x + 4 * k * dir} ${y + 7 * k}`, cls: 'more' });
+    if (shift < L - 1) more.push(mark(L - 2 * k, 1));
+    if (shift + total > R + 1) more.push(mark(R + 2 * k, -1));
+  }
+  return [...out.map((s) => move(s, shift)), ...more];
 }
 
 /** How high the row is (bubbles in bubbles grow it: 32 px, 2 levels 56 px, 3 levels 68 px) – the field makes room for it. */
@@ -160,9 +174,9 @@ const textOf = (n) => (n.chip ? n.chip.text : [...n.head.map((c) => c.text), ...
 function chipOf(c, x, o) {
   const { y, k, timeMs } = o;
   const w = chipW(c.text, k), shapes = [];
-  const tone = c.offer ? `offer${c.origin ? ` ${c.origin}` : ''}${c.picked ? ' picked' : ''}` : c.head ? 'head' : toneOf(c, c.take, timeMs);
+  const tone = c.offer ? `offer${c.origin ? ` ${c.origin}` : ''}${c.picked ? ' picked' : ''}${c.take ? ` ${c.take}` : ''}${c.wait ? ' wait' : ''}` : c.head ? 'head' : toneOf(c, c.take, timeMs);
   const spot = o.queue && c.at && !c.offer ? `queue:${c.how ?? 'after'}:${c.at.join('.')}:${c.text}` : null; // tapped in the row: write behind it (a prefix word: into its bubble)
-  shapes.push({ type: 'chip', x, y, w, h: H * k, at: c.how === 'in' ? null : c.at, text: c.text, cls: `chip ${tone}${c.heard ? ' heard' : ''}`, role: c.offer ? `offer:${c.text}` : c.wait ? null : spot ?? `chip:${c.text}` });
+  shapes.push({ type: 'chip', x, y, w, h: H * k, at: c.how === 'in' ? null : c.at, text: c.text, cls: `chip ${tone}${c.heard ? ' heard' : ''}${c.typing ? ' typing' : ''}`, role: c.offer ? `offer:${c.text}` : c.wait ? null : spot ?? `chip:${c.text}` });
   if (c.heard) { // heard, not typed: a fine wave inside the bottom edge
     const y0 = y + 12 * k, x0 = x + 14 * k, n = Math.max(2, Math.floor((w - 28 * k) / (8 * k)));
     shapes.push({ type: 'path', d: `M${x0} ${y0}${' q2 -3 4 0 t4 0'.repeat(n)}`, cls: 'wave-heard' });
