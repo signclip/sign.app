@@ -91,6 +91,16 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   const note = document.createElement('div');
   note.className = 'note';
   panel.append(svg, note);
+  { // hold the line under the circles (15.11.): the network log as a file into the share row, to find a failure
+    let timer = null;
+    note.addEventListener('pointerdown', () => { timer = setTimeout(async () => {
+      const { logFile } = await import('./debug.js');
+      s.pending = { title: 'Sign · debug', files: [logFile(globalThis.SIGN_VERSION ?? '')] };
+      if (!s.apps?.list?.length) { const p = s.pending; s.pending = null; return send(p).catch(() => null); }
+      draw();
+    }, 600); });
+    for (const e of ['pointerup', 'pointercancel', 'pointerleave']) note.addEventListener(e, () => clearTimeout(timer));
+  }
 
   let sealWith = null; deviceKeys().then((k) => { sealWith = k.device; }, () => {}); // the list is sealed like every .sign
   const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()), deviceKey: sealWith });

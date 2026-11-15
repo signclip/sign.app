@@ -264,7 +264,7 @@ export function browseChips(ctx) {
   };
   const into = async (at) => { b.at = at; b.inside = await b.store.folders(at); ctx.draw(); };
   return [
-    { label: t(b.at ? 'menu.here' : 'menu.account'), go: () => take(b.at) },
+    { label: b.at ? `${nameOf(b.at)} ✓` : `${b.user} ✓`, go: () => take(b.at) }, // this folder (or the whole account) as it is
     ...(b.at ? [{ label: '↑', go: () => into(b.at.replace(/[^/]+\/$/, '')) }] : []),
     ...b.inside.map((f) => (b.suggest?.includes(f) && !b.at
       ? { label: f ? nameOf(f) : b.user, go: () => take(f), found: true } // found by its folders: one tap takes it

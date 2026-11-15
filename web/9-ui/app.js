@@ -66,6 +66,8 @@ import { hintOf, progress, done, NAME_SIGN_STEP, GESTURE_STEPS, STEPS } from './
 import { drawWords } from '../1-model/words.js';
 import { installDavFetch } from '../2-storage/dav-fetch.js';
 installDavFetch(); // native app: PROPFIND, MKCOL, MOVE through the app's own plugin (Android refuses them otherwise)
+import { installDebug } from './debug.js';
+installDebug(); // every request into a short log (hold the line under the circles = share it)
 
 const $ = (sel) => document.querySelector(sel);
 /** A held chip as context text: every gesture in its own bracket (SCHEMA G-rules). */
