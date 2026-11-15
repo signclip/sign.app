@@ -53,13 +53,13 @@ function linePath(win, out, cx, bend, w) {
 }
 
 /** Spots of the pictures: i = position from the current one (0 = the window itself, not drawn). */
-export function lineSpots(win, { ring, k = 1, count = 0, at: current = 0, bend = 1, out = ring, w = 390 } = {}) {
-  const arc = arcOf(win, out), top = arc[0].y, cx = win.cx, s = S * k;
+export function lineSpots(win, { ring, k = 1, count = 0, at: current = 0, bend = 1, out = ring, w = 390, zoom = 1 } = {}) {
+  const arc = arcOf(win, out), top = arc[0].y, cx = win.cx, s = S * k * zoom; // zoom: two fingers on the line, the takes apart / together (15.11.)
   const res = [];
   for (let n = 0; n < count; n++) {
     const i = n - current;
     if (i === 0) continue;
-    const d = -Math.sign(i) * (ring + GAP * k + s / 2 + (Math.abs(i) - 1) * (S + GAP) * k);
+    const d = -Math.sign(i) * (ring + GAP * k + s / 2 + (Math.abs(i) - 1) * (S + GAP) * k * zoom);
     const p = at(arc, d, cx, top, bend);
     if (!p || p[0] < -s || p[0] > w + s) continue;
     res.push({ i, x: p[0] - s / 2, y: p[1] - s / 2, s });
@@ -96,7 +96,7 @@ export function arcShapes(win, ring, data = {}, { k = 1, w = 390 } = {}) {
   const d = linePath(win, ring, win.cx, bend, w);
   // no drawn arc through the point (14.11.): the line shows by its elements; the arc stays as a hit area
   res.push({ type: 'path', d, cls: 'hit', role: 'line-arc' });
-  for (const p of lineSpots(win, { ring, k, count, at: current, bend, w })) {
+  for (const p of lineSpots(win, { ring, k, count, at: current, bend, w, zoom: data.lineZoom ?? 1 })) {
     res.push({ type: 'thumb', x: p.x, y: p.y, s: p.s, round: true, href: data.lineThumbs?.[current + p.i], cls: `thumb own${Math.abs(p.i) === 1 ? ' near' : ''}${fade}`, role: `line:${p.i}` });
   }
   if (data.arrive) { // into the point = into the line at the current spot

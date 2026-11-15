@@ -70,8 +70,7 @@ export const TABLE = [
   ['chips-in', 'spread', 'strand', 'any', 'open the chips of this strand (camera: light, exposure; audio: stereo, Whisper)'],
   ['chips-out', 'squeeze', 'strand', 'any', 'close the chips of this strand'],
   ['hide-strand', 'left', 'strand', 'any', 'push this field to the edge (it still records when on)'],
-  ['context-open', 'spread', 'context', 'any', 'open the context field: chips, and writing with the keyboard'],
-  ['context-close', 'squeeze', 'context', 'any', 'close it again'],
+  ['context-open', 'tap', 'context', 'any', 'tap on the context arc: the field opens under it (chips, writing with the keyboard), tap again = closed; the arc keeps its length, in the field\'s middle'],
   // the picture
   ['photo', 'tap', 'photo', 'any', 'picture instead of video: the point becomes a photo button (tap again = video)'],
   ['focus', 'tap', 'live', 'any', 'focus where tapped'],
@@ -96,6 +95,10 @@ export const TABLE = [
   ['similar-nearer', 'spread', 'similar-band', 'any', 'spread over Similar: it comes nearer (half → full)'],
   ['similar-farther', 'squeeze', 'similar-band', 'any', 'squeeze over Similar: it goes farther (full → half → closed)'],
   ['similar-farther', 'squeeze', 'top-zone', 'any', 'squeeze above the take: Similar goes'],
+  ['similar-farther', 'up', 'similar-band', 'any', 'pushed back up where it came from: full → half → closed'],
+  ['similar-farther', 'up-out', 'similar-band', 'any', 'the same, pushed further'],
+  ['similar-farther', 'up', 'similar-item', 'any', 'pushed up on a result: the same'],
+  ['similar-farther', 'up-out', 'similar-item', 'any', 'the same'],
   ['similar-all', 'drag', 'similar-band>point', 'any', 'all of Similar onto the chain: the tiles fly into the line one after another'],
   ['take-over', 'tap', 'similar-item', 'any', 'Similar · Doppel: this result above in the same window, the live picture below'],
   ['take-over', 'spread', 'similar-item', 'any', 'fly to this result: it comes into the window (Doppel)'],
@@ -108,8 +111,10 @@ export const TABLE = [
   ['look-up', 'up', 'reference', 'any', 'admin, a pile in Doppel: on a pile (hello → join → within, quiet → within)'],
   ['look-down', 'down', 'reference', 'any', 'admin, a pile in Doppel: back a pile (hello → quiet, join → hello anew, within → quiet)'],
   // the line in its arc over the point, the chain under it (view/arc.js): opened and closed by the scale
-  ['straighten', 'spread', 'line-arc', 'any', 'spread on the line: straight (one row of pictures), spread again = full screen'],
-  ['bend', 'squeeze', 'line-arc', 'any', 'squeeze: from full screen back to straight, then into the arc'],
+  ['line-zoom', 'pinch', 'line-arc', 'any', 'two fingers on the line: the takes apart (bigger) / together (smaller), continuous'],
+  ['line-zoom', 'pinch', 'item', 'any', 'the same, starting on a take of the line'],
+  ['straighten', 'spread', 'line-arc', 'any', 'spread further when the takes are as far apart as they go: straight, then full screen'],
+  ['bend', 'squeeze', 'line-arc', 'any', 'squeeze further when they are as close as they go: from full screen to straight, then the arc'],
   ['levels-open', 'spread', 'level', 'any', 'spread the older lines of the chain apart: their pictures show'],
   ['levels-close', 'squeeze', 'level', 'any', 'push them together again'],
   ['level-open', 'tap', 'level', 'any', 'open this older line'],
@@ -184,6 +189,7 @@ export function checkTable() {
 const LATER = ['next', 'replay-on', 'reference-next'];
 const EARLIER = ['before', 'replay-back', 'reference-before'];
 const OUT = ['share', 'share-last', 'share-strand'];
+const BACK = ['similar-farther']; // pushed back over the edge it came from
 const AWAY = ['remove', 'remove-last', 'remove-strand'];
 const ALWAYS = ['ready', 'sticky'];
 const VIEW = ['similar-nearer', 'similar-farther', 'take-over', 'reference-full', 'reference-out', 'straighten', 'bend', 'levels-open', 'levels-close', 'chips-in', 'chips-out', 'context-open', 'context-close'];
@@ -195,7 +201,7 @@ export function checkGrammar() {
   const rule = {
     left: (r) => LATER.includes(r.action),
     right: (r) => EARLIER.includes(r.action),
-    'up-out': (r) => OUT.includes(r.action),
+    'up-out': (r) => OUT.includes(r.action) || BACK.includes(r.action),
     'down-out': (r) => !CONTENT.includes(r.target) || AWAY.includes(r.action),
     'double-tap': (r) => ALWAYS.includes(r.action),
     hold: (r) => !['strand', 'chip', 'live'].includes(r.target) || r.action === 'grip',

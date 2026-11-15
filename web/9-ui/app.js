@@ -14,8 +14,9 @@
 //          · onboarding again = hold your own tile in the sharing menu
 //   edges: middle left strands · upper right Similar · middle right share · top: ↑ full, ↓ Similar
 //   scale: spread over the free part above the take = Similar comes nearer (closed → half → full), squeeze = it goes;
-//          spread on a tile = fly to it (Doppel), again = voll; on the line: straight, again full screen; on the
-//          older lines: apart; on the context arc: the field opens · squeeze = back the same steps
+//          spread on a tile = fly to it (Doppel), again = voll; ↑ on Similar = pushed back (full → half → closed);
+//          on the line: the takes apart / together (zoom), at the end straight, then full screen; older lines: apart
+//          · squeeze = back the same steps · the context field opens by a tap on its arc only (15.11.)
 //   window: a circle as large as fits, or ellipse / rounded rectangle; arcs by degrees: line −60…60 · audio 60…140 ·
 //          context 140…220 · visual 220…300 · line: the oldest left · Similar as tiles at the top: one onto the line or
 //          the point, or the band onto the point = all onto the chain
@@ -798,7 +799,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // ---------- one gesture → one action ----------
   async function act(gesture, role, extra = {}) {
     let hit = { ...targetOf(role), ...extra };
-    if (hit.target === 'strand' && hit.kind === 'x' && ['spread', 'squeeze'].includes(gesture) && !st.hold) hit = { ...hit, target: 'context' }; // the context arc opens its field
+    if (hit.target === 'strand' && hit.kind === 'x' && gesture === 'tap' && !st.hold) hit = { ...hit, target: 'context' }; // the context arc: a tap opens / closes its field (15.11.)
     if (hit.target === 'delete') return gesture === 'tap' ? removeLast(hit.what) : null;
     const mode = st.mode === 'line' ? 'line' : st.similar ? 'similar' : 'take';
     const held = st.hold?.target ?? null; // what the other finger holds (parallel gesture)
@@ -989,8 +990,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         if (!st.similar) await openMany();
         if (!data.double && !data.manyFull) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); }
         return null;
-      case 'context-open': return openContext(true);
+      case 'context-open': return openContext(!((data.open ?? 0) > 0.5)); // tap: open, tap again: closed
       case 'context-close': return openContext(false);
+      case 'line-zoom': return null; // continuous: handlers.pinch
       // ---------- in the table, not wired yet: each says where it docks ----------
       case 'take-over': return reference(hit.index); // Similar · Doppel: the result above, the live picture below
       case 'look-up': return decide('up'); // admin: ↑ = on to the next pile (15.11.)
@@ -1036,6 +1038,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
 
   // ---------- touch on the screen: each finger has its role, read when it goes down ----------
+  const LINE_ZOOM = [0.6, 2.2]; // the takes on the line: as close / as far apart as they go (× their size)
   let propertyRole = null; // the finger that holds a property (gripped, or parallel gesture)
   let paired = false; // the other finger acted while it was held: its lifting is no drag
   let spentRole = null; // that finger just let go after acting as a property: its drag end is not a drag
@@ -1085,6 +1088,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (role?.startsWith('offer:') && dir.startsWith('down')) { data.offers = data.offers.filter((o) => offerText(o) !== role.slice(6)); return paint(); } return act(dir, role); }, // ↓ on an offer: away
     pinch: (factor, role, how = {}) => { // continuous, view only: on the picture = camera zoom · on the point = time (line zoom, or the waits)
       if (role === 'live') return zoomBy(camera, factor);
+      if (role === 'line-arc' || role?.startsWith('line:')) { data.lineZoom = Math.max(LINE_ZOOM[0], Math.min(LINE_ZOOM[1], (data.lineZoom ?? 1) * factor)); return paint(); } // the takes apart / together
       if (role !== 'point') return null; // elsewhere the pinch ends as a step (pinchEnd)
       const f = how.fx ?? factor;
       if (data.items?.length && ['line', 'record', 'stream'].includes(st.screen)) { data.timeZoom = Math.max(0.25, Math.min(8, (data.timeZoom ?? 1) * f)); return paint(); }
@@ -1093,6 +1097,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     pinchEnd: (factor, role) => { // spread = nearer / more, squeeze = farther / less, where the first finger lay
       const g = pinchStep(factor);
       if (!g || role === 'live' || role === 'point') return null; // those zoomed continuously
+      if (role === 'line-arc' || role?.startsWith('line:')) { // at the end of the zoom: straight → full, or back
+        const z = data.lineZoom ?? 1;
+        if (g === 'spread' ? z < LINE_ZOOM[1] : z > LINE_ZOOM[0] && !st.full && (data.bend ?? 1) > 0.5) return null;
+        return act(g, 'line-arc');
+      }
       return act(g, role ?? 'top-zone');
     },
     stretch: (heldRole, factor, how) => { // one finger holds the picture, the other pulls: the window's form changes
