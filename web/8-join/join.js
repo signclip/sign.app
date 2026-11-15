@@ -168,6 +168,8 @@ export async function quietDevice(store, helloPath) {
   const mine = (await store.list(`within/${folder}/`)).map((f) => f.path).filter((p) => { const n = readName(nameOf(p)); return n?.u === u || n?.words?.includes(u); });
   const moved = [];
   for (const p of mine) { const to = `quiet/${folder}/${withState(nameOf(p), 'quiet')}`; await store.move(p, to); moved.push(to); }
+  const at = timeLabel(Date.now()); // a note in join/ (read by the device through the door, 15.11.): it logs itself out, its app password deletes itself
+  if (u) await store.write(`join/${buildName({ words: ['join', u, 'quiet'], time: at, u, kind: 'chain', ext: 'sign' })}`, enc.encode(`:chain'(${at})\n((quiet))\n`));
   return moved;
 }
 

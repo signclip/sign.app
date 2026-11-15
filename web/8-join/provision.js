@@ -92,6 +92,12 @@ export function matchAccounts(accounts, words = []) {
 }
 
 /** Let an account rest (no login, no sync; its files stay) or wake it again (OCS disable / enable). */
+/** Log out (15.11.): an app password deletes itself on its Nextcloud (asked with that very password); then it opens nothing. */
+export async function revokeAppPassword({ server, user, password }, { fetch = globalThis.fetch } = {}) {
+  const res = await fetch(`${base(server)}/ocs/v2.php/core/apppassword?format=json`, { method: 'DELETE', headers: ocsHeaders(basic(user, password)) });
+  return res.ok || res.status === 401; // 401: it was gone already
+}
+
 /** A new login password for an existing account (15.11.: a new device of a known person gets its own app password;
  * the app passwords of her other devices keep working). Never shown, never stored. */
 export async function setPassword(admin, user, password, { fetch = globalThis.fetch } = {}) {

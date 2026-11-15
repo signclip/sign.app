@@ -40,6 +40,7 @@ import { doorView, toWithin, backToHello, moveAccount } from '../8-join/door.js'
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
+import { revokeAppPassword } from '../8-join/provision.js';
 import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled, deleteAccount, groupsOf, setGroup, matchAccounts } from '../8-join/provision.js';
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
 import { WebDavStore } from '../2-storage/webdav.js';
@@ -174,11 +175,30 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     joinProject(ctx, project).catch(() => {}); // the first group: the project's door (also after its password came)
   }
   async function edit(change) {
+    if (change?.remove != null) await logoutEntry(change.remove).catch(() => {}); // a login taken away: its app password deletes itself, the keychain forgets it
     if (change?.remove != null && [s.adminN, s.atlasN].includes(change.remove)) { ctx.admin = undefined; s.adminN = s.atlasN = null; ctx.atlas = null; s.door = null; s.accounts = s.account = s.index = null; } // Admin or Atlas taken away: asked anew
     await changeList(own, change, meta());
     await load();
     draw();
     run().catch(() => {}); // a new copy or backup starts now, not at the next start
+  }
+  /** Log out one tile (15.11.): its app password deletes itself on the Nextcloud unless another tile of the same login still uses it; the keychain forgets it. */
+  async function logoutEntry(n) {
+    const e = s.entries[n - 1], spec = s.open.get(n)?.spec;
+    const secret = e?.id ? await keychain.get(e.id) : null;
+    if (!secret) return;
+    const others = await Promise.all(s.entries.map(async (x, i) => i + 1 !== n && x.id && (await keychain.get(x.id)) === secret));
+    if (spec?.kind === 'nextcloud' && !others.some(Boolean)) await revokeAppPassword({ server: spec.server, user: spec.user, password: secret });
+    await keychain.remove?.(e.id);
+  }
+  /** Log out every tile of one account (a quiet note from the admin, 15.11.). */
+  async function logout(account) {
+    if (!account) return;
+    for (let i = 0; i < 10; i++) { // ≤ 10 tiles of one account
+      const n = [...s.open].find(([, sp]) => sp.spec?.server === account.server && sp.spec?.user === account.user)?.[0];
+      if (!n) return;
+      await edit({ remove: n });
+    }
   }
   const say = (text) => {
     if (text === t('copied')) { // copied: the touched tile flashes green, no word (14.11.)
@@ -192,7 +212,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     draw();
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, gestures, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on) };
+  const ctx = { s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, gestures, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on) };
 
   // ---------- doing what a gesture says ----------
   async function shareTo(n, kinds = null) {
@@ -469,10 +489,10 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
    * atlas (14.11.): every account's Sign/ is shared read only with atlas; atlas counts what lies there and writes
    * only the summary (summary/accounts.json), shared read only with the admin (project.json admin). ≤ once an hour.
    */
-  async function atlasCount(login) {
+  async function atlasCount(login, { now = false } = {}) {
     let last = 0;
     try { last = Number(localStorage.getItem('sign.atlasAt') || 0); } catch { /* private mode */ }
-    if (Date.now() - last < EVERY_MS) return;
+    if (!now && Date.now() - last < EVERY_MS) return; // → on index: count now (15.11.)
     const root = (folder = '') => new WebDavStore({ base: webdavUrl(login.server, login.user, folder), user: login.user, password: login.password, name: 'atlas' });
     const shares = (await sharedWithMe(login)).filter((x) => x.folder !== 'summary').map((x) => ({ ...x, store: root(x.folder) }));
     await makeFolder(login, 'summary');
@@ -499,7 +519,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     } catch { s.index = null; return say(t('notReachable')); }
     return draw();
   }
-  const indexTiles = () => [{ label: '←', go: () => { s.index = null; draw(); } }, ...s.index.filter((x) => words().every((w) => x.user.toLowerCase().includes(w.toLowerCase()))).map((x) => ({ label: `${x.user} · ${statsOf(x.c)}` }))];
+  const countedAt = () => { try { const at = Number(localStorage.getItem('sign.atlasAt') || 0); return at ? timeLabel(at).slice(5, 16) : '–'; } catch { return '–'; } };
+  const indexTiles = () => [{ label: `← ${countedAt()}`, go: () => { s.index = null; draw(); } }, ...s.index.filter((x) => words().every((w) => x.user.toLowerCase().includes(w.toLowerCase()))).map((x) => ({ label: `${x.user} · ${statsOf(x.c)}` }))];
   /** → on the admin tile: the accounts with their space as tiles; ↓ rests, ↑ wakes, two fingers apart / together = more / less space, the first tile = back (14.11.). */
   async function showAccounts() {
     s.accounts = [];
@@ -662,6 +683,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         return draw();
       }
       if ((role?.startsWith('app:') || role === 'out:system' || role === 'row-area') && dir === 'up') return outside(); // ↑ on the row: the system share sheet // ↑ on the row: the classic Android / iOS share sheet
+      if (role?.startsWith('hello:') && dir === 'right' && s.piles?.[Number(role.split(':')[1])]?.pile === 'index') { say(t('menu.wait')); return atlasCount(ctx.atlas, { now: true }).then(showIndex, () => say(t('notReachable'))); } // → on index: atlas counts now
       if (role?.startsWith('hello:') && dir === 'right') return refreshDoor(); // → look again; deciding is in the tiles (15.11.)
       if (role?.startsWith('browse:') && s.accounts && dir === 'right') return back(); // → in the accounts: one step back
       const n = circleOf(role);

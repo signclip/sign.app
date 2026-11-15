@@ -237,10 +237,18 @@ export async function followJoins(ctx) {
     if (!mine) continue;
     states.set(t.label, mine.state);
     if (mine.state === 'join-own') await joins.set(t.label, { ...mine, state: 'within' }); // complete once more, then tiles
-    if (mine.state !== 'hello') continue; // only a hello still waits for its answer
+    if (mine.state !== 'hello' && !(mine.door && mine.account)) continue; // only a hello still waits for its answer; a joined device looks for a quiet note
     const read = ctx.s.open.get(t.n)?.store;
     const drop = await dropStoreOf(ctx, t.drop);
     if (!read || !drop) continue;
+    if (mine.state !== 'hello') { // the admin quieted this device (15.11.): it logs itself out, keys away, the door again
+      try {
+        const u = readName(mine.helloPath.slice(mine.helloPath.lastIndexOf('/') + 1))?.u;
+        const note = u && (await doorLinks(read, drop).list('join/')).some((f) => { const n = readName(f.path.slice(f.path.lastIndexOf('/') + 1)); return n?.words.includes(u) && n.words.includes('quiet'); });
+        if (note) { await ctx.logout?.(mine.account); await joins.set(t.label, null); states.set(t.label, 'door'); }
+      } catch { /* not reachable now */ }
+      continue;
+    }
     try {
       const both = mine.door ? doorLinks(read, drop) // the door: read link = join/, drop link = hello/
         : { read: (p) => read.read(p), write: (p, b) => drop.write(p, b), list: (p) => read.list(p) }; // read through one link, write through the other
@@ -257,7 +265,7 @@ export async function followJoins(ctx) {
       const own = await takeOwn(ctx, r); // an account came along: my own Nextcloud appears (welcome.arrive)
       if (!mine.door) await follow(ctx, t, (r.sharingPoints ?? []).filter((sp) => sp.label === t.label)); // a group's renewed links; the door stays as it is
       const state = own ? 'join-own' : 'join';
-      await joins.set(t.label, { ...mine, answer, state });
+      await joins.set(t.label, { ...mine, answer, state, account: own || undefined });
       states.set(t.label, state);
     } catch { /* not there yet, or not sealed by a signer: wait */ }
   }
@@ -276,7 +284,7 @@ async function takeOwn(ctx, r) {
   for (const e of entries.filter((x) => x.kind === 'nextcloud' && !ctx.s.entries.some((y) => y.path === x.path))) {
     await ctx.edit({ add: { label: e.label, path: e.path, id: e.id }, marks: ['show', 'write'] });
   }
-  return true;
+  return { server: s.server, user: s.user }; // kept with the join: a quiet note later logs exactly this account out
 }
 
 /** Renewed links in a join: replace the group's two entries when the paths changed. */
