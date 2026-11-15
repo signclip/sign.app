@@ -26,6 +26,8 @@ jobs:
           printf '\ndependencies {\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n}\n' >> android/app/build.gradle
           ls "$d"
           tail -4 android/app/build.gradle
+      - name: the app icon (native/android/res, drawn by native/icon.py)
+        run: cp -R native/android/res/. android/app/src/main/res/ && ls android/app/src/main/res/mipmap-xxxhdpi
       - name: camera and microphone
         run: sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" /><uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /><uses-permission android:name="android.permission.VIBRATE" />\n    <application#' android/app/src/main/AndroidManifest.xml
       - name: the same signing key every time (secret DEBUG_KEYSTORE), so an update installs over the app and keeps its data
