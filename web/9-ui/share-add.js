@@ -139,23 +139,57 @@ export async function bringIn(ctx) {
  * Also the admin's own way (14.11.): hold the copy sign / + = log in at the project's server, no clipboard needed.
  */
 export async function loginAt(ctx, server, id = newSource()) {
-  const { s, keychain, say, t } = ctx;
+  const { say, t } = ctx;
   try {
     const { login, poll } = await startLogin(server);
+    try { localStorage.setItem(PENDING, JSON.stringify({ poll, id, at: Date.now() })); } catch { /* private mode */ } // Android may close the app while the browser is open
     say(t('menu.wait'));
     await openPage(login); // the native app: the system browser (window.open does nothing in its web view)
-    const got = await waitLogin(poll);
-    globalThis.Capacitor?.Plugins?.Browser?.close?.().catch?.(() => {}); // logged in: back to the app by itself
-    await keychain.set(id, got.appPassword);
-    const account = { kind: 'nextcloud', server: got.server, user: got.user, folder: '' };
-    const { store } = connect(account, { secret: got.appPassword });
-    s.browse = { id, server: got.server, user: got.user, store, at: '', inside: await store.folders('') };
-    ctx.draw?.();
-    return say(t('menu.account'));
-  } catch (err) { // the browser is blocked (CORS); in the app: which step failed, short, to find it (14.11.)
-    const why = String(err?.message ?? err).slice(0, 60);
-    return say(globalThis.Capacitor?.isNativePlatform?.() ? `${t('notReachable')} · ${why}` : t('menu.native'));
+    return await finishLogin(ctx, await waitLogin(poll), id);
+  } catch (err) { return loginFailed(ctx, err); }
+}
+
+const PENDING = 'sign.pendingLogin';
+function loginFailed({ say, t }, err) { // the browser is blocked (CORS); in the app: which step failed, short, to find it
+  const why = String(err?.message ?? err).slice(0, 60);
+  return say(globalThis.Capacitor?.isNativePlatform?.() ? `${t('notReachable')} · ${why}` : t('menu.native'));
+}
+
+/** Back in the app after the browser (or the app was restarted meanwhile): a login still open goes on (≤ 20 min). */
+export async function resumeLogin(ctx) {
+  let p = null;
+  try { p = JSON.parse(localStorage.getItem(PENDING) || 'null'); } catch { /* private mode */ }
+  if (!p || Date.now() - p.at > 20 * 60 * 1000) return null;
+  try { return await finishLogin(ctx, await waitLogin(p.poll), p.id); } catch (err) { return loginFailed(ctx, err); }
+}
+
+/**
+ * The login is through: the app password goes into the keychain; then the folders that matter are taken at once (15.11.):
+ * the door (a folder with hello/ and join/, for the admin) and Sign/ (each account's own). Only if neither is there,
+ * the account's folders are shown to choose.
+ */
+async function finishLogin(ctx, got, id) {
+  const { s, keychain, say, t, edit } = ctx;
+  try { localStorage.removeItem(PENDING); } catch { /* private mode */ }
+  globalThis.Capacitor?.Plugins?.Browser?.close?.().catch?.(() => {}); // logged in: back to the app by itself
+  await keychain.set(id, got.appPassword);
+  const account = { kind: 'nextcloud', server: got.server, user: got.user, folder: '' };
+  const { store } = connect(account, { secret: got.appPassword });
+  const root = await store.folders('');
+  const name = (f) => f.replace(/\/$/, '').split('/').pop();
+  const isDoor = (list, at = '') => list.includes(`${at}hello/`) && list.includes(`${at}join/`);
+  let door = isDoor(root) ? '' : null;
+  for (const f of root.slice(0, 20)) { if (door !== null) break; if (isDoor(await store.folders(f).catch(() => []), f)) door = f; }
+  const sign = root.find((f) => /^sign\/?$/i.test(f));
+  const picks = [...(door !== null ? [door] : []), ...(sign && sign !== door ? [sign] : [])];
+  if (!picks.length) { s.browse = { id, server: got.server, user: got.user, store, at: '', inside: root }; ctx.show?.(true); ctx.draw?.(); return say(t('menu.account')); }
+  for (const [i, f] of picks.entries()) {
+    const fid = i === 0 ? id : newSource();
+    if (i) await keychain.set(fid, got.appPassword);
+    await edit({ add: { label: f ? name(f) : got.user, path: webdavUrl(got.server, got.user, f.replace(/\/$/, '')), id: fid }, marks: ['show', 'write'] });
   }
+  ctx.show?.(true);
+  return say('');
 }
 
 /**

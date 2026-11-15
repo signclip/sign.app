@@ -21,7 +21,7 @@ import { openAll, afterTake, sources, runRules, reconnect } from '../2-storage/s
 import { dueRules, remember, retry, backupKey, summary, reopen, bringHome, sealPaper, PAPER_ID } from '../2-storage/upkeep.js';
 import { newPaperPassword } from '../2-storage/backup-key.js';
 import { readFile } from '../1-model/file.js';
-import { sheetPdf, sheetData } from './emergency.js';
+import { sheetPdf, sheetData, sheetName } from './emergency.js';
 import { partsOf } from '../2-storage/layout.js';
 import { quietIds } from '../4-save/remove.js';
 import { deviceKeys, joins } from './device-keys.js';
@@ -31,7 +31,7 @@ import { send, filesOf, targets, sendTo, defaults, printFile, saveFiles } from '
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel, readName } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
-import { addNew, peek, pickFolder, loginAt, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
+import { addNew, peek, pickFolder, loginAt, resumeLogin, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
 import { nameSignOf, devicesOf, quietDevice } from '../8-join/join.js';
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders, canPick } from './folders.js';
@@ -176,7 +176,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     draw();
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw() };
+  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on) };
 
   // ---------- doing what a gesture says ----------
   async function shareTo(n, kinds = null) {
@@ -257,7 +257,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const signerCode = admin && adminStore() ? await paperForDoor().catch(() => null) : null; // admin: the paper becomes a signer too
     const sheet = sheetData({ person, device, key, paper, signerCode, joins: await sheetJoins(), date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
     const pdf = sheetPdf(sheet);
-    const p = { title: 'Sign · Notfallblatt', text: key, files: [new File([pdf], 'sign-notfallblatt.pdf', { type: 'application/pdf' })] };
+    const name = sheetName(person); // whose overview: the person ID, as in every file name
+    const p = { title: name, text: key, files: [new File([pdf], `${name}.pdf`, { type: 'application/pdf' })] };
     if (!s.apps?.list?.length) return send(p).catch(() => null); // no row (iOS, browser): the system sheet
     s.pending = p; s.apps.x = 0; return draw(); // the menu folds down to its share row: choose where it goes (14.11.)
   }
@@ -583,7 +584,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       requestAnimationFrame(step);
     },
     dragEnd: (el, moved) => {
-      if (role === 'add:new' && !moved) return projectServer() ? loginAt(ctx, projectServer()) : null; // + held still: the admin's way in, at the project's own server (14.11.)
+      if (role === 'add:new' && !moved) return addNew(ctx); // + held: like a tap — only what is on the clipboard counts, no address is kept in the app (15.11.)
       const from = circleOf(role);
       if (!moved && from === 0) return onOwnHold(); // my own tile held still: the onboarding again
       if (!moved) return from ? apply(gestureOn(targetFor(ctx.tileOf(from), 'hold'), 'hold', s.rules, { selection: selection(), private: ctx.tileOf(from)?.private })) : null; // held still: new goes there
@@ -630,6 +631,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (now !== s.clip) { s.clip = now; if (now === 'ready') s.fresh.add('add:new'); if (!panel.hidden) draw(); }
   }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && !panel.hidden) look(); }); // back after copying a link
+  setTimeout(() => resumeLogin(ctx).catch(() => {}), 1500); // a login left open when Android closed the app: it goes on
   function show(on) {
     panel.hidden = !on;
     if (!on) s.pending = null; // closed: nothing prepared waits

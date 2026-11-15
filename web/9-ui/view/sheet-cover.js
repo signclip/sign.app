@@ -1,16 +1,15 @@
 // sheet-cover.js — the first page of the emergency sheet (14.11.): what the app looks like and where it goes.
 //
 // Purpose:   the phone with the app as it is (Similar tiles upper right, the field as a ring with the strand arcs
-//            and their numbers, chips under it, the point at the lower edge), each part named by a thin line;
-//            the way of a Take as pictures (Take → strands → chain → sharing → Similar); the colours and what they
-//            mean (the same on every page); the roadmap: four waves and SL2T as stations
+//            and their numbers, chips under it, the point at the lower edge),
+//            nothing written around it (14.11.: less is clearer); the way of a Take as pictures (Take → strands →
+//            chain → sharing → Similar); the colours and what they mean (the same on every page); the roadmap: four waves and SL2T as stations
 //            on one path, "du bist hier" in wave 1, the 20 sessions as dots (done · running · ahead).
 // Depends:   1-model/pdf.js, view/sheet-charts.js (INK, arcs, appArc, short)
 // Test:      tests/model.test.mjs (emergency sheet)
 // Limits:    one page · the waves come from md/WAVES.md, the sessions from app/README.md (written here as text:
 //            a new wave or session = one line in WAVES / SESSIONS below).
 
-import { fit } from '../../1-model/pdf.js';
 import { INK, arcs, tile, step, next, short } from './sheet-charts.js';
 
 export const WAVES = [
@@ -42,29 +41,12 @@ function phone(p, x, y, sheet) {
 export function cover(p, sheet) {
   const M = 40, Wd = 515;
   p.text(M, 82, 'Sign', { size: 40, font: 'bold' });
-  p.text(M + 104, 80, 'Gebärde, Ton, Text – gleichwertig, deine Daten.', { size: 10, color: INK.mut });
   p.line(M, 100, M + Wd, 100, { stroke: INK.line, width: 0.6 });
-
-  const top = 116, f = phone(p, M + 6, top, sheet), ax = M + 236;
-  const notes = [[top + 27, 'Similar', [M + 6 + 168 - 30, top + 27]], [top + 98, 'strands', [f.cx + 50, top + 98]], [top + 140, 'Fenster', [f.cx + 30, f.cy]],
-    [top + 232, 'context', [M + 6 + 150, top + 232]], [top + 290, 'Take', [f.cx + 20, f.py]], [top + 314, 'sharing', [f.cx + 10, f.py - 22]]];
-  for (const [ny, head, [fx, fy]] of notes) {
-    p.poly([[fx, fy], [ax - 22, fy], [ax - 6, ny]], { stroke: INK.mut, width: 0.5 });
-    p.circle(fx, fy, 1.6, { fill: INK.fg });
-    p.text(ax, ny + 3, head, { size: 9, font: 'bold' });
-  }
-  // the gestures of the point, as small pictures: tap · hold · twice · up
-  const gx = ax + 60, gy = top + 290;
-  [['tippen', 1], ['halten', 2], ['2×', 3]].forEach(([word, k], i) => {
-    const x0 = gx + i * 52;
-    p.circle(x0, gy, 5, k === 2 ? { fill: INK.take } : { stroke: INK.take, width: 1 });
-    if (k === 3) p.circle(x0, gy, 8, { stroke: INK.take, width: 0.7 });
-    p.text(x0 + 11, gy + 2.5, word, { size: 7, color: INK.mut });
-  });
-  p.poly([[gx, top + 318], [gx, top + 306]], { stroke: INK.where, width: 1 }); p.poly([[gx - 3, top + 309], [gx, top + 305], [gx + 3, top + 309]], { stroke: INK.where, width: 1 }); // up = to where it goes
+  const top = 116;
+  phone(p, M + Wd / 2 - 84, top, sheet); // the app as it is, nothing written around it
 
   // the way of a Take, pictured: Take → strands → chain → sharing point → Similar
-  let y = top + 380;
+  let y = top + 384;
   const xs = [0, 1, 2, 3, 4].map((i) => M + 44 + i * ((Wd - 88) / 4));
   const pics = [
     ['Take', (cx, cy) => { p.circle(cx, cy, 13, { stroke: INK.take, width: 1 }); p.circle(cx, cy, 9, { fill: INK.takeSoft, stroke: INK.take, width: 0.8 }); }],
@@ -96,14 +78,12 @@ export function cover(p, sheet) {
     p.circle(sx, sy, now ? 11 : 9, { fill: now ? INK.time : INK.card, stroke: INK.time, width: 1.4 });
     p.text(sx, sy + 3, wv.no, { size: 8, font: 'bold', align: 'center' });
     const ty = below ? sy + 26 : sy - 36, tx = Math.min(Math.max(sx, M + 58), M + Wd - 58);
-    p.text(tx, ty, wv.name, { size: 8.5, font: 'bold', align: 'center' });
-    p.text(tx, ty + 10, fit(wv.who, 6.8, 150), { size: 6.8, color: INK.mut, align: 'center' });
+    p.text(tx, ty + (below ? 0 : 20), wv.name, { size: 8.5, font: 'bold', align: 'center' });
   });
-  const sl = WAVES.find((w) => w.side), [bx, by] = at(0.84), cx2 = bx + 6, cy2 = y0 + 44;
+  const [bx, by] = at(0.84), cx2 = bx + 6, cy2 = y0 + 44;
   p.poly([[bx, by], [cx2, cy2 - 9]], { stroke: INK.mut, width: 1, dash: [3, 2] });
   p.circle(cx2, cy2, 9, { fill: INK.card, stroke: INK.mut, width: 1.2, dash: [2, 2] });
   p.text(cx2, cy2 + 2.2, 'SL2T', { size: 5.5, font: 'bold', align: 'center' });
-  p.text(cx2, cy2 + 19, sl.who, { size: 6.8, color: INK.mut, align: 'center' });
   const [hx, hy] = at(0.1);
   p.poly([[hx, hy - 8], [hx - 4, hy - 15], [hx + 4, hy - 15]], { close: true, fill: INK.fg });
   p.text(hx, hy - 19, 'du bist hier', { size: 7, font: 'bold', align: 'center' });

@@ -71,7 +71,7 @@ export function sheetData({ person, device, key, paper, signerCode = null, joins
   const flows = rules.filter((r) => ['always', 'ask', 'backup', 'show'].includes(r.mark)).map((r) => ({ from: r.from ?? 0, to: r.to, mark: r.mark }));
   const day = (label) => { const m = /^(\d{4})\.(\d\d)\.(\d\d)/.exec(label ?? ''); return m ? `${Number(m[3])}.${Number(m[2])}.` : null; };
   const joined = joins.map((j) => ({ label: j.label, state: j.state, hello: day(j.hello), join: day(j.join) })).filter((j) => points.some((pt) => pt.label === j.label));
-  return { name: person.label, date, now, roles, paper, ids, points, flows, joins: joined, passwordGestures, own, nameSign, gestureSlots, stats, clusters: clusters(stats.list),
+  return { name: person.label, person: person.id, date, now, roles, paper, ids, points, flows, joins: joined, passwordGestures, own, nameSign, gestureSlots, stats, clusters: clusters(stats.list),
     accounts: admin ? accounts.map((a) => ({ ...a, label: a.label ?? a.user })) : null, atlas, device };
 }
 
@@ -103,5 +103,8 @@ export function sheetPages(sheet) {
   return named.map(([p]) => p);
 }
 
-/** The sheet as a PDF file. */
-export const sheetPdf = (sheet) => makePages(sheetPages(sheet), { title: `Sign · Notfallblatt · ${sheet.name}` });
+/** The file name: "Sign Overview @(n_…)" — whose it is by the person ID (@( ) = person, SCHEMA), no name in it. */
+export const sheetName = (person) => `Sign Overview @(${person.id})`;
+
+/** The sheet as a PDF file (its title = the file name). */
+export const sheetPdf = (sheet) => makePages(sheetPages(sheet), { title: sheetName({ id: sheet.person ?? '' }) });
