@@ -181,15 +181,12 @@ async function finishLogin(ctx, got, id) {
   let door = isDoor(root) ? '' : null;
   for (const f of root.slice(0, 20)) { if (door !== null) break; if (isDoor(await store.folders(f).catch(() => []), f)) door = f; }
   const sign = root.find((f) => /^sign\/?$/i.test(f));
-  const picks = [...(door !== null ? [door] : []), ...(sign && sign !== door ? [sign] : [])];
-  if (!picks.length) { s.browse = { id, server: got.server, user: got.user, store, at: '', inside: root }; ctx.show?.(true); ctx.draw?.(); return say(t('menu.account')); }
-  for (const [i, f] of picks.entries()) {
-    const fid = i === 0 ? id : newSource();
-    if (i) await keychain.set(fid, got.appPassword);
-    await edit({ add: { label: f ? name(f) : got.user, path: webdavUrl(got.server, got.user, f.replace(/\/$/, '')), id: fid }, marks: ['show', 'write'] });
-  }
+  // the person chooses (15.11.): the folders found go first and are taken with one tap — the door (hello/, join/) first, then Sign/
+  const suggest = [...(door !== null ? [door] : []), ...(sign && sign !== door ? [sign] : [])];
+  s.browse = { id, server: got.server, user: got.user, store, at: '', inside: [...suggest, ...root.filter((f) => !suggest.includes(f))], suggest };
   ctx.show?.(true);
-  return say('');
+  ctx.draw?.();
+  return say(t('menu.account'));
 }
 
 /**
@@ -264,7 +261,9 @@ export function browseChips(ctx) {
   return [
     { label: t(b.at ? 'menu.here' : 'menu.account'), go: () => take(b.at) },
     ...(b.at ? [{ label: '↑', go: () => into(b.at.replace(/[^/]+\/$/, '')) }] : []),
-    ...b.inside.map((f) => ({ label: nameOf(f), go: () => into(f) })),
+    ...b.inside.map((f) => (b.suggest?.includes(f) && !b.at
+      ? { label: f ? nameOf(f) : b.user, go: () => take(f), found: true } // found by its folders: one tap takes it
+      : { label: nameOf(f), go: () => into(f) })),
   ];
 }
 

@@ -89,7 +89,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
 
   if (browse) { // after a login: choose the folder
     browse.forEach((b, i) => {
-      const { cx, cy } = tile(i, `browse:${i}`, `sp folder${i === 0 ? ' always' : ''}${b.faint ? ' faint' : ''}`, b.label); // faint: a group the account is not in (tap = in)
+      const { cx, cy } = tile(i, `browse:${i}`, `sp folder${i === 0 || b.found ? ' always' : ''}${b.found ? ' breathe' : ''}${b.faint ? ' faint' : ''}`, b.label); // found: the door or Sign/, one tap // faint: a group the account is not in (tap = in)
       if (b.full != null) add('sheet', { x: cx - tw / 2, y: cy + th / 2 - 6 * k, w: tw * Math.min(1, b.full), h: 6 * k, r: 3 * k, cls: `fill${b.full > 0.9 ? ' high' : ''}` }); // an account: how full
     });
     return { shapes, at };
