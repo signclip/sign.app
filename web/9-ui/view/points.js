@@ -225,10 +225,11 @@ function glyphPlus({ cx, cy }, k, add) {
 function appRow({ list = [], x = 0 }, { w, h, k, add, at }) {
   const size = 44 * k, y = h - 112 * k, gap = 70 * k, first = 40 * k;
   add('line', { x1: 24 * k, y1: y - 16 * k, x2: w - 24 * k, y2: y - 16 * k, cls: 'apps-rule' });
-  const items = [...list.map((a, i) => ({ ...a, role: `app:${i}` })), { role: 'out:system', label: '' }];
+  const items = list.length ? list.map((a, i) => ({ ...a, role: `app:${i}` })) : [{ role: 'out:system', label: '' }]; // Android: the apps, the system sheet by ↑ on the row (15.11.) · iOS, browser: only the share sign
+  add('sheet', { x: 0, y: y - 14 * k, w, h: h - y + 14 * k, r: 0, cls: 'row-area', role: 'row-area' }); // the whole strip below the line slides
   items.forEach((a, i) => {
     const cx = first + i * gap + x;
-    if (a.icon) add('image', { png: a.icon, x: cx - size / 2, y, s: size, cls: 'app row', role: a.role }); // all drawn: the row slides by CSS, no redraw
+    if (a.icon) add('image', { png: a.icon, x: cx - size / 2, y, s: size, cls: 'app row', role: a.role }); // all drawn: the row slides by CSS, no redraw (also the file manager's own icon)
     else if (a.glyph) { add('circle', { cx, cy: y + size / 2, r: size / 2, cls: 'sp out round row', role: a.role }); (a.glyph === 'print' ? glyphPrint : glyphSave)({ cx, cy: y + size / 2 }, k, add); }
     else { add('circle', { cx, cy: y + size / 2, r: size / 2, cls: 'sp out round row', role: a.role }); glyphShare({ cx, cy: y + size / 2 }, k, add, ' row'); }
     if (a.label) add('label', { x: cx, y: y + size + 14 * k, text: a.label.length > 10 ? `${a.label.slice(0, 9)}…` : a.label, cls: 'label app-label row' });
@@ -236,7 +237,7 @@ function appRow({ list = [], x = 0 }, { w, h, k, add, at }) {
   });
 }
 /** How far the row may slide: 0 … −(its length beyond the screen). */
-export const rowLimit = (n, { w = 390, k = w / 390 } = {}) => Math.min(0, w - (40 * k * 2 + n * 70 * k));
+export const rowLimit = (n, { w = 390, k = w / 390 } = {}) => Math.min(0, w - (40 * k * 2 + (n - 1) * 70 * k));
 function glyphSave({ cx, cy }, k, add) { // an arrow down into a tray: save into a folder
   add('path', { d: `M ${cx} ${cy - 11 * k} V ${cy + 3 * k} M ${cx - 6 * k} ${cy - 3 * k} L ${cx} ${cy + 3 * k} L ${cx + 6 * k} ${cy - 3 * k} M ${cx - 12 * k} ${cy + 3 * k} V ${cy + 10 * k} H ${cx + 12 * k} V ${cy + 3 * k}`, cls: 'glyph row' });
 }

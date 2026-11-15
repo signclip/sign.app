@@ -93,7 +93,7 @@ export function bind(el, h) {
       }
       return;
     }
-    const rowSlide = /^(app:|out:system)/.test(String(t.role)) && (t.slid || Math.abs(e.clientX - t.x) > 10); // the share row slides
+    const rowSlide = /^(app:|out:system|row-area)/.test(String(t.role)) && (t.slid || Math.abs(e.clientX - t.x) > 10); // the share row slides
     if (String(t.role).startsWith('corner') || rowSlide) { // the window's corner follows the finger
       clearTimeout(t.timer);
       h.slide?.(t.role, e.clientX - (t.lx ?? t.x), e.clientY - (t.ly ?? t.y));

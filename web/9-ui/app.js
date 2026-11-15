@@ -155,12 +155,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     suggestGesture();
     paint();
   };
-  /** Password gestures (15.11.): at their steps a drawn word waits as a pale chip; the third is one's own (no chip). */
+  /**
+   * Password gestures (15.11.): at the first two steps three drawn words wait as pale chips; tap one = it is the word
+   * (it turns solid), ↓ on them = three others. The third gesture is one's own: type a word in the field, or none.
+   */
   function suggestGesture(again = false) {
     const i = GESTURE_STEPS.indexOf(onboard.at);
-    if (!settings.onboarding || i < 0 || i > 1) { if (data.gestureWord) { data.gestureWord = null; data.offers = []; } return; }
-    if (!data.gestureWord || again) data.gestureWord = drawWords(1)[0];
-    data.offers = [{ text: data.gestureWord, offer: true }];
+    if (!settings.onboarding || i < 0 || i > 1) { if (data.gestureChoices) { data.gestureChoices = null; data.gestureWord = null; data.offers = []; } return; }
+    if (!data.gestureChoices || again) { data.gestureChoices = drawWords(3); data.gestureWord = null; }
+    data.offers = data.gestureChoices.map((text) => ({ text, offer: true, picked: text === data.gestureWord }));
   }
   const step = (action, extra = {}) => {
     const before = st.fields;
@@ -291,7 +294,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     take.began = action;
     const first = parseNotation(series).find((n) => n.t !== 'sym'); // written context: the next gesture of the series
     take.context = action === 'take-with-context' ? contextOf(st.hold?.text) : first ? writeNotation([first]) : '';
-    if (settings.onboarding && GESTURE_STEPS.includes(onboard.at)) { take.context = data.gestureWord ? `(password ${data.gestureWord})` : '(password)'; take.gesture = true; } // a password gesture
+    if (settings.onboarding && GESTURE_STEPS.includes(onboard.at)) { // a password gesture: the picked word (1, 2) or one's own typed word (3)
+      const own = onboard.at === GESTURE_STEPS[2] && first ? writeNotation([first]).replace(/^\(|\)$/g, '') : '';
+      take.context = `(password${data.gestureWord ? ` ${data.gestureWord}` : own ? ` ${own}` : ''})`;
+      take.gesture = true;
+    }
     take.fromSeries = action !== 'take-with-context' && Boolean(first);
     if (data.adopted?.length) { take.context = [take.context, ...data.adopted.map((x) => `(${x})`)].filter(Boolean).join(' '); data.adopted = []; } // offers taken from the result above
     if (data.photo && toRecord(st).includes('v')) { // the picture point is on: one picture, no sound, saved at once
@@ -376,7 +383,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       try { if (video) localStorage.setItem('sign.passwords', JSON.stringify([...list, video].slice(-3))); } catch { /* private mode */ }
       take.gesture = false;
       if (onboard.at === GESTURE_STEPS[2]) menu.joinProject().catch(() => {}); // all three there: hello to the project's door
-      data.gestureWord = null;
+      data.gestureWord = null; data.gestureChoices = null;
     }
     learned(take.began);
     if (settings.flows.includes('a>x') && recorded.audio && kinds.includes('a')) flowAudio(saved.chain.path, recorded.audio).catch((err) => console.warn('whisper', err));
@@ -970,7 +977,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     },
     tap: (x, y, role) => {
       if (!$('#share').hidden && role !== 'point') return menu.show(false); // a tap beside the circles closes them
-      if (role?.startsWith('offer:') && data.gestureWord) return null; // the drawn word is the context of the next take anyway
+      if (role?.startsWith('offer:') && data.gestureChoices) { data.gestureWord = role.slice(6); suggestGesture(); return paint(); } // this word for the password gesture
       if (role?.startsWith('offer:')) return adopt(role.slice(6)); // a greyed context of the result above: now mine
       return act('tap', role, { x, y });
     },
@@ -986,7 +993,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (propertyRole && role === propertyRole) { spentRole = role; propertyRole = null; return step('release-property'); }
       if (st.held) end(); else if (st.sub === 'scrub') step('release');
     },
-    swipe: (dir, role) => { if (role?.startsWith('offer:') && dir.startsWith('down') && data.gestureWord) { suggestGesture(true); return paint(); } // another word
+    swipe: (dir, role) => { if (role?.startsWith('offer:') && dir.startsWith('down') && data.gestureChoices) { suggestGesture(true); return paint(); } // three other words
       if (role?.startsWith('offer:') && dir.startsWith('down')) { data.offers = data.offers.filter((o) => offerText(o) !== role.slice(6)); return paint(); } return act(dir, role); }, // ↓ on an offer: away
     pinch: (factor, role, how = {}) => { // on the point: one above the other = camera zoom, side by side = time (line zoom, or the waits) · on the picture: the window's form
       if (role === 'point') {
@@ -1018,6 +1025,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     },
   };
   bind($('#screen'), handlers);
+  suggestGesture(); // started again at a password gesture step: its words are there
   { // how this person starts (14.11.): as left (default) · records at once · the persons of this device to choose
     const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current());
     if (me?.start === 'choose' && P.persons().length > 1) menu.choose();

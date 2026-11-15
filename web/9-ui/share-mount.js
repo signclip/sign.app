@@ -228,10 +228,12 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const [found, mine] = await Promise.all([targets('*/*'), defaults()]);
     const list = found.filter((a, i) => found.findIndex((b) => b.pkg === a.pkg) === i); // one per app
     if (!list.length) { s.apps = { list: [], x: 0 }; return; }
-    // fixed in front (14.11.): save (the device's file manager), print, the own mail app, WhatsApp, Bluetooth — then the rest, most used first
+    // fixed in front (15.11.): the person's file manager (saves into a folder), print, the own mail app, WhatsApp, Bluetooth — then the rest
     const take = (test) => { const i = list.findIndex(test); return i < 0 ? [] : list.splice(i, 1); };
+    const FILES = ['com.google.android.apps.nbu.files', 'com.sec.android.app.myfiles', 'com.mi.android.globalFileexplorer', 'com.android.fileexplorer', 'com.coloros.filemanager', 'com.huawei.filemanager', 'com.google.android.documentsui'];
+    take((a) => FILES.includes(a.pkg) || (mine.files && a.pkg === mine.files.pkg)); // the file manager's own share entry: saving goes through the folder picker below
     const front = [
-      { label: 'Speichern', pkg: '__save', glyph: 'save' },
+      { label: mine.files?.label ?? 'Dateien', pkg: '__save', glyph: 'save', icon: mine.files?.icon }, // looks like the own Files app, opens its folder picker
       { label: 'Drucken', pkg: '__print', glyph: 'print' },
       ...take((a) => mine.mail && a.pkg === mine.mail), ...take((a) => a.pkg === 'com.whatsapp'), ...take((a) => /bluetooth/.test(a.pkg)),
     ];
@@ -355,7 +357,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
 
   async function tapped(role) {
     if (!role) return show(false); // a tap beside the sheet = back
-    if (role === 'sheet') return null; // the sheet itself
+    if (role === 'sheet' || role === 'row-area') return null; // the sheet itself, the row's strip
     const [what, a, b] = role.split(':');
     if (what === 'sp' && a === '0') { // this device (14.11.): a tap chooses a new folder or disk on it
       if (canPick()) return pickFolder(ctx);
@@ -542,7 +544,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     },
     slide: (r, dx) => { // the share row follows the finger (14.11.): moved by CSS on every frame, drawn anew only at the end
       if (!s.apps) return null;
-      const limit = rowLimit(rowApps().length + 1, { w: panel.getBoundingClientRect().width }), x = s.apps.x ?? 0;
+      const limit = rowLimit(rowApps().length, { w: panel.getBoundingClientRect().width }), x = s.apps.x ?? 0;
       s.apps.drag = Math.max(limit - x, Math.min(-x, (s.apps.drag ?? 0) + dx));
       for (const el of panel.querySelectorAll('.row')) el.style.transform = `translateX(${s.apps.drag}px)`;
       return null;
@@ -572,7 +574,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         if (!globalThis.signPersons?.remove(role.slice(7))) { s.shake = role; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; }
         return draw();
       }
-      if ((role?.startsWith('app:') || role === 'out:system') && dir === 'up') return outside(); // ↑ on the row: the classic Android / iOS share sheet
+      if ((role?.startsWith('app:') || role === 'out:system' || role === 'row-area') && dir === 'up') return outside(); // ↑ on the row: the system share sheet // ↑ on the row: the classic Android / iOS share sheet
       if (role?.startsWith('hello:') && dir === 'left') return welcome(ctx, s.hellos[Number(role.split(':')[1])]).then(load).then(draw); // ← hello → join: welcomed
       if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → back: look again (new hellos, a failed welcome tried anew)
       const n = circleOf(role);

@@ -95,6 +95,15 @@ public class ShareTargetsPlugin extends Plugin {
         ResolveInfo sms = pm.resolveActivity(new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:")), PackageManager.MATCH_DEFAULT_ONLY);
         out.put("mail", mail != null && mail.activityInfo != null && !"android".equals(mail.activityInfo.packageName) ? mail.activityInfo.packageName : null);
         out.put("sms", sms != null && sms.activityInfo != null && !"android".equals(sms.activityInfo.packageName) ? sms.activityInfo.packageName : null);
+        // the file manager that saves (the folder picker): its name and icon, so "save" looks like the person's own Files app
+        ResolveInfo files = pm.resolveActivity(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), PackageManager.MATCH_DEFAULT_ONLY);
+        if (files != null && files.activityInfo != null) {
+            JSObject f = new JSObject();
+            f.put("pkg", files.activityInfo.packageName);
+            f.put("label", String.valueOf(files.loadLabel(pm)));
+            try { f.put("icon", png(pm.getApplicationIcon(files.activityInfo.packageName))); } catch (Exception e) { f.put("icon", png(files.loadIcon(pm))); }
+            out.put("files", f);
+        }
         call.resolve(out);
     }
 

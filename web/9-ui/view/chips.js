@@ -81,7 +81,7 @@ function rowShapes(row, { timeMs, cx, y, k, w }) {
     chips.forEach((c, i) => {
       chipX += spaceBefore(chips, i, k);
       out.push({ type: 'chip', x: chipX, y, w: c.w, h: 32 * k, text: c.text,
-        cls: `chip ${offer ? 'offer' : c.head ? 'own head' : toneOf(c, stable, timeMs)}`, role: offer ?? (c.wait ? null : `chip:${c.text}`) });
+        cls: `chip ${offer ? (gesture.picked ? 'own picked' : 'offer') : c.head ? 'own head' : toneOf(c, stable, timeMs)}`, role: offer ?? (c.wait ? null : `chip:${c.text}`) });
       chipX += c.w;
     });
     x += width + GAP * k;
