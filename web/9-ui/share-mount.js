@@ -537,7 +537,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (!s.accounts) return null;
     if (s.account) return lookTiles(s.account);
     return [{ label: '←', go: () => { s.accounts = null; s.account = null; draw(); } }, ...matchAccounts(s.accounts, words()).map((a) => ({ // the context words find accounts, like Similar
-      label: `${a.enabled ? '' : '◌ '}${a.label}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
+      label: `${a.enabled ? '' : '◌ '}${a.label}${s.accounts.filter((b) => b.label === a.label).length > 1 ? ` ${a.user.slice(2, 6)}` : ''}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
       look: () => openAccount(a), // tap = look at it: its devices and groups
       down: () => setEnabled(ctx.admin, a.user, false).then(showAccounts, () => say(t('notReachable'))), // ↓ rests (◌)
       up: () => setEnabled(ctx.admin, a.user, true).then(showAccounts, () => say(t('notReachable'))), // ↑ wakes
@@ -687,7 +687,9 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (role?.startsWith('hello:') && dir === 'right') return refreshDoor(); // → look again; deciding is in the tiles (15.11.)
       if (role?.startsWith('browse:') && s.accounts && dir === 'right') return back(); // → in the accounts: one step back
       const n = circleOf(role);
-      if (n && n === s.adminN && dir === 'right') return showAccounts(); // → on the admin tile: who has how much space
+      if (n && n === s.adminN && dir === 'left') return showAccounts(); // ← on Admin: the accounts (15.11.: ← = further, → = again)
+      if (n && n === s.atlasN && dir === 'left') return showIndex(); // ← on Atlas: the index
+      if (n && dir === 'right') { s.flash = role; draw(); return (n === s.adminN || n === s.atlasN ? refreshDoor() : load()).then(() => { s.flash = null; draw(); }); } // → on a tile = look again
       if ((n === 0 || (n && n === s.adminN)) && dir === 'up') return emergency(); // ↑ on my own tile: the emergency sheet as PDF in the share sheet (the check key goes along as text)
       if (!n) return null;
       const tile = ctx.tileOf(n);
@@ -718,7 +720,18 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       };
       requestAnimationFrame(step);
     },
-    dragEnd: (el, moved) => {
+    holdLong: () => { if (circleOf(role) != null) { navigator.vibrate?.(15); s.flash = role; draw(); } }, // held on: now carried = everything so far too (15.11.)
+    holdMove: (_r, x, y, long) => { // the line follows the finger: carried at once = from now on (thin), held on first = everything so far (thick)
+      const from = panel.querySelector(`[data-role="${role}"]`)?.getBoundingClientRect(), box = panel.getBoundingClientRect();
+      if (!from) return null;
+      let line = svg.querySelector('#carry');
+      if (!line) { line = document.createElementNS('http://www.w3.org/2000/svg', 'line'); line.id = 'carry'; svg.appendChild(line); }
+      Object.entries({ x1: from.left + from.width / 2 - box.left, y1: from.top + from.height / 2 - box.top, x2: x - box.left, y2: y - box.top }).forEach(([k, v]) => line.setAttribute(k, v));
+      line.setAttribute('class', `carry${long ? ' long' : ''}`);
+      return null;
+    },
+    dragEnd: (el, moved, _r, { long = false } = {}) => {
+      svg.querySelector('#carry')?.remove(); if (s.flash === role) s.flash = null;
       if (role === 'add:new' && !moved) return addNew(ctx); // + held: like a tap — only what is on the clipboard counts, no address is kept in the app (15.11.)
       if (role?.startsWith('person:') && moved) { globalThis.signPersons?.switchTo(role.slice(7)); return location.reload(); } // a small person dragged out = pulled big: that person (15.11.)
       const from = circleOf(role);
@@ -735,7 +748,9 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       const target = onto ? ctx.tileOf(onto) : null;
       const give = Boolean(from && ctx.tileOf(from)?.canGive && target && (target.state === 'cloud' || s.open.get(onto)?.spec?.kind === 'nextcloud')); // my Nextcloud onto another account
       if (give) return apply(gestureOn(onto, 'drop-point', s.rules, { from, give: true }));
-      return from != null && onto ? apply(gestureOn(onto, 'drop-point', s.rules, { from, private: ctx.tileOf(onto)?.private })) : null; // carried onto another: copy (encrypted when only I read it)
+      if (target?.service) return null; // nothing goes into Admin or Atlas
+      navigator.vibrate?.(long ? [15, 40, 15] : 15); // felt: from now on = one pulse, with everything so far = two
+      return from != null && onto ? apply(gestureOn(onto, 'drop-point', s.rules, { from, private: ctx.tileOf(onto)?.private, sofar: long })) : null; // carried onto another: from now on; held on first = everything so far too (encrypted when only I read it)
     },
   };
   bind(panel, handlers);

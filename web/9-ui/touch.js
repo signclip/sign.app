@@ -6,7 +6,7 @@
 //            the screen edge (Android uses the outermost strip for "back") and only in the upper 2/3 ·
 //            at most two fingers: held + action (parallel) or two moving (pinch).
 
-export const HOLD_MS = 350, DOUBLE_MS = 300, SWIPE_PX = 50, EDGE_IN = [12, 72];
+export const LONG_MS = 1100, HOLD_MS = 350, DOUBLE_MS = 300, SWIPE_PX = 50, EDGE_IN = [12, 72];
 export const FAR_PX = 220; // a swipe down longer than this = all the way down (delete instead of set aside)
 
 /** A finished one-finger touch → 'tap' | 'up' | 'down' | 'down-far' | 'left' | 'right' | null (held touches end elsewhere). */
@@ -34,7 +34,8 @@ export function edgeZone(x, y, w, h) {
  * returns (or null) and is handed back as the last argument, so two fingers never mix up their targets.
  *   down(event) → role       a finger goes down, before anything is known
  *   tap(x, y, role)          x, y are 0–1 inside el · doubleTap(role)
- *   hold(role)               the finger stayed HOLD_MS · holdEnd(role) · dragEnd(element, moved, role)
+ *   hold(role)               the finger stayed HOLD_MS · holdLong(role) at LONG_MS · holdMove(role, x, y, long) while carried
+ *                            · holdEnd(role) · dragEnd(element, moved, role, { long })
  *   swipe(dir, role)         · pinch(factor, role, how): two fingers, neither held yet; role of the first;
  *                              how { fx, fy (distance across / up-down changed), angle (0 = side by side, 90 = above), mid (start, between) }
  *   pinchEnd() both fingers up · slide(role, dx, dy) · slideEnd(role): one finger on a role starting with 'corner', moved (the window's form)
@@ -74,6 +75,7 @@ export function bind(el, h) {
     t.timer = setTimeout(() => {
       t.held = true;
       h.hold?.(role);
+      t.timer = setTimeout(() => { t.long = true; h.holdLong?.(role); }, LONG_MS - HOLD_MS); // held on (15.11.): carried now = everything so far too
     }, HOLD_MS);
   };
   const move = (e) => {
@@ -103,6 +105,7 @@ export function bind(el, h) {
     Object.assign(t, { cx: e.clientX, cy: e.clientY }); // where it last was: a cancelled touch ends here, not at 0,0
     const moved = Math.hypot(e.clientX - t.x, e.clientY - t.y) > 10;
     if (moved && !t.held) clearTimeout(t.timer); // a swipe, not a hold
+    if (moved && t.held) { if (!t.carried) { t.carried = true; clearTimeout(t.timer); } h.holdMove?.(t.role, e.clientX, e.clientY, Boolean(t.long)); } // carried: the line follows the finger
   };
 
   const up = (ev) => {
@@ -117,7 +120,7 @@ export function bind(el, h) {
     if (t.held) {
       const moved = Math.hypot(e.clientX - t.x, e.clientY - t.y) > 30; // held and carried = a drag
       h.holdEnd?.(t.role);
-      h.dragEnd?.(globalThis.document?.elementFromPoint?.(e.clientX, e.clientY) ?? null, moved, t.role);
+      h.dragEnd?.(globalThis.document?.elementFromPoint?.(e.clientX, e.clientY) ?? null, moved, t.role, { long: Boolean(t.long) });
       return;
     }
     const gesture = classify({ dx: e.clientX - t.x, dy: e.clientY - t.y, ms: performance.now() - t.at });

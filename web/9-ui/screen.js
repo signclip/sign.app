@@ -32,7 +32,7 @@ function fit(video, box, full) {
  * root: the screen element (fills the screen) · live, replay, template: <video> elements · overlay: element
  * for the SVG. → { paint(st, data), roleAt(event), last }
  */
-export function mountScreen({ root, live, replay, template, overlay }) {
+export function mountScreen({ root, live, replay, template, pair = null, overlay }) {
   const screen = { last: null };
 
   screen.paint = (st, data = {}) => {
@@ -43,7 +43,9 @@ export function mountScreen({ root, live, replay, template, overlay }) {
     fit(live, view.video, st.full);
     if (live) live.style.visibility = view.hideLive ? 'hidden' : ''; // Similar · viele: the tiles take the window
     fit(replay, view.video, st.full);
-    fit(template, view.template, false); // the small template, or in Similar · Doppel the reference window
+    const two = pair?.dataset.on && view.template; // Doppel of two takes (15.11.): side by side above, below stays free for the own take
+    if (two) { const b = view.template, half = { cx: b.cx - b.d / 4, cy: b.cy, d: b.d / 2 - 4, radius: 14 }; fit(template, half, false); fit(pair, { ...half, cx: b.cx + b.d / 4 }, false); pair.hidden = false; }
+    else { fit(template, view.template, false); if (pair) pair.hidden = true; } // the small template, or in Similar · Doppel the reference window
     if (template) template.hidden = !view.template;
     overlay.innerHTML = toSvg(view, { w, h });
     return view;

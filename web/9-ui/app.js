@@ -142,7 +142,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   };
   take.lastChain = newestOwnChain(); // after a restart the chain gestures go on where they were
 
-  const screen = mountScreen({ root: $('#screen'), live: $('#live'), replay: $('#replay'), template: $('#template'), overlay: $('#overlay') });
+  const screen = mountScreen({ root: $('#screen'), live: $('#live'), replay: $('#replay'), template: $('#template'), pair: $('#pair'), overlay: $('#overlay') });
   const paint = () => screen.paint(st, { ...data, hint: hintOf(onboard.at, settings.onboarding) });
   /** An action was done: the onboarding goes one step on if it was its step; at the end it switches off. */
   const learned = (action) => {
@@ -557,26 +557,26 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const paired = items.findIndex((x) => x.pair); // a known person on a new device: straight into Doppel, new above, original below
     return paired >= 0 ? reference(paired) : null;
   }
-  /** Doppel of a hello from a known person (15.11.): the original take plays below, where the live picture is. */
+  /** Doppel of a hello from a known person (15.11.): new and original side by side above (within | hello); below stays free for the own take. */
   async function pairOn(path, from) {
-    const v = $('#replay');
+    const v = $('#pair');
     if (!path) return pairOff();
     v.src = URL.createObjectURL(new Blob([await from.read(path)], { type: 'video/mp4' }));
-    Object.assign(v, { loop: true, muted: true, hidden: false });
-    v.dataset.pair = '1';
+    v.dataset.on = '1';
     v.play().catch(() => {});
   }
   function pairOff() {
-    const v = $('#replay');
-    if (!v.dataset.pair) return;
-    delete v.dataset.pair;
-    v.pause(); v.removeAttribute('src'); Object.assign(v, { loop: false, muted: false, hidden: true });
+    const v = $('#pair');
+    if (!v.dataset.on) return;
+    delete v.dataset.on;
+    v.pause(); v.removeAttribute('src'); v.hidden = true;
   }
   /** Admin, in Doppel: move the person this take belongs to one pile on (up) or back (down); her takes leave, the next one shows. */
   async function decide(how) {
     const at = data.look?.[data.doubleAt];
     if (!at?.[how]) return null;
-    try { await at[how](); } catch { return null; } // not reachable: it stays
+    navigator.vibrate?.(how === 'up' ? 20 : [12, 50, 12]); // felt at once: on = one pulse, back = two
+    try { await at[how](); } catch { navigator.vibrate?.([40, 40, 40]); return null; } // not reachable: it stays, three pulses
     const rest = data.look.filter((x) => x.group !== at.group);
     if (!rest.length) { pairOff(); return act('edge-out', 'upper-right'); }
     const next = Math.min(data.look.slice(0, data.doubleAt).filter((x) => x.group !== at.group).length, rest.length - 1);

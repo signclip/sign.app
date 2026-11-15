@@ -176,7 +176,7 @@ export function gestureOn(n, gesture, rules, extra = {}) {
       const there = ruleOf(rules, n, 'always', from) ?? ruleOf(rules, n, 'backup', from);
       if (there) return { edit: { rule: { from, to: n, mark: there.mark }, on: false } }; // dropped again = undone
       if (extra.private) return { edit: { rule: { from, to: n, mark: 'backup', kinds: [] }, on: true } }; // only I read it: encrypted, all
-      return { edit: { rule: { from, to: n, mark: 'always', kinds: [] }, on: true }, once: { from, n } }; // + everything so far
+      return { edit: { rule: { from, to: n, mark: 'always', kinds: [] }, on: true }, ...(extra.sofar ? { once: { from, n } } : {}) }; // from now on; held on first (15.11.) = + everything so far
     }
 
     case 'cut': { // ↓ on a line: that connection ends (copy or encrypted)
