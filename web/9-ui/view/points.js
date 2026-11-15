@@ -185,7 +185,8 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   persons.forEach((p, i) => {
     const c = { cx: 30 * k + i * 34 * k, cy: top + 20 * k, r: 13 * k }; // above the tiles, beside the handle
     add('circle', { ...c, cls: `sp person round${choosing ? ' breathe' : ''}${shake === `person:${p.id}` ? ' shake' : ''}`, role: `person:${p.id}` });
-    add('label', { x: c.cx, y: c.cy + 5 * k, text: (p.label || '?').slice(0, 1).toUpperCase(), cls: 'label person-initial' });
+    const same = persons.some((q) => q !== p && (q.label || '?')[0].toUpperCase() === (p.label || '?')[0].toUpperCase()); // Admin and Atlas: two letters (15.11.)
+    add('label', { x: c.cx, y: c.cy + 5 * k, text: (p.label || '?').slice(0, same ? 2 : 1).replace(/^./, (x) => x.toUpperCase()), cls: 'label person-initial' });
     if (p.start === 'choose') add('circle', { cx: c.cx + 9 * k, cy: c.cy - 9 * k, r: 3.5 * k, cls: 'badge person-start' });
     if (p.start === 'record') add('circle', { cx: c.cx, cy: c.cy, r: 16 * k, cls: 'person-record' });
     at.set(`person:${p.id}`, c);

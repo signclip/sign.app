@@ -34,13 +34,13 @@ import { shareTake } from '../4-save/share-take.js';
 import { timeLabel, readName } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { addNew, peek, pickFolder, loginAt, resumeLogin, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
-import { quietHello, devicesOf, quietDevice } from '../8-join/join.js';
-import { helloTakes, accountTakes, firstPieces } from '../8-join/known.js';
+import { readHello, devicesOf, quietDevice } from '../8-join/join.js';
+import { helloTakes, accountTakes, firstPieces, knownFolder } from '../8-join/known.js';
 import { doorView, toWithin, backToHello, moveAccount } from '../8-join/door.js';
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
-import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled, groupsOf, setGroup, matchAccounts } from '../8-join/provision.js';
+import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled, deleteAccount, groupsOf, setGroup, matchAccounts } from '../8-join/provision.js';
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
@@ -515,8 +515,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       const from = store ?? s.open.get(x.n)?.store;
       if (!from) continue;
       const group = x.helloPath ?? x.folder;
-      const steps = name === 'hello' ? { up: () => welcome(ctx, x), down: () => quietHello({ store: from, helloPath: x.helloPath }) }
-        : name === 'join' ? { up: () => toWithin(from, x.helloPath), down: () => backToHello(from, x.helloPath) }
+      const steps = name === 'hello' ? { up: () => welcome(ctx, x), down: () => backToHello(from, x.helloPath) } // ↓ = quiet, the device says hello anew
+        : name === 'join' ? { up: () => toWithin(from, x.helloPath), down: () => takeBack(from, x) }
         : name === 'within' ? { down: () => moveAccount(from, x.folder, 'within', 'quiet').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), false).catch(() => {})) }
         : { up: () => moveAccount(from, x.folder, 'quiet', 'within').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), true).catch(() => {})) };
       const wrap = (f) => f && (() => f().then(again));
@@ -525,6 +525,12 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       for (const t of takes) items.push({ ...t, from, group, up: wrap(steps.up), down: wrap(steps.down) });
     }
     return items.length ? onLookAll(items) : say(t('notReachable'));
+  }
+  /** join ↓ (15.11.): not taken yet → the account made for this hello goes (a known person's account stays), quiet/, hello anew. */
+  async function takeBack(store, x) {
+    const { person } = readHello(dec.decode(await store.read(x.helloPath)));
+    if (ctx.admin && !(await knownFolder(store, person.label))) await deleteAccount(ctx.admin, person.id.toLowerCase()).catch(() => {}); // gone already = fine
+    return backToHello(store, x.helloPath);
   }
   const userOfFolder = (folder) => /!\(([^()]*)\)$/.exec(folder)?.[1]?.toLowerCase();
   /** An account's name signs and password gestures (all its devices), oldest first, as Similar tiles. */
@@ -633,6 +639,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       return apply(gestureOn(n, dir, s.rules));
     },
     pinch: (factor) => { // two fingers on an account: apart = more space, together = less (steps of 25 %)
+      if (role?.startsWith('person:') && factor > 1.2) { globalThis.signPersons?.switchTo(role.slice(7)); return location.reload(); } // a small person pulled big = that person (15.11.)
       if (!role?.startsWith('browse:') || !s.accounts) return null;
       s.zoom = { role, scale: Math.max(0.7, Math.min(1.4, (s.zoom?.scale ?? 1) * factor)) }; // seen: the tile follows the fingers
       draw();
@@ -655,6 +662,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     },
     dragEnd: (el, moved) => {
       if (role === 'add:new' && !moved) return addNew(ctx); // + held: like a tap — only what is on the clipboard counts, no address is kept in the app (15.11.)
+      if (role?.startsWith('person:') && moved) { globalThis.signPersons?.switchTo(role.slice(7)); return location.reload(); } // a small person dragged out = pulled big: that person (15.11.)
       const from = circleOf(role);
       if (!moved && from === 0) return onOwnHold(); // my own tile held still: the onboarding again
       if (!moved) return from ? apply(gestureOn(targetFor(ctx.tileOf(from), 'hold'), 'hold', s.rules, { selection: selection(), private: ctx.tileOf(from)?.private })) : null; // held still: new goes there

@@ -98,6 +98,11 @@ export async function setPassword(admin, user, password, { fetch = globalThis.fe
   await ocs(admin, `users/${encodeURIComponent(user)}`, { method: 'PUT', body: new URLSearchParams({ key: 'password', value: password }).toString(), fetch });
 }
 
+/** Take an account back (15.11.: join ↓ before the device took it): the Nextcloud user goes, its files with it. */
+export async function deleteAccount(admin, user, { fetch = globalThis.fetch } = {}) {
+  await ocs(admin, `users/${encodeURIComponent(user)}`, { method: 'DELETE', fetch });
+}
+
 export async function setEnabled(admin, user, on, { fetch = globalThis.fetch } = {}) {
   await ocs(admin, `users/${encodeURIComponent(user)}/${on ? 'enable' : 'disable'}`, { method: 'PUT', fetch });
 }
