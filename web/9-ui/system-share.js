@@ -43,6 +43,15 @@ export async function defaults() {
   try { return (await cap().ShareTargets?.defaults()) ?? {}; } catch { return {}; }
 }
 
+/** Android: save the files into a folder the person picks (the device's own file manager). → number saved, or 0. */
+export async function saveFiles(files) {
+  const plugin = cap().ShareTargets;
+  if (!plugin?.saveFiles) return 0;
+  const uris = (await cached(files)) ?? [];
+  const r = await plugin.saveFiles({ paths: uris.map((u) => decodeURI(u.replace(/^file:\/\//, ''))), names: files.map((f) => f.name), mimes: files.map((f) => f.type || 'application/octet-stream') });
+  return r?.saved ?? 0;
+}
+
 /** Android: print a PDF (the emergency sheet) through the print dialog. → true when it opened. */
 export async function printFile(file) {
   const plugin = cap().ShareTargets;

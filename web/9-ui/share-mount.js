@@ -27,7 +27,7 @@ import { quietIds } from '../4-save/remove.js';
 import { deviceKeys, joins } from './device-keys.js';
 import { readPaste } from '../2-storage/spec.js';
 import { copyRoute } from '../2-storage/routes.js';
-import { send, filesOf, targets, sendTo, defaults, printFile } from './system-share.js';
+import { send, filesOf, targets, sendTo, defaults, printFile, saveFiles } from './system-share.js';
 import { shareTake } from '../4-save/share-take.js';
 import { timeLabel, readName } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
@@ -195,6 +195,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (s.pending) { // something prepared (the emergency sheet): it goes, then the sheet closes
       const p = s.pending;
       if (target?.glyph === 'print') return printFile(p.files[0]).then(() => show(false), () => say(t('notReachable')));
+      if (target?.glyph === 'save') return saveFiles(p.files).then(() => show(false), () => null);
       const done = target === undefined ? send(p) : sendTo(target, p);
       return done.then(() => show(false), () => say(t('notReachable')));
     }
@@ -204,6 +205,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const files = await filesOf(own, defs.map((d) => d.id));
     if (!files.length) return say(t('notReachable'));
     if (target === undefined) return send({ title: 'Sign', files }).catch(() => null);
+    if (target.glyph === 'save') return saveFiles(files).catch(() => null); // into a folder the person picks
     s.flash = role; draw(); setTimeout(() => { s.flash = null; draw(); }, 700); // seen at once; the app opens after the files are ready
     return sendTo(target, { files }).catch(() => say(t('notReachable')));
   }
@@ -213,15 +215,21 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (s.apps) return;
     let used = {};
     try { used = JSON.parse(localStorage.getItem('sign.apps') || '{}'); } catch { /* private mode */ }
-    const [list, mine] = await Promise.all([targets('*/*'), defaults()]);
-    // first what this person uses most here; before that: messenger, the own mail app, save to files, print, the own messages app
-    const usual = ['com.whatsapp', mine.mail, 'com.google.android.apps.nbu.files', 'com.google.android.documentsui', 'com.google.android.apps.docs', mine.sms, 'org.thoughtcrime.securesms', 'org.telegram', 'com.google.android.gms'].filter(Boolean);
-    const rank = (a) => (used[a.pkg] ?? 0) * 1000 + (usual.findIndex((p) => a.pkg.startsWith(p)) + 1 ? 100 - usual.findIndex((p) => a.pkg.startsWith(p)) : 0);
-    const sorted = list.sort((a, b) => rank(b) - rank(a));
-    const print = list.length ? [{ label: 'Drucken', pkg: '__print', glyph: 'print' }] : []; // Android: printing is no share target, Sign offers it itself
-    s.apps = { list: [...sorted.slice(0, 2), ...print, ...sorted.slice(2)], x: 0 };
+    const [found, mine] = await Promise.all([targets('*/*'), defaults()]);
+    const list = found.filter((a, i) => found.findIndex((b) => b.pkg === a.pkg) === i); // one per app
+    if (!list.length) { s.apps = { list: [], x: 0 }; return; }
+    // fixed in front (14.11.): save (the device's file manager), print, the own mail app, WhatsApp, Bluetooth — then the rest, most used first
+    const take = (test) => { const i = list.findIndex(test); return i < 0 ? [] : list.splice(i, 1); };
+    const front = [
+      { label: 'Speichern', pkg: '__save', glyph: 'save' },
+      { label: 'Drucken', pkg: '__print', glyph: 'print' },
+      ...take((a) => mine.mail && a.pkg === mine.mail), ...take((a) => a.pkg === 'com.whatsapp'), ...take((a) => /bluetooth/.test(a.pkg)),
+    ];
+    s.apps = { list: [...front, ...list.sort((a, b) => (used[b.pkg] ?? 0) - (used[a.pkg] ?? 0))], x: 0 };
     if (!panel.hidden) draw();
   }
+  /** The row as shown: printing only for a page (the emergency sheet), not for a take. */
+  const rowApps = () => (s.apps?.list ?? []).filter((x) => x.glyph !== 'print' || s.pending);
   function usedApp(app) {
     try { const used = JSON.parse(localStorage.getItem('sign.apps') || '{}'); used[app.pkg] = (used[app.pkg] ?? 0) + 1; localStorage.setItem('sign.apps', JSON.stringify(used)); } catch { /* private mode */ }
   }
@@ -379,7 +387,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'sp-kind') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'tap-kind'), 'tap-kind', s.rules, { kind: b }));
     if (what === 'add') return addNew(ctx); // the one + tile
     if (what === 'out') return outside(); // the share sign: the last take to other apps (the system sheet)
-    if (what === 'app') { const app = s.apps?.list?.[Number(a)]; if (!app) return null; if (!app.glyph) usedApp(app); return outside(app); } // one app of the row: straight there
+    if (what === 'app') { const app = rowApps()[Number(a)]; if (!app) return null; if (!app.glyph) usedApp(app); return outside(app); } // one app of the row: straight there
     if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.look ? x.look() : null; } // an account: tap = look at it
     if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
     if (what === 'hello') { // tap = look: the name sign that came with the hello, in the window (14.11.; ← = welcome)
@@ -493,7 +501,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const ws = words().map((w) => w.toLowerCase());
     const hellos = s.hellos.filter((x) => ws.every((w) => x.name.toLowerCase().includes(w))).map((x) => ({ label: x.name, n: x.n })); // n: the group they said hello to · context words find hellos too
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.accounts || s.browse ? null : s.apps ?? { list: [] }, outOnly: Boolean(s.pending), persons: others(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.accounts || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();
@@ -511,7 +519,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     },
     slide: (r, dx) => { // the share row follows the finger (14.11.): moved by CSS on every frame, drawn anew only at the end
       if (!s.apps) return null;
-      const limit = rowLimit(s.apps.list.length + 1, { w: panel.getBoundingClientRect().width }), x = s.apps.x ?? 0;
+      const limit = rowLimit(rowApps().length + 1, { w: panel.getBoundingClientRect().width }), x = s.apps.x ?? 0;
       s.apps.drag = Math.max(limit - x, Math.min(-x, (s.apps.drag ?? 0) + dx));
       for (const el of panel.querySelectorAll('.row')) el.style.transform = `translateX(${s.apps.drag}px)`;
       return null;

@@ -32,7 +32,13 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import androidx.activity.result.ActivityResult;
+import android.provider.DocumentsContract;
+import android.app.Activity;
+import java.util.HashSet;
+import java.util.Set;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.util.ArrayList;
@@ -59,8 +65,10 @@ public class ShareTargetsPlugin extends Plugin {
                 List<ResolveInfo> found = pm.queryIntentActivities(new Intent(Intent.ACTION_SEND).setType(mime), 0);
                 JSArray targets = new JSArray();
                 int n = 0;
+                Set<String> seen = new HashSet<>(); // one entry per app (WhatsApp, Drive … offer several targets)
                 for (ResolveInfo ri : found) {
                     if (ri.activityInfo.packageName.equals(getContext().getPackageName())) continue;
+                    if (!seen.add(ri.activityInfo.packageName)) continue;
                     JSObject t = new JSObject();
                     t.put("label", String.valueOf(ri.loadLabel(pm)));
                     t.put("pkg", ri.activityInfo.packageName);
@@ -88,6 +96,44 @@ public class ShareTargetsPlugin extends Plugin {
         out.put("mail", mail != null && mail.activityInfo != null && !"android".equals(mail.activityInfo.packageName) ? mail.activityInfo.packageName : null);
         out.put("sms", sms != null && sms.activityInfo != null && !"android".equals(sms.activityInfo.packageName) ? sms.activityInfo.packageName : null);
         call.resolve(out);
+    }
+
+    /**
+     * Save files where the person chooses (14.11.): the system folder picker (the device's own file manager),
+     * then every file is written into that folder. saveFiles({ paths, names, mimes }) → { saved: n }.
+     */
+    @PluginMethod
+    public void saveFiles(PluginCall call) {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        startActivityForResult(call, pick, "savePicked");
+    }
+
+    @ActivityCallback
+    private void savePicked(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) { call.reject("cancelled"); return; }
+        Uri tree = result.getData().getData();
+        try {
+            JSArray paths = call.getArray("paths", new JSArray());
+            JSArray names = call.getArray("names", new JSArray());
+            JSArray mimes = call.getArray("mimes", new JSArray());
+            Uri dir = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+            int n = 0;
+            for (int i = 0; i < paths.length(); i++) {
+                Uri doc = DocumentsContract.createDocument(getContext().getContentResolver(), dir, mimes.optString(i, "application/octet-stream"), names.optString(i, "sign"));
+                if (doc == null) continue;
+                try (InputStream in = new FileInputStream(paths.getString(i)); OutputStream out = getContext().getContentResolver().openOutputStream(doc)) {
+                    byte[] buf = new byte[65536]; int k;
+                    while ((k = in.read(buf)) > 0) out.write(buf, 0, k);
+                }
+                n++;
+            }
+            JSObject out = new JSObject();
+            out.put("saved", n);
+            call.resolve(out);
+        } catch (Exception e) {
+            call.reject(String.valueOf(e.getMessage()));
+        }
     }
 
     /** Print a PDF from the cache (the emergency sheet): Android's print dialog, any printer or "save as PDF". */

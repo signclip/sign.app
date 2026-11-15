@@ -229,7 +229,7 @@ function appRow({ list = [], x = 0 }, { w, h, k, add, at }) {
   items.forEach((a, i) => {
     const cx = first + i * gap + x;
     if (a.icon) add('image', { png: a.icon, x: cx - size / 2, y, s: size, cls: 'app row', role: a.role }); // all drawn: the row slides by CSS, no redraw
-    else if (a.glyph === 'print') { add('circle', { cx, cy: y + size / 2, r: size / 2, cls: 'sp out round row', role: a.role }); glyphPrint({ cx, cy: y + size / 2 }, k, add); }
+    else if (a.glyph) { add('circle', { cx, cy: y + size / 2, r: size / 2, cls: 'sp out round row', role: a.role }); (a.glyph === 'print' ? glyphPrint : glyphSave)({ cx, cy: y + size / 2 }, k, add); }
     else { add('circle', { cx, cy: y + size / 2, r: size / 2, cls: 'sp out round row', role: a.role }); glyphShare({ cx, cy: y + size / 2 }, k, add, ' row'); }
     if (a.label) add('label', { x: cx, y: y + size + 14 * k, text: a.label.length > 10 ? `${a.label.slice(0, 9)}…` : a.label, cls: 'label app-label row' });
     at.set(a.role, { cx, cy: y + size / 2, r: size / 2 });
@@ -237,6 +237,9 @@ function appRow({ list = [], x = 0 }, { w, h, k, add, at }) {
 }
 /** How far the row may slide: 0 … −(its length beyond the screen). */
 export const rowLimit = (n, { w = 390, k = w / 390 } = {}) => Math.min(0, w - (40 * k * 2 + n * 70 * k));
+function glyphSave({ cx, cy }, k, add) { // an arrow down into a tray: save into a folder
+  add('path', { d: `M ${cx} ${cy - 11 * k} V ${cy + 3 * k} M ${cx - 6 * k} ${cy - 3 * k} L ${cx} ${cy + 3 * k} L ${cx + 6 * k} ${cy - 3 * k} M ${cx - 12 * k} ${cy + 3 * k} V ${cy + 10 * k} H ${cx + 12 * k} V ${cy + 3 * k}`, cls: 'glyph row' });
+}
 function glyphPrint({ cx, cy }, k, add) { // a printer: paper in, paper out
   add('path', { d: `M ${cx - 7 * k} ${cy - 4 * k} V ${cy - 11 * k} H ${cx + 7 * k} V ${cy - 4 * k} M ${cx - 12 * k} ${cy + 6 * k} V ${cy - 4 * k} H ${cx + 12 * k} V ${cy + 6 * k} H ${cx - 12 * k} M ${cx - 7 * k} ${cy + 2 * k} V ${cy + 11 * k} H ${cx + 7 * k} V ${cy + 2 * k}`, cls: 'glyph row' });
 }
