@@ -210,7 +210,7 @@ async function sayHelloTo(ctx, label, { door = false } = {}) {
   const drop = door ? doorLinks(ctx.s.open.get(g.read.n)?.store, open) : open; // a door's drop link is hello/ itself
   const keys = await deviceKeys();
   const device = { id: ctx.device, label: ctx.person.label, key: keys.device.public };
-  const helloPath = await sayHello({ store: drop, device, deviceKey: keys.device, person: ctx.person, target: label, pickup: keys.pickup.public, nameSign: await ctx.nameSign?.() });
+  const helloPath = await sayHello({ store: drop, device, deviceKey: keys.device, person: ctx.person, target: label, pickup: keys.pickup.public, nameSign: await ctx.nameSign?.(), gestures: door ? await ctx.gestures?.().catch(() => []) ?? [] : [] });
   await joins.set(label, { helloPath, state: 'hello', door });
 }
 

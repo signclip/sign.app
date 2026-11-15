@@ -16,6 +16,7 @@
 //            reaches the sheet (only user, server, path) · ≤ 24 sharing points drawn around the device.
 
 import { Page, makePages } from '../1-model/pdf.js';
+import { timeLabel } from '../1-model/filename.js';
 import { tally } from '../3-index/tally.js';
 import { clusters } from '../3-index/clusters.js';
 import { INK, arcs } from './view/sheet-charts.js';
@@ -89,7 +90,7 @@ function frame(p, sheet, no, of, name) {
   }
   p.line(M, 812, M + W, 812, { stroke: INK.line, width: 0.6 });
   p.text(M, 824, 'nicht fotografieren · nicht in eine Cloud · ein neues Blatt ersetzt dieses', { size: 6.5, color: INK.mut });
-  p.text(M + W, 824, `${no} / ${of}`, { size: 6.5, color: INK.mut, align: 'right' });
+  p.text(M + W, 824, `'t(${timeLabel(sheet.now)})  ${no} / ${of}`, { size: 6.5, color: INK.mut, align: 'right' });
 }
 
 /** sheet (sheetData) → the pages. */
@@ -99,12 +100,17 @@ export function sheetPages(sheet) {
   cover(first, sheet);
   const named = [[first, 'Sign'], [backupPage(sheet), 'Backup'], ...pointPages(sheet, self).map((p) => [p, 'sharing points']), [stockPage(sheet), 'Bestand'], [contextPage(sheet), 'context'],
     ...(sheet.accounts?.length ? accountPages(sheet).map((p) => [p, 'Konten']) : [])];
-  named.forEach(([p, name], i) => (i ? frame(p, sheet, i + 1, named.length, name) : p.text(M + W, 824, `1 / ${named.length}`, { size: 6.5, color: INK.mut, align: 'right' })));
+  named.forEach(([p, name], i) => (i ? frame(p, sheet, i + 1, named.length, name) : p.text(M + W, 824, `'t(${timeLabel(sheet.now)})  1 / ${named.length}`, { size: 6.5, color: INK.mut, align: 'right' })));
   return named.map(([p]) => p);
 }
 
-/** The file name: "Sign Overview @(n_…)" — whose it is by the person ID (@( ) = person, SCHEMA), no name in it. */
-export const sheetName = (person) => `Sign Overview @(${person.id})`;
+/**
+ * The file name as every file name in SCHEMA B4: readable in front, the identity behind —
+ * (Sign Overview)@(Lena)'t(2026.11.15 10.30.00)!(n_…).pdf
+ * n_ (the person, never changes) with 't (to the second) tells every sheet apart: one person makes no two sheets in
+ * one second. The same 't stands at the foot of every page, so paper and file belong together.
+ */
+export const sheetName = (sheet) => `(Sign Overview)@(${String(sheet.name).replace(/[()/\\:*?"<>|#%{}]/g, '')})'t(${timeLabel(sheet.now)})!(${sheet.person}).pdf`;
 
-/** The sheet as a PDF file (its title = the file name). */
-export const sheetPdf = (sheet) => makePages(sheetPages(sheet), { title: sheetName({ id: sheet.person ?? '' }) });
+/** The sheet as a PDF file (its title = the file name without .pdf). */
+export const sheetPdf = (sheet) => makePages(sheetPages(sheet), { title: sheetName(sheet).slice(0, -4) });

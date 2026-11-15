@@ -62,7 +62,8 @@ import { strandChips, draw } from './panels.js';
 import { filterChips, toggle, filtersOf, EMPTY } from './similar-filter.js';
 import { mountShareMenu } from './share-mount.js';
 import { keychain } from './keychain.js';
-import { hintOf, progress, done, NAME_SIGN_STEP, STEPS } from './onboarding.js';
+import { hintOf, progress, done, NAME_SIGN_STEP, GESTURE_STEPS, STEPS } from './onboarding.js';
+import { drawWords } from '../1-model/words.js';
 import { installDavFetch } from '../2-storage/dav-fetch.js';
 installDavFetch(); // native app: PROPFIND, MKCOL, MOVE through the app's own plugin (Android refuses them otherwise)
 
@@ -149,8 +150,16 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     onboard.at = at;
     try { localStorage.setItem('sign.onboard', String(at)); } catch { /* private mode */ }
     if (done(at)) { settings = choose(settings, 'onboarding', false); saveSettings(); }
+    suggestGesture();
     paint();
   };
+  /** Password gestures (15.11.): at their steps a drawn word waits as a pale chip; the third is one's own (no chip). */
+  function suggestGesture(again = false) {
+    const i = GESTURE_STEPS.indexOf(onboard.at);
+    if (!settings.onboarding || i < 0 || i > 1) { if (data.gestureWord) { data.gestureWord = null; data.offers = []; } return; }
+    if (!data.gestureWord || again) data.gestureWord = drawWords(1)[0];
+    data.offers = [{ text: data.gestureWord, offer: true }];
+  }
   const step = (action, extra = {}) => {
     const before = st.fields;
     st = next(st, { action, ...extra });
@@ -182,12 +191,23 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const menu = await mountShareMenu({
     project,
     onLook: (path, from) => { menu.show(false); return show(path, from).catch(() => {}); }, // tap on a hello: its name sign in the window
+    onLookAll: async (items) => { // double-tap on a hello: its password gestures one after the other, then the account's earlier ones (15.11.)
+      menu.show(false);
+      for (const { path, from } of items) {
+        try { await show(path, from); } catch { continue; }
+        await new Promise((ok) => { const v = $('#replay'); const t = setTimeout(ok, 8000); v.onended = () => { clearTimeout(t); ok(); }; });
+      }
+    },
     words: () => [...data.chips.filter((c) => !c.stable).map((c) => c.text), ...($('#say')?.value ?? '').split(/\s+/)].filter(Boolean), // context finds accounts and hellos (admin)
     panel: $('#share'), own: store, keychain, person, device, t,
     index: () => index, // the emergency sheet counts from it
     lastChain: async () => take.shareChain ?? take.lastChain, // an element of the line (↑ on it), else the last take
     selection: () => toRecord(st), // double-tap on a sharing point = these strands always go there
     once: () => take.shareOnce, // a strand held while ↑ on the point: only it is shared this time
+    gestures: async () => { // the password gestures go with the door's hello (15.11.: the admin compares them by eye until the model can)
+      let list = []; try { list = JSON.parse(localStorage.getItem('sign.passwords') || '[]'); } catch { /* none */ }
+      return (await Promise.all(list.map((p) => store.read(p).catch(() => null)))).filter(Boolean);
+    },
     nameSign: async () => { // the first take of the onboarding goes along with every hello
       try { const p = localStorage.getItem('sign.nameSign'); return p ? await store.read(p) : null; } catch { return null; }
     },
@@ -269,6 +289,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     take.began = action;
     const first = parseNotation(series).find((n) => n.t !== 'sym'); // written context: the next gesture of the series
     take.context = action === 'take-with-context' ? contextOf(st.hold?.text) : first ? writeNotation([first]) : '';
+    if (settings.onboarding && GESTURE_STEPS.includes(onboard.at)) { take.context = data.gestureWord ? `(password ${data.gestureWord})` : '(password)'; take.gesture = true; } // a password gesture
     take.fromSeries = action !== 'take-with-context' && Boolean(first);
     if (data.adopted?.length) { take.context = [take.context, ...data.adopted.map((x) => `(${x})`)].filter(Boolean).join(' '); data.adopted = []; } // offers taken from the result above
     if (data.photo && toRecord(st).includes('v')) { // the picture point is on: one picture, no sound, saved at once
@@ -346,7 +367,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (settings.onboarding && onboard.at === NAME_SIGN_STEP) {
       const video = saved.paths.find((p) => p.endsWith('.v.mp4'));
       try { if (video) localStorage.setItem('sign.nameSign', video); } catch { /* private mode */ }
-      menu.joinProject().catch(() => {}); // the first group: hello to the project's door, with this name sign
+    }
+    if (take.gesture) { // a password gesture saved: kept for this person; the hello takes them along (after the third)
+      const video = saved.paths.find((p) => /\.v\.(mp4|webm)$/.test(p));
+      let list = []; try { list = JSON.parse(localStorage.getItem('sign.passwords') || '[]'); } catch { /* none yet */ }
+      try { if (video) localStorage.setItem('sign.passwords', JSON.stringify([...list, video].slice(-3))); } catch { /* private mode */ }
+      take.gesture = false;
+      if (onboard.at === GESTURE_STEPS[2]) menu.joinProject().catch(() => {}); // all three there: hello to the project's door
+      data.gestureWord = null;
     }
     learned(take.began);
     if (settings.flows.includes('a>x') && recorded.audio && kinds.includes('a')) flowAudio(saved.chain.path, recorded.audio).catch((err) => console.warn('whisper', err));
@@ -940,6 +968,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     },
     tap: (x, y, role) => {
       if (!$('#share').hidden && role !== 'point') return menu.show(false); // a tap beside the circles closes them
+      if (role?.startsWith('offer:') && data.gestureWord) return null; // the drawn word is the context of the next take anyway
       if (role?.startsWith('offer:')) return adopt(role.slice(6)); // a greyed context of the result above: now mine
       return act('tap', role, { x, y });
     },
@@ -955,7 +984,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (propertyRole && role === propertyRole) { spentRole = role; propertyRole = null; return step('release-property'); }
       if (st.held) end(); else if (st.sub === 'scrub') step('release');
     },
-    swipe: (dir, role) => { if (role?.startsWith('offer:') && dir.startsWith('down')) { data.offers = data.offers.filter((o) => offerText(o) !== role.slice(6)); return paint(); } return act(dir, role); }, // ↓ on an offer: away
+    swipe: (dir, role) => { if (role?.startsWith('offer:') && dir.startsWith('down') && data.gestureWord) { suggestGesture(true); return paint(); } // another word
+      if (role?.startsWith('offer:') && dir.startsWith('down')) { data.offers = data.offers.filter((o) => offerText(o) !== role.slice(6)); return paint(); } return act(dir, role); }, // ↓ on an offer: away
     pinch: (factor, role, how = {}) => { // on the point: one above the other = camera zoom, side by side = time (line zoom, or the waits) · on the picture: the window's form
       if (role === 'point') {
         if ((how.angle ?? 90) >= 45) return zoomBy(camera, how.fy ?? factor); // up and down: the picture

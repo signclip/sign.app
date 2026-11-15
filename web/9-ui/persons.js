@@ -15,7 +15,7 @@
 import { newPerson } from '../1-model/ids.js';
 
 export const PERSONAL = new Set(['sign.person', 'sign.name', 'sign.settings', 'sign.onboard', 'sign.sticky', 'sign.nameSign', 'sign.removeLater',
-  'sign.upkeep', 'sign.confirmed', 'sign.atlasAt', 'sign.apps', 'sign.photo']);
+  'sign.upkeep', 'sign.confirmed', 'sign.atlasAt', 'sign.apps', 'sign.photo', 'sign.passwords']);
 const REG = 'sign.persons', CUR = 'sign.current', MAX = 12;
 
 /** The storage seen by the app for the current person. raw: a Storage (localStorage) → a Storage-like object. */

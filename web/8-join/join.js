@@ -38,19 +38,22 @@ async function chainFile({ by, device, deviceKey, now, defs = [], line, raw = nu
 }
 /** The name sign beside a hello: same name, picture strand. */
 export const nameSignOf = (helloName) => buildName({ ...readName(helloName), kind: 'v', ext: 'mp4' });
+/** The i-th password gesture beside a hello: same person and u_, words (hello password i). */
+export const gestureOf = (helloName, i) => { const n = readName(helloName); return buildName({ ...n, words: ['hello', 'password', String(i + 1)], kind: 'v', ext: 'mp4' }); }; // first word = state (hello → within)
 const belowOf = async (bytes) => ({ id: readFile(dec.decode(bytes)).head.id, hash: await hashBytes(bytes) });
 
 /**
  * 1 · Device: say hello. device: { id, label, key } · pickup: ECDH public key · target: label ·
  * nameSign: the video of the name sign (bytes) or null; it lies beside the hello with the same name, .v.mp4.
  */
-export async function sayHello({ store, device, deviceKey = null, person, target, pickup, nameSign = null, now = Date.now() }) {
+export async function sayHello({ store, device, deviceKey = null, person, target, pickup, nameSign = null, gestures = [], now = Date.now() }) {
   const f = await chainFile({ by: person, device: device.id, deviceKey, now, words: ['hello', target],
     defs: [defLine('sharing-point.1', { hint: device.label, id: `${device.id} z_${device.key}` })],
     line: ['hello', target, `pickup ${pickup}`, '{:sharing-point.1}'] });
   const path = `hello/${f.name}`;
   await store.write(path, enc.encode(f.text));
   if (nameSign) await store.write(`hello/${nameSignOf(f.name)}`, nameSign);
+  for (const [i, g] of gestures.slice(0, 3).entries()) await store.write(`hello/${gestureOf(f.name, i)}`, g); // password gestures (15.11.), for the admin's eye
   return path;
 }
 

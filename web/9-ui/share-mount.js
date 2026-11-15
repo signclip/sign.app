@@ -32,7 +32,7 @@ import { shareTake } from '../4-save/share-take.js';
 import { timeLabel, readName } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { addNew, peek, pickFolder, loginAt, resumeLogin, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
-import { nameSignOf, devicesOf, quietDevice } from '../8-join/join.js';
+import { nameSignOf, gestureOf, devicesOf, quietDevice } from '../8-join/join.js';
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
@@ -67,7 +67,7 @@ async function clipboardText() {
  * project: { label, read, drop } the project's door (project.json): the first join, without a group text.
  * → { show(on), afterTake(paths), runRules(), dropKind(n, kind) }
  */
-export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {}, words = () => [], index = () => null }) {
+export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, gestures = async () => [], project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {}, onLookAll = () => {}, words = () => [], index = () => null }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
@@ -176,7 +176,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     draw();
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on) };
+  const ctx = { s, keychain, edit, load, say, t, all, device, person, nameSign, gestures, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on) };
 
   // ---------- doing what a gesture says ----------
   async function shareTo(n, kinds = null) {
@@ -257,8 +257,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const signerCode = admin && adminStore() ? await paperForDoor().catch(() => null) : null; // admin: the paper becomes a signer too
     const sheet = sheetData({ person, device, key, paper, signerCode, joins: await sheetJoins(), date: timeLabel(Date.now()).split(' ')[0], entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
     const pdf = sheetPdf(sheet);
-    const name = sheetName(person); // whose overview: the person ID, as in every file name
-    const p = { title: name, text: key, files: [new File([pdf], `${name}.pdf`, { type: 'application/pdf' })] };
+    const name = sheetName(sheet); // (Sign Overview)@(Name)'t(…)!(u_…).pdf, as every file name
+    const p = { title: 'Sign Overview', text: key, files: [new File([pdf], name, { type: 'application/pdf' })] };
     if (!s.apps?.list?.length) return send(p).catch(() => null); // no row (iOS, browser): the system sheet
     s.pending = p; s.apps.x = 0; return draw(); // the menu folds down to its share row: choose where it goes (14.11.)
   }
@@ -471,6 +471,18 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   /** The other persons on this device (persons.js), with how each starts. */
   const others = () => { const p = globalThis.signPersons; return p ? p.persons().filter((x) => x.id !== p.current()) : []; };
   const START = ['direct', 'record', 'choose']; // straight to the take as left · records at once · the persons to choose at start
+  /**
+   * Admin, a hello double-tapped (15.11.): its password gestures in the window; if an account of that name is already in
+   * within/ (a known person on a new device), its first password gestures follow, to compare by eye until the model can.
+   */
+  async function lookGestures(x) {
+    const store = s.open.get(x?.n)?.store;
+    if (!store) return null;
+    const name = x.helloPath.slice(x.helloPath.lastIndexOf('/') + 1), items = [0, 1, 2].map((i) => ({ path: `hello/${gestureOf(name, i)}`, from: store }));
+    const known = (await store.list('within/').catch(() => [])).map((f) => f.path)
+      .filter((p) => /\(within password [123]\)/.test(p) && p.includes(`/@(${x.name})!(`)).sort().slice(0, 3);
+    return onLookAll([...items, ...known.map((path) => ({ path, from: store }))]);
+  }
   /** The project's own Nextcloud (its door's server), where the admin logs in. */
   const projectServer = () => { try { return new URL(project?.doors?.[0]?.read ?? project?.read).origin; } catch { return null; } };
   /** The admin's own folder with hello/ join/ within/ quiet/ (the door), or null. */
@@ -528,6 +540,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     slideEnd: () => { if (!s.apps?.drag) return null; s.apps.x = (s.apps.x ?? 0) + s.apps.drag; s.apps.drag = 0; return draw(); },
     tap: () => tapped(role), // waits 300 ms: it may become a double-tap
     doubleTap: () => { // 14.11.: on a sharing point = encrypted ↔ readable (the line from this device turns double / single)
+      if (role?.startsWith('hello:')) return lookGestures(s.hellos[Number(role.split(':')[1])]); // the password gestures, then the account's earlier ones
       if (role?.startsWith('person:') || role === 'sp:0') { // how a person starts: direct → records at once → chooses
         const P = globalThis.signPersons, id = role === 'sp:0' ? P?.current() : role.slice(7), now = P?.persons().find((x) => x.id === id)?.start ?? 'direct';
         P?.setStart(id, START[(START.indexOf(now) + 1) % START.length]);

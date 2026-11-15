@@ -12,7 +12,7 @@
 //            14.11.: it starts with the name (the context field is open, Enter = name, it becomes the context
 //            of the name sign), and after the name sign the door waits in the sharing menu as a hello bubble:
 //            drag yourself onto it = hello. Steps without a gesture of the table ('write', 'drag') are hinted where they happen.
-// Limits:    8 steps; the step number is kept on the device (localStorage), never shared.
+// Limits:    11 steps; the step number is kept on the device (localStorage), never shared.
 
 import { TABLE } from './gestures.js';
 import { targetOf } from './screen.js';
@@ -21,6 +21,9 @@ import { targetOf } from './screen.js';
 export const STEPS = [
   ['name', 'field'], // write the name: the context field is open and breathes
   ['take', 'point'], // name sign (the name is its context)
+  ['take', 'point'], // password gesture 1: a drawn word as a pale chip (↓ on it = another)
+  ['take', 'point'], // password gesture 2: another drawn word
+  ['take', 'point'], // password gesture 3: one's own
   ['share-last', 'point'], // the sharing menu: the door breathes as a hello bubble
   ['hello', 'panel'], // drag yourself onto it
   ['replay-back', 'point'], // watch it
@@ -29,6 +32,8 @@ export const STEPS = [
   ['similar-in', 'upper-right'], // Similar
 ];
 export const NAME_SIGN_STEP = 1;
+/** The password gestures (15.11.): two drawn words, then one's own; they go with the hello to the admin (SCHEMA B8). */
+export const GESTURE_STEPS = [2, 3, 4];
 /** Steps hinted where they happen (field, sharing menu) instead of by the pale point: their gesture. */
 const IN_PLACE = { field: 'write', panel: 'drag' };
 
