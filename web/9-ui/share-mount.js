@@ -579,7 +579,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → back: look again (new hellos, a failed welcome tried anew)
       const n = circleOf(role);
       if (n && n === s.adminN && dir === 'right') return showAccounts(); // → on the admin tile: who has how much space
-      if (n === 0 && dir === 'up') return emergency(); // ↑ on my own tile: the emergency sheet as PDF in the share sheet (the check key goes along as text)
+      if ((n === 0 || (n && n === s.adminN)) && dir === 'up') return emergency(); // ↑ on my own tile: the emergency sheet as PDF in the share sheet (the check key goes along as text)
       if (!n) return null;
       const tile = ctx.tileOf(n);
       if (tile?.drop && (dir === 'down' || dir === 'down-far')) { // a group goes with both its links, the higher number first
