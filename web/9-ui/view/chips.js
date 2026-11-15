@@ -108,6 +108,12 @@ export function chipShapes(groups = [], { timeMs = null, cx, y, k = 1, w = 390 }
   return out.map((s) => move(s, shift));
 }
 
+/** How high the row is (bubbles in bubbles grow it: 32 px, 2 levels 56 px, 3 levels 68 px) – the field makes room for it. */
+export function rowHeight(groups = [], k = 1) {
+  const s = chipShapes(groups, { cx: 0, y: 0, k }).filter((x) => x.type === 'chip' || x.type === 'bubble');
+  return s.length ? Math.max(...s.map((x) => x.y + x.h)) - Math.min(...s.map((x) => x.y)) : H * k;
+}
+
 /** A node at x (its left edge), level, middle y. */
 function put(n, x, level, o) {
   const { y, k, out } = o;

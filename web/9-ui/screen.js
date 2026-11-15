@@ -39,7 +39,8 @@ export function mountScreen({ root, live, replay, template, pair = null, overlay
     const { width: w, height: h } = root.getBoundingClientRect();
     const view = layout(st, data, { w, h });
     screen.last = view;
-    globalThis.document?.documentElement.style.setProperty('--field-y', `${view.fieldY}px`); // the context field follows the window
+    const css = globalThis.document?.documentElement.style; // the context field follows the window: row and box share x and width
+    css?.setProperty('--field-y', `${view.fieldY}px`); css?.setProperty('--field-x', `${view.field.x}px`); css?.setProperty('--field-w', `${view.field.w}px`);
     fit(live, view.video, st.full);
     if (live) live.style.visibility = view.hideLive ? 'hidden' : ''; // Similar · viele: the tiles take the window
     fit(replay, view.video, st.full);

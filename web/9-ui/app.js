@@ -138,6 +138,20 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const stickyChips = () => sticky.map((text) => ({ text, stable: true }));
   const setChips = (current = data.chips.filter((c) => !c.stable)) => { data.chips = [...stickyChips(), ...current]; };
   setChips([]);
+  /** Chips aside (15.11.): a tap on the open context arc lays all chips aside for a later take; the next tap brings them back. */
+  let aside = JSON.parse(kept('sign.chipsAside', () => 'null')); // { series, sticky, chips, adopted } or null (per person)
+  const keepAside = () => { try { localStorage.setItem('sign.chipsAside', JSON.stringify(aside)); localStorage.setItem('sign.sticky', JSON.stringify(sticky)); } catch { /* private mode */ } };
+  function chipsAside() {
+    const own = data.chips.filter((c) => !c.stable);
+    if (series || sticky.length || own.length || data.adopted?.length) { // chips there: all of them aside
+      aside = { series, sticky, chips: own, adopted: data.adopted ?? [] };
+      series = ''; sticky = []; data.adopted = []; setChips([]);
+    } else if (aside) { // none, some aside: back
+      ({ series, sticky } = aside); data.adopted = aside.adopted; setChips(aside.chips); aside = null;
+    } else return false; // nothing at all
+    keepAside(); navigator.vibrate?.(8); paint();
+    return true;
+  }
   let sources = [{ name: 'own', store }];
   const ownKeys = await deviceKeys().then((k) => ({ [device]: k.device.public }), () => ({})); // this device's z_: the index checks seals
   const reindex = () => buildIndex(sources, { keys: ownKeys });
@@ -230,10 +244,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       onboard.at = 0;
       try { localStorage.setItem('sign.onboard', '0'); } catch { /* private mode */ }
       menu.show(false);
-      $('#context').classList.add('breathe');
-      say.value = person.label;
-      openContext(true);
-      setTimeout(() => say.select(), 320);
+      askName();
     },
   });
   menu.runRules().catch(() => {}); // copies and backups of the list, quietly in the background
@@ -766,6 +777,27 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     };
     requestAnimationFrame(frame);
   };
+  /** Onboarding (15.11.): the name. A preset in a pale chip like a template – not mine until tapped; typing writes my own. */
+  const naming = () => settings.onboarding && STEPS[onboard.at]?.[0] === 'name';
+  function askName() {
+    $('#context').classList.add('breathe');
+    say.value = '';
+    data.offers = [{ text: person.label, offer: true, origin: 'name' }];
+    openContext(true);
+  }
+  /** This is my name, and the context of my name sign (the next take). */
+  function nameIs(name) {
+    if (!name) return;
+    person.label = name;
+    try { localStorage.setItem('sign.name', name); } catch { /* private mode */ }
+    globalThis.signPersons?.named(name); // the persons on this device show it
+    $('#context').classList.remove('breathe');
+    data.offers = (data.offers ?? []).filter((o) => o.origin !== 'name');
+    series = `${series} ${fromField(name)}`.trim();
+    learned('name');
+    showSeries();
+    openContext(false); // the keyboard goes: the name lies on the window, the point is next (name sign)
+  }
   say.addEventListener('keydown', (e) => {
     if (e.key === 'Backspace' && !say.value && series) { // empty field: Backspace takes the last written gesture away (initial K6)
       const items = parseNotation(series);
@@ -773,17 +805,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       series = writeNotation(items);
       return showSeries();
     }
-    if (e.key !== 'Enter') return;
+    if (naming() && e.key === ' ') e.preventDefault(); // writing the name: a space is Enter (15.11.)
+    else if (e.key !== 'Enter') return;
+    if (naming()) { const typed = say.value.replace(/[()[\]{}]/g, '').trim(); say.value = ''; return nameIs(typed || person.label); } // nothing typed: the preset
     const text = fromField(say.value); // ( ) nest, [ ] spells, missing brackets are closed
-    const name = say.value.replace(/[()[\]{}]/g, '').replace(/\s+/g, ' ').trim();
     say.value = '';
-    if (text && settings.onboarding && STEPS[onboard.at]?.[0] === 'name') { // onboarding: this is my name, and the context of my name sign
-      person.label = name;
-      try { localStorage.setItem('sign.name', name); } catch { /* private mode */ }
-      globalThis.signPersons?.named(name); // the persons on this device show it
-      $('#context').classList.remove('breathe');
-      learned('name');
-    }
     if (!text) return openContext(false);
     series = `${series} ${text}`.trim();
     showSeries();
@@ -794,12 +820,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
 
   globalThis.visualViewport?.addEventListener('resize', () => { data.viewH = globalThis.visualViewport.height; paint(); }); // the keyboard: the field stays above it
 
-  if (settings.onboarding && STEPS[onboard.at]?.[0] === 'name') { // onboarding starts with the name: write it right away
-    $('#context').classList.add('breathe');
-    say.value = person.label; // a preset to change (as chosen beforehand): typing replaces it
-    openContext(true);
-    setTimeout(() => say.select(), 320);
-  }
+  if (naming()) askName(); // onboarding starts with the name: write it right away
 
   /** Fly one Similar tile into the line, then the new line slides in on the chain. */
   async function intoLine(tileRole, ms = 420) {
@@ -1012,7 +1033,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         if (!st.similar) await openMany();
         if (!data.double && !data.manyFull) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); }
         return null;
-      case 'context-open': return openContext(!((data.open ?? 0) > 0.5)); // tap: open, tap again: closed
+      case 'context-open': return (data.open ?? 0) > 0.5 ? null : openContext(true); // under the take: open, write at once
+      case 'context-arc': // the arc: closed → open · open: chips aside / back · nothing → closed (15.11.)
+        if (!((data.open ?? 0) > 0.5)) return openContext(true);
+        return chipsAside() || openContext(false);
       case 'context-close': return openContext(false);
       case 'line-zoom': return null; // continuous: handlers.pinch
       // ---------- in the table, not wired yet: each says where it docks ----------
@@ -1082,6 +1106,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (!$('#share').hidden && role !== 'point') return menu.show(false); // a tap beside the circles closes them
       if (role?.startsWith('offer:') && data.deleteChoices) { const k = role.slice(6) === 'Backup' ? 'backup' : 'model'; data.deleteChoices[k] = !data.deleteChoices[k]; data.offers = data.offers.map((o) => (o.text === role.slice(6) ? { ...o, picked: data.deleteChoices[k] } : o)); navigator.vibrate?.(10); return paint(); } // before deleting: keep a copy?
       if (role?.startsWith('offer:') && data.gestureChoices) { data.gestureWord = role.slice(6); suggestGesture(); return paint(); } // this word for the password gesture
+      if (role?.startsWith('offer:') && naming()) return nameIs(role.slice(6)); // the preset name: tapped = mine
       if (role?.startsWith('offer:')) return adopt(role.slice(6)); // a greyed context of the result above: now mine
       return act('tap', role, { x, y });
     },

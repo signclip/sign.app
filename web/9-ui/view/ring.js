@@ -20,7 +20,8 @@
 //              point    at 0° on the line, its outer ring touching the window; recording = a square
 //              Similar  brought in at the top: many tiles (metadata and strand choice as chips above them); a tile
 //                       dragged onto the line or the point, or all of them at once, go onto the chain (animated)
-//              chips    under the window: sticky in front in one bubble, then this take (chips.js)
+//              chips    on the window above the context arc (open: in the field); sticky in front in one bubble,
+//                       then this take (chips.js); Doppel: the result's context on the reference window
 //              stretched  a line or a live take as parallel threads in one time span (timeline.js)
 //              template a template (Vorlage) small and blue, lower left inside the window
 //              hint     onboarding: the next element breathes, a pale point does its gesture (hint.js)
@@ -32,7 +33,7 @@
 //            (±60°) stay on screen: 352 px on 390 px; ≤ 12 Similar tiles; chips one row; one layout < 1 ms.
 
 import { look, KINDS } from '../state.js';
-import { chipShapes } from './chips.js';
+import { chipShapes, rowHeight } from './chips.js';
 import { timelineShapes } from './timeline.js';
 import { withHint } from './hint.js';
 import { arcShapes } from './arc.js';
@@ -66,8 +67,11 @@ const POINT_D = 62, RING = 1.35; // the point; toSvg draws its ring at 1.35 × i
  * → { video, template, point, window, shapes }
  */
 export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
-  if (data.viewH && data.viewH < h * 0.85) h = data.viewH; // the keyboard is up: everything fits into what stays visible (15.11.)
-  const k = Math.min(w / 390, h / 760); // drawn for a 390 px phone, scaled to fit width and height (iPad, keyboard: 15.11.)
+  let k = Math.min(w / 390, h / 760); // drawn for a 390 px phone, scaled to fit width and height (iPad: 15.11.)
+  if (data.viewH && data.viewH < h * 0.85) { // the keyboard is up (15.11.): same size as before if point, window and field fit above it, else just as much smaller as needed
+    h = data.viewH;
+    for (let i = 0; i < 2; i++) { const need = keyboardNeed(k, w); if (need > h) k *= h / need; }
+  }
   const cw = Math.min(w, 390 * k); // one column: the take as on a phone; wider screens have room beside it
   const d = POINT_D * k, ring = (d / 2) * RING;
   const double = Boolean(st.similar && data.double && !st.full); // Similar · Doppel: the reference above, the live picture below
@@ -83,7 +87,8 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const F = F0 + (FL - F0) * lowness;
   const cyMid = h / 2 + (st.screen === 'delete' ? 20 * k : 0), cyLow = h - 60 * k - FL / 2; // the window in the middle of the screen, upright or across, phone or tablet (15.11., user)
   const cy0 = cyMid + (cyLow - cyMid) * lowness;
-  const gapOpen = ((data.open ?? 0) > 0.5 ? 72 : 40) * k, room = (data.viewH ?? h) - 34 * k; // the keyboard takes the lower part
+  const deep = Math.max(0, rowHeight([...(data.chips ?? []), ...(data.offers ?? [])], k) - 32 * k); // bubbles in bubbles: more room above the typing row
+  const gapOpen = ((data.open ?? 0) > 0.5 ? 72 * k + deep : 40 * k), room = (data.viewH ?? h) - 34 * k; // the keyboard takes the lower part
   const bottom0 = onShape(windowOf(data.shape ?? 'circle', { cx, cy: cy0, F }), 180, 0)[1];
   const cy = cy0 - ((data.open ?? 0) > 0.5 ? Math.max(0, bottom0 + gapOpen - room) : 0); // the keyboard is up: the live picture moves up with the field (14.11.)
   const win = windowOf(data.shape ?? 'circle', { cx, cy, F });
@@ -91,7 +96,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const edge = { x0: 14 * k, x1: w - 14 * k, y0: top, y1: h - 14 * k, r: 28 * k }; // an open U: right edge down, along the bottom, left edge up
   const [, winBottom] = onShape(win, 180, 0);
   const fieldY = Math.min(winBottom + gapOpen, room); // the typing row right under the bottom arc (open: the chip row above it, the box starts under the arc); above the keyboard
-  const g = { st, data, w, h, k, cw, cx, cy, F, win, ring, shapes: [], edge: grow ? edge : null, grow, fieldY, side };
+  const g = { st, data, w, h, k, cw, cx, cy, F, win, ring, shapes: [], edge: grow ? edge : null, grow, fieldY, side, deep };
   g.add = (type, o) => g.shapes.push({ type, ...o });
 
   const video = st.full ? { cx: g.cx, cy: h / 2, d: Math.max(w, h), radius: 0 } : { cx: g.cx, cy, d: F, radius: 18 * k, window: win };
@@ -102,8 +107,9 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const [, pyLow] = onShape(win, 0, ring);
   const [, pointTop] = onShape(win, 0, 2 * ring);
   if (!st.similar && !st.full) g.add('sheet', { x: 0, y: 24 * k, w, h: Math.max(0, pointTop - 32 * k), r: 0, cls: 'top-zone', role: 'top-zone' }); // the free part above: pulled down = Similar (below Android's own pull-down strip)
-  const boxTop = fieldY - 64 * k; // the open context field's box: its top edge is where the bottom arc lies, pushed up = closed
-  if ((data.open ?? 0) > 0.5 && !st.full && !many) g.add('sheet', { x: cx - cw / 2 + 12 * k, y: boxTop, w: cw - 24 * k, h: 88 * k, r: 22 * k, cls: 'field-box' });
+  if (!st.similar && !st.full) g.add('sheet', { x: 0, y: winBottom + 14 * k, w, h: Math.max(0, h - winBottom - 14 * k), r: 0, cls: 'bottom-zone', role: 'bottom-zone' }); // the free part below: tap = the context arc straightens, write at once (15.11.)
+  const boxTop = fieldY - 64 * k - deep; // the open context field's box: its top edge is where the bottom arc lies, pushed up = closed
+  if ((data.open ?? 0) > 0.5 && !st.full && !many) g.add('sheet', { x: cx - cw / 2 + 12 * k, y: boxTop, w: cw - 24 * k, h: 88 * k + deep, r: 22 * k, cls: 'field-box' });
   if (many && !half) similarTiles(g, pyLow - ring - 10 * k + (h - pyLow + ring + 10 * k) * grow); // full: down to the bottom, only arcs and context on top
   if (!st.full) {
     if (!many || half) g.add('rest', { field: { x: g.cx - F / 2, y: cy - F / 2, s: F, r: 18 * k }, win, cls: 'field-rest' }); // nothing shows outside the window (14.11.)
@@ -112,8 +118,8 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
     if (!grow) flowArcs(g);
   }
   if (!many || half) g.add('video', { ...video, cls: st.screen === 'delete' ? 'video faded' : 'video' });
-  if (!stretched) chipArea(g, point);
   const template = double ? referenceWindow(g, point) : templateVideo(g);
+  if (!stretched) chipArea(g, point, double ? template : null);
   if (stretched) g.shapes.push(...timelineShapes(data.items, { timeMs: data.timeMs ?? 0, sub: st.sub ?? 'play', zoom: data.timeZoom ?? 1, cx: g.cx, y: point.cy, k, w }));
   else if (!st.full && !double && (!many || half)) g.shapes.push(...arcShapes(win, ring, { ...data, bend: data.bend ?? (st.sub === 'spread' ? 0 : 1) }, { k, w }));
   if (st.screen === 'delete') deleteChips(g);
@@ -135,11 +141,20 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   if (!many || half) g.add('point', { ...point, cls: `${pointClass(st)}${data.photo ? ' photo' : ''}${data.paused && st.screen === 'record' ? ' paused' : ''}`, role: 'point' });
 
   const noPicture = look(st, 'v') === 'off' && st.screen !== 'line' && !st.full; // visual off: no picture, the window in the background colour (15.11.)
-  return { video, template, point, window: win, fieldY, hideLive: (many && !half) || noPicture, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
+  const field = { x: cx - cw / 2 + 12 * k, w: cw - 24 * k }; // the typing row lies in the box (one column, centred), on phone, tablet, portrait and landscape
+  return { video, template, point, window: win, fieldY, field, hideLive: (many && !half) || noPicture, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
+}
+
+/** Height for point, window and open field above the keyboard at scale k: 8 px margin + point + window + 72 px to the typing row + 34 px under it. */
+export function keyboardNeed(k, w) {
+  const cw = Math.min(w, 390 * k), ring = ((POINT_D * k) / 2) * RING;
+  const F0 = Math.min(cw - 16 * k, 2 * ((cw / 2 - 6 * k) / Math.sin(Math.PI / 3) - ring)) - 12 * k;
+  return 8 * k + 2 * ring + F0 + 72 * k + 34 * k;
 }
 
 /** One arc per strand, 2° short of its neighbours: new (dashed) · keep (solid) · off (grey); recording turns new solid. */
-function strandArcs({ st, data, win, k, w, h, add, edge, grow, fieldY, cx, ring }) {
+function strandArcs(g) {
+  const { st, data, win, k, add, edge, grow, fieldY, cx, ring } = g;
   for (const kind of KINDS) {
     if (data.hidden?.includes(kind) || !ARCS[kind]) continue; // hidden: still records when on
     const looks = look(st, kind);
@@ -151,7 +166,7 @@ function strandArcs({ st, data, win, k, w, h, add, edge, grow, fieldY, cx, ring 
       : pts.map((_, i) => onU(edge, (from + GAP + Math.min(i * 3, to - from - 2 * GAP) - 60) / 240))); // 60…300° → the U from its right top to its left top: each arc keeps its share and order
     let pts = along(win);
     if (edge) { const e = grow * grow * (3 - 2 * grow); pts = onEdge().map(([x, y], i) => [pts[i][0] + (x - pts[i][0]) * e, pts[i][1] + (y - pts[i][1]) * e]); } // bent out to the edges
-    if (kind === 'x' && data.open) pts = straighten(pts, data.open, { cx, y: fieldY - 64 * k }); // opening: the arc lies on the field's top edge, as long as before, in its middle (15.11.)
+    if (kind === 'x' && data.open) pts = straighten(pts, data.open, { cx, y: fieldY - 64 * k - (g.deep ?? 0) }); // opening: the arc lies on the field's top edge, as long as before, in its middle (15.11.)
     const dd = pathThrough(pts);
     const mid = onShape(win, (from + to) / 2, out); // for hints (hint.js)
     add('path', { d: dd, mid, cls: `strand ${live ? 'own' : looks}${kind === 'l' ? ' wave' : ''}`, role: `strand:${kind}` });
@@ -227,23 +242,33 @@ function soundBars({ st, data, win, cx, cw, k, add }) {
   const [from, to] = ARCS.a;
   const room = Math.max(4 * k, w - 3 * k - onShape(win, 90, 0)[0] - 12 * k); // from the arc's outer side to the edge
   (data.levels ?? []).slice(-20).forEach((level, i, all) => {
-    const deg = from + 3 + ((to - from - 6) * i) / 19;
+    const deg = from + 3 + ((to - from - 6) * (all.length - 1 - i)) / 19; // the newest at the top, the sound runs down the arc (15.11.)
     const [x1, y1] = onShape(win, deg, 12 * k);
     const [x2, y2] = onShape(win, deg, 12 * k + room * Math.min(1, level));
     add('line', { x1, y1, x2, y2, cls: `bar own${i === all.length - 1 ? ' now' : ''}` });
   });
 }
 
-/** Chips under the window (the context arc); in full-screen replay above the point; in a plain line none. */
-function chipArea({ st, data, cx, cy, win, k, cw: w, shapes, fieldY }, point) {
+/**
+ * Chips (15.11.): closed = on the take window, just above the context arc (an overlay on the picture) · open = in the
+ * field's box, above the typing row · full-screen replay = above the point · a plain line: none. Similar · Doppel:
+ * each window shows its own context – mine on mine, the result's (offers from similar) on the reference window.
+ */
+function chipArea({ st, data, cx, win, k, cw, F, shapes, fieldY, deep }, point, ref = null) {
   if (st.screen === 'line') return;
   if (st.full && st.mode !== 'line') return;
   const open = (data.open ?? 0) > 0.5; // the context field is open: the chips sit in it, its lowest row stays free to type
-  if (!open && !st.full && look(st, 'x') === 'off') return; // context off: no field; on: the field shows, empty = one dashed chip (15.11.)
-  const y = st.full ? point.cy - 70 * k : open ? fieldY - 42 * k : fieldY; // chips 32 px high, centred: they end 2 px above the typing row
+  const offers = data.offers ?? [];
+  const theirs = ref ? offers.filter((o) => o.origin === 'similar') : [];
+  const mine = [...(data.chips ?? []), ...offers.filter((o) => !theirs.includes(o))];
   const held = st.hold?.target === 'chip' ? [`chip:${st.hold.text}`, `gesture:${st.hold.text}`] : [];
-  shapes.push(...chipShapes([...(data.chips ?? []), ...(data.offers ?? [])], { timeMs: data.timeMs, cx, y, k, w }) // own chips, then the offers of the result above
-    .map((s) => (held.includes(s.role) ? { ...s, cls: `${s.cls} hold` } : s))); // the held context, as property
+  const mark = (s) => (held.includes(s.role) ? { ...s, cls: `${s.cls} hold` } : s); // the held context, as property
+  if (theirs.length) shapes.push(...chipShapes(theirs, { cx: ref.cx, y: onShape(ref.window, 180, 0)[1] - 10 * k - rowHeight(theirs, k) / 2, k, w: ref.d * 0.8 }));
+  if (!open && !st.full && look(st, 'x') === 'off') return; // context off: no chips; on: they show, empty = one dashed chip (15.11.)
+  const onWindow = !open && !st.full;
+  const y = st.full ? point.cy - 70 * k : open ? fieldY - 42 * k - deep / 2 : onShape(win, 180, 0)[1] - 26 * k - deep / 2; // the row (32 px, more with bubbles) ends 10 px above the window's lower edge (the arc), or 2 px above the typing row
+  const width = onWindow ? F * 0.8 : cw; // on the window: the row scrolls inside its lower part
+  shapes.push(...chipShapes(mine, { timeMs: data.timeMs, cx, y, k, w: width }).map(mark));
 }
 
 /** A template (Vorlage) beside the own take: smaller, blue, lower left inside the window. */

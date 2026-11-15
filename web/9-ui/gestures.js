@@ -70,7 +70,8 @@ export const TABLE = [
   ['chips-in', 'spread', 'strand', 'any', 'open the chips of this strand (camera: light, exposure; audio: stereo, Whisper)'],
   ['chips-out', 'squeeze', 'strand', 'any', 'close the chips of this strand'],
   ['hide-strand', 'left', 'strand', 'any', 'push this field to the edge (it still records when on)'],
-  ['context-open', 'tap', 'context', 'any', 'tap on the context arc: the field opens under it (chips, writing with the keyboard), tap again = closed; the arc keeps its length, in the field\'s middle'],
+  ['context-arc', 'tap', 'context', 'any', 'tap on the context arc: closed → the arc straightens, write at once · open with chips → all chips aside (kept for a later take) · open, chips aside → they come back · open, nothing → closed (15.11.)'],
+  ['context-open', 'tap', 'bottom-zone', 'any', 'tap anywhere under the take: the arc straightens, write at once (15.11.)'],
   // the picture
   ['photo', 'tap', 'photo', 'any', 'picture instead of video: the point becomes a photo button (tap again = video)'],
   ['focus', 'tap', 'live', 'any', 'focus where tapped'],
@@ -192,7 +193,7 @@ const OUT = ['share', 'share-last', 'share-strand'];
 const BACK = ['similar-farther']; // pushed back over the edge it came from
 const AWAY = ['remove', 'remove-last', 'remove-strand'];
 const ALWAYS = ['ready', 'sticky'];
-const VIEW = ['similar-nearer', 'similar-farther', 'take-over', 'reference-full', 'reference-out', 'straighten', 'bend', 'levels-open', 'levels-close', 'chips-in', 'chips-out', 'context-open', 'context-close'];
+const VIEW = ['similar-nearer', 'similar-farther', 'take-over', 'reference-full', 'reference-out', 'straighten', 'bend', 'levels-open', 'levels-close', 'chips-in', 'chips-out', 'context-open', 'context-arc', 'context-close'];
 const CONTENT = ['point', 'item'];
 
 /** Rows that break the grammar (and are no named exception) → list of problems; [] = consistent. */

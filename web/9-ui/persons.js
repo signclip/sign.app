@@ -14,7 +14,7 @@
 
 import { newPerson } from '../1-model/ids.js';
 
-export const PERSONAL = new Set(['sign.person', 'sign.name', 'sign.settings', 'sign.onboard', 'sign.sticky', 'sign.nameSign', 'sign.removeLater',
+export const PERSONAL = new Set(['sign.person', 'sign.name', 'sign.settings', 'sign.onboard', 'sign.sticky', 'sign.chipsAside', 'sign.nameSign', 'sign.removeLater',
   'sign.upkeep', 'sign.confirmed', 'sign.atlasAt', 'sign.apps', 'sign.photo', 'sign.passwords']);
 const REG = 'sign.persons', CUR = 'sign.current', MAX = 12;
 
