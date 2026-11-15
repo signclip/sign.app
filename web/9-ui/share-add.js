@@ -140,18 +140,22 @@ export async function bringIn(ctx) {
  */
 export async function loginAt(ctx, server, id = newSource()) {
   const { say, t } = ctx;
+  let step = '1 start';
   try {
     const { login, poll } = await startLogin(server);
+    step = '2 wait';
     try { localStorage.setItem(PENDING, JSON.stringify({ poll, id, at: Date.now() })); } catch { /* private mode */ } // Android may close the app while the browser is open
     say(t('menu.wait'));
     await openPage(login); // the native app: the system browser (window.open does nothing in its web view)
-    return await finishLogin(ctx, await waitLogin(poll), id);
-  } catch (err) { return loginFailed(ctx, err); }
+    const got = await waitLogin(poll);
+    step = '3 folders';
+    return await finishLogin(ctx, got, id);
+  } catch (err) { return loginFailed(ctx, err, step); }
 }
 
 const PENDING = 'sign.pendingLogin';
-function loginFailed({ say, t }, err) { // the browser is blocked (CORS); in the app: which step failed, short, to find it
-  const why = String(err?.message ?? err).slice(0, 60);
+function loginFailed({ say, t }, err, step = '') { // the browser is blocked (CORS); in the app: which step failed, short, to find it
+  const why = `${step} ${String(err?.message ?? err)}`.trim().slice(0, 90);
   return say(globalThis.Capacitor?.isNativePlatform?.() ? `${t('notReachable')} · ${why}` : t('menu.native'));
 }
 
@@ -160,7 +164,8 @@ export async function resumeLogin(ctx) {
   let p = null;
   try { p = JSON.parse(localStorage.getItem(PENDING) || 'null'); } catch { /* private mode */ }
   if (!p || Date.now() - p.at > 20 * 60 * 1000) return null;
-  try { return await finishLogin(ctx, await waitLogin(p.poll), p.id); } catch (err) { return loginFailed(ctx, err); }
+  let step = '2 wait (again)';
+  try { const got = await waitLogin(p.poll); step = '3 folders'; return await finishLogin(ctx, got, p.id); } catch (err) { return loginFailed(ctx, err, step); }
 }
 
 /**

@@ -29,7 +29,9 @@ jobs:
       - name: the app icon (native/android/res, drawn by native/icon.py)
         run: cp -R native/android/res/. android/app/src/main/res/ && ls android/app/src/main/res/mipmap-xxxhdpi
       - name: camera and microphone
-        run: sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" /><uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /><uses-permission android:name="android.permission.VIBRATE" />\n    <application#' android/app/src/main/AndroidManifest.xml
+        run: |
+          sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" /><uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /><uses-permission android:name="android.permission.VIBRATE" />\n    <application#' android/app/src/main/AndroidManifest.xml
+          grep -q "android.permission.INTERNET" android/app/src/main/AndroidManifest.xml || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET" />\n    <application#' android/app/src/main/AndroidManifest.xml
       - name: the same signing key every time (secret DEBUG_KEYSTORE), so an update installs over the app and keeps its data
         env: { KS: '${{ secrets.DEBUG_KEYSTORE }}' }
         run: |
