@@ -198,10 +198,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     onLook: (path, from) => { menu.show(false); return show(path, from).catch(() => {}); }, // tap on a hello: its name sign in the window
     onLookAll: async (items) => { // double-tap on a hello: its password gestures one after the other, then the account's earlier ones (15.11.)
       menu.show(false);
-      for (const { path, from } of items) {
-        try { await show(path, from); } catch { continue; }
-        await new Promise((ok) => { const v = $('#replay'); const t = setTimeout(ok, 8000); v.onended = () => { clearTimeout(t); ok(); }; });
-      }
+      return lookAt(items);
     },
     words: () => [...data.chips.filter((c) => !c.stable).map((c) => c.text), ...($('#say')?.value ?? '').split(/\s+/)].filter(Boolean), // context finds accounts and hellos (admin)
     panel: $('#share'), own: store, keychain, person, device, t,
@@ -519,9 +516,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   async function thumbOf(key) {
     if (thumbs.has(key)) return;
     thumbs.set(key, null);
-    const at = takeOf(key) && visualOf(takeOf(key));
+    const at = atOf(key);
     if (!at) return;
-    thumbs.set(key, await picOf(at));
+    thumbs.set(key, await picOf(at).catch(() => null));
     data.thumbs = Object.fromEntries(thumbs);
     paint();
   }
@@ -551,6 +548,20 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     return url;
   }
 
+  /** Files from elsewhere as the Similar tiles (admin: a hello's name sign and password gestures, 15.11.); closing Similar ends it. */
+  async function lookAt(items) {
+    for (const k of [...thumbs.keys()]) if (k.startsWith('look:')) thumbs.delete(k);
+    data.look = items;
+    data.double = null;
+    if (st.similar) return showSimilar(true);
+    return openMany();
+  }
+  /** A tile key → { store, path } of its picture or video: an index key, or look:i. */
+  const atOf = (key) => {
+    if (!key?.startsWith('look:')) return takeOf(key) && visualOf(takeOf(key));
+    const x = data.look?.[Number(key.slice(5))];
+    return x ? { store: x.from, path: x.path } : null;
+  };
   /** Similar · viele, the upper half: the tiles slide down from the top (≈ 0.3 s). */
   async function openMany() {
     data.manyFull = false;
@@ -565,7 +576,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   /** Similar · Doppel: result i of the tiles plays above in the same window as the live picture (loop, muted). */
   async function reference(i) {
     const key = data.similar[i];
-    const at = key && takeOf(key) && visualOf(takeOf(key));
+    const at = key && atOf(key);
     if (!at) return null;
     const v = $('#template');
     const blob = new Blob([await at.store.read(at.path)], { type: at.path.endsWith('.png') ? 'image/png' : 'video/mp4' });
@@ -573,7 +584,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     else { delete v.dataset.picture; v.poster = ''; v.src = URL.createObjectURL(blob); v.loop = true; v.muted = true; v.play().catch(() => {}); }
     data.double = key;
     data.doubleAt = i;
-    await offerContext(takeOf(key));
+    if (!data.look) await offerContext(takeOf(key));
     return paint();
   }
   /** An index key (chain or strand) → its take chain entry. */
@@ -651,6 +662,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (on) draw($(id), chips, onChip);
   };
   const showSimilar = (on) => { // at the top: metadata and strand choice as chips, the hits as tiles (view)
+    if (data.look) { data.similar = data.look.map((_, i) => `look:${i}`); data.similar.forEach(thumbOf); return panel('#similar', on, [], () => {}); }
     const hits = similar(index, { words: data.words, filters: filtersOf(index, filter) });
     data.similar = hits.slice(0, MANY).map((h) => h.key);
     for (const key of data.similar) thumbOf(key); // pictures for the tiles, as they come
@@ -862,10 +874,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'similar-in': return openMany(); // first the upper half, sliding down
       case 'similar-out':
         if (st.similar && !data.double && (data.reveal ?? 1) > 0) await Promise.all([animate('reveal', data.reveal ?? 1, 0), animate('lowT', 1, 0)]); // the tiles slide up, the take window back to the middle
-        await keepSimilar();
+        if (!data.look) await keepSimilar();
         step('similar-out');
         data.words = [];
         data.double = null; // Doppel ends with Similar
+        if (data.look) { delete data.look; $('#template').removeAttribute('src'); } // a hello looked at: done
         data.manyFull = false;
         delete data.reveal; delete data.grow; delete data.lowT;
         $('#template').removeAttribute('src');
@@ -891,10 +904,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         paint();
         return data.levelAt == null ? null : playVersion(data.levelAt); // that version plays (index.versions)
       case 'into-line': // a Similar result laid on the chain: it flies into the line, then a new line slides in
+        if (data.look) return null; // files of a hello are looked at, not taken
         await intoLine(role);
         await layOn([data.similar[hit.index]].filter(Boolean)); // a new line {:chain.2} on top, the chain below (add-line.js)
         return arrive();
       case 'similar-all': { // all of Similar: one after another into the line, then one new line on the chain
+        if (data.look) return null;
         const n = Math.min(6, data.similar.length);
         for (let i = 0; i < n; i++) await intoLine(`similar:${i}`, 220);
         await layOn(data.similar.slice(0, n)); // one line, the results one after another
@@ -931,7 +946,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         return n ? reference((data.doubleAt + (row.action === 'reference-next' ? 1 : -1) + n) % n) : null;
       }
       case 'reference-full': { // Similar · voll = review: the result fills the screen like a line (↓ from the top = back)
-        const at = takeOf(data.double) && visualOf(takeOf(data.double));
+        const at = atOf(data.double);
         if (!at) return null;
         await show(at.path, at.store);
         data.fullFrom = 'similar';

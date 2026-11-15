@@ -32,7 +32,7 @@ import { shareTake } from '../4-save/share-take.js';
 import { timeLabel, readName } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { addNew, peek, pickFolder, loginAt, resumeLogin, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
-import { nameSignOf, gestureOf, devicesOf, quietDevice } from '../8-join/join.js';
+import { nameSignOf, withHello, quietHello, devicesOf, quietDevice } from '../8-join/join.js';
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
@@ -484,16 +484,16 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   const others = () => { const p = globalThis.signPersons; return p ? p.persons().filter((x) => x.id !== p.current()) : []; };
   const START = ['direct', 'record', 'choose']; // straight to the take as left · records at once · the persons to choose at start
   /**
-   * Admin, a hello double-tapped (15.11.): its password gestures in the window; if an account of that name is already in
-   * within/ (a known person on a new device), its first password gestures follow, to compare by eye until the model can.
+   * Admin, a hello double-tapped (15.11.): name sign and password gestures as tiles, like Similar (tap = big, ← → = next);
+   * if an account of that name is already in within/ (a known person on a new device), its first gestures follow to compare.
    */
   async function lookGestures(x) {
     const store = s.open.get(x?.n)?.store;
     if (!store) return null;
-    const name = x.helloPath.slice(x.helloPath.lastIndexOf('/') + 1), items = [0, 1, 2].map((i) => ({ path: `hello/${gestureOf(name, i)}`, from: store }));
+    const items = (await withHello(store, x.helloPath)).filter((p) => p.endsWith('.mp4') || p.endsWith('.png'));
     const known = (await store.list('within/').catch(() => [])).map((f) => f.path)
-      .filter((p) => /\(within password [123]\)/.test(p) && p.includes(`/@(${x.name})!(`)).sort().slice(0, 3);
-    return onLookAll([...items, ...known.map((path) => ({ path, from: store }))]);
+      .filter((p) => (/\(password gesture [123]\)\.v\.mp4$/.test(p) || /\(within password [123]\)/.test(p)) && p.includes(`/@(${x.name})!(`)).sort().slice(0, 3);
+    return onLookAll([...items, ...known].map((path) => ({ path, from: store })));
   }
   /** The project's own Nextcloud (its door's server), where the admin logs in. */
   const projectServer = () => { try { return new URL(project?.doors?.[0]?.read ?? project?.read).origin; } catch { return null; } };
@@ -576,6 +576,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       }
       if ((role?.startsWith('app:') || role === 'out:system' || role === 'row-area') && dir === 'up') return outside(); // ↑ on the row: the system share sheet // ↑ on the row: the classic Android / iOS share sheet
       if (role?.startsWith('hello:') && dir === 'left') return welcome(ctx, s.hellos[Number(role.split(':')[1])]).then(load).then(draw); // ← hello → join: welcomed
+      if (role?.startsWith('hello:') && (dir === 'down' || dir === 'down-far')) { const x = s.hellos[Number(role.split(':')[1])], store = s.open.get(x?.n)?.store; return store ? quietHello({ store, helloPath: x.helloPath }).then(load).then(draw, () => say(t('notReachable'))) : null; } // ↓ hello = not now: to quiet/, nothing deleted
       if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → back: look again (new hellos, a failed welcome tried anew)
       const n = circleOf(role);
       if (n && n === s.adminN && dir === 'right') return showAccounts(); // → on the admin tile: who has how much space

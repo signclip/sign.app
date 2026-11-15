@@ -1,6 +1,8 @@
 // filename.js — file names as a view: readable, findable by any file manager.
 //
-// Purpose:   ^(to)(context words)~(echo)@(person)°(where)'t(date time 0_length)!(u_ 12 chars).kind.ext
+// Purpose:   ^(to)(context words)~(echo)@(person)°(where)'t(date time 0_length)!(u_ 12 chars)(part).kind.ext
+//            (part): one more piece of the same file group, e.g. (password gesture 1) beside a hello (15.11.):
+//            it sorts right after its group, so one hello and its gestures stand together.
 //            The name is never read to decide meaning; the content is the truth (SCHEMA.md B4).
 //            Renaming is allowed: nothing points to paths, only to !( ).
 // Depends:   symbols.js, notation.js
@@ -39,10 +41,10 @@ export function timeLabel(ms, lengthMs = null) {
 }
 
 /** Build a file name. Words are cut (whole words) until the name fits 255 bytes. */
-export function buildName({ to = [], words = [], echo, person, where, time, u, kind, ext }) {
+export function buildName({ to = [], words = [], echo, person, where, time, u, part, kind, ext }) {
   const meta = (echo ? `~(${clean(echo)})` : '') + (person ? `@(${clean(person)})` : '') +
     (where ? `°(${clean(where)})` : '') + (time ? `'t(${clean(time)})` : '');
-  const end = `!(${u}).${kind}.${ext}`;
+  const end = `!(${u})${part ? `(${clean(part)})` : ''}.${kind}.${ext}`;
   const front = to.map((t) => `^(${clean(t)})`).join('');
   const list = words.map(clean).filter(Boolean);
   for (let n = list.length; n >= 0; n--) {
@@ -70,5 +72,7 @@ export function readName(name) {
     else if (sym === "'t") out.time = value;
     else if (sym === '!') out.u = value;
   }
+  const tail = /!\([^()]*\)\(([^()]*)\)$/.exec(body);
+  if (tail) out.part = tail[1];
   return out;
 }

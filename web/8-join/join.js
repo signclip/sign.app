@@ -38,8 +38,18 @@ async function chainFile({ by, device, deviceKey, now, defs = [], line, raw = nu
 }
 /** The name sign beside a hello: same name, picture strand. */
 export const nameSignOf = (helloName) => buildName({ ...readName(helloName), kind: 'v', ext: 'mp4' });
-/** The i-th password gesture beside a hello: same person and u_, words (hello password i). */
-export const gestureOf = (helloName, i) => { const n = readName(helloName); return buildName({ ...n, words: ['hello', 'password', String(i + 1)], kind: 'v', ext: 'mp4' }); }; // first word = state (hello → within)
+/** The i-th password gesture beside a hello: the hello's own name + (password gesture i), so they sort together (15.11.). */
+export const gestureOf = (helloName, i) => buildName({ ...readName(helloName), part: `password gesture ${i + 1}`, kind: 'v', ext: 'mp4' });
+/** Everything that came with one hello (name sign, password gestures), found by its u_. → paths, name sign first */
+export const withHello = async (store, helloPath) => { const u = readName(nameOf(helloPath)).u;
+  return (await store.list('hello/')).map((f) => f.path).filter((p) => p !== helloPath && readName(nameOf(p))?.u === u).sort((a, b) => (readName(nameOf(a)).part ? 1 : 0) - (readName(nameOf(b)).part ? 1 : 0) || a.localeCompare(b)); };
+/** Signer: ↓ on a hello = not now. It and all that came with it move to quiet/<account>/, nothing is deleted. */
+export async function quietHello({ store, helloPath }) {
+  const { person } = readHello(dec.decode(await store.read(helloPath)));
+  const all = [helloPath, ...(await withHello(store, helloPath))];
+  for (const p of all) await store.move(p, `quiet/${accountFolder(person)}/${withState(nameOf(p), 'quiet')}`);
+  return all.length;
+}
 const belowOf = async (bytes) => ({ id: readFile(dec.decode(bytes)).head.id, hash: await hashBytes(bytes) });
 
 /**
