@@ -247,6 +247,7 @@ export async function followJoins(ctx) {
       const paths = (await both.list('join/')).map((f) => f.path);
       const answer = answerFor(paths, mine.helloPath);
       if (!answer || answer === mine.answer) continue;
+      if (mine.door && !mine.tapped && !isAgain(answer)) { states.set(t.label, 'ready'); continue; } // the answer is there: a tap on join takes it (15.11.)
       if (isAgain(answer)) { await joins.set(t.label, null); if (mine.door) states.set(t.label, 'door'); else states.delete(t.label); continue; } // the admin asks anew (15.11.): the hello bubble breathes again
       const pinned = mine.door ? signerOfText(ctx.doorSigner) : null; // project.json names the signer: only that seal counts
       const signers = pinned ? await trustedSigners(pinned, await certificatesIn(both)) // the anchor and whoever it certified (second device, paper)

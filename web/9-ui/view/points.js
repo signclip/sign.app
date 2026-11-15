@@ -97,7 +97,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
 
   // positions: this device first, then every drawn tile in order; a group's drop link sits under its read tile
   const slot = new Map([[0, 0]]);
-  const joining = (t) => ['door', 'hello', 'join', 'join-own'].includes(joinStates.get(t.label));
+  const joining = (t) => ['door', 'hello', 'ready', 'join', 'join-own'].includes(joinStates.get(t.label));
   let extra = 0; // the joining icon's own space takes one more tile (14.11.: three big tiles)
   for (const t of all.filter((x) => !x.under)) {
     slot.set(t.n, slot.size + extra);
@@ -140,7 +140,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
     if (t.run === 'ok' || t.run === 'error') { // last copy or backup: filled dot = went through · open ring = failed
       add('circle', { cx: cx + tw / 2 - 4 * k, cy: cy + th / 2 - 4 * k, r: 6 * k, cls: `badge ${t.run === 'ok' ? 'ran' : 'failed'}` });
     }
-    for (const kind of EDGES) {
+    for (const kind of t.service ? [] : EDGES) { // Admin, Atlas (15.11.): nothing is saved there, no strand bars
       const look = !t.kinds.includes(kind) ? 'off' : t.always ? 'own' : 'new';
       const bar = edgeBar(kind, { cx, cy, tw, th });
       add('line', { ...bar, cls: `strand mini ${look}`, role: `sp-kind:${t.n}:${kind}` });
@@ -152,7 +152,8 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   /**
    * The growing sharing icon (14.11.): three big tiles — me (this device, first), the group, my own space — joined by
    * lines. door: the group tile breathes, tap = hello · hello: a dotted line, the group waits · join: the group is
-   * there, a dotted line to my own space · join-own: all three solid, the icon complete.
+   * there, a dotted line to my own space · join-own: all three solid, the icon complete · ready (15.11.): the answer is
+   * there, the group breathes "join", tap = join.
    */
   function joinIcon(i, t, state) {
     const me = grid(0, { w, k, y0 });
@@ -160,7 +161,7 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
     const line = (b, cls) => shapes.splice(2, 0, { type: 'path', d: `M ${me.cx} ${me.cy} L ${b.cx} ${b.cy}`, cls: `join-line ${cls}` }); // under the tiles
     const group = grid(i, { w, k, y0 });
     if (state !== 'door') line(group, `${state === 'hello' ? 'hello' : 'join'}${grow(2)}`);
-    tile(i, `sp:${t.n}`, `sp join-group${state === 'door' ? ' door breathe' : state === 'hello' ? ' waiting' : ''}${grow(3)}`, state === 'door' ? 'hello' : t.label); // before the hello: it says what a tap does
+    tile(i, `sp:${t.n}`, `sp join-group${state === 'door' || state === 'ready' ? ' door breathe' : state === 'hello' ? ' waiting' : ''}${grow(3)}`, state === 'door' ? 'hello' : state === 'ready' ? 'join' : t.label); // before hello and join: it says what a tap does (15.11.)
     if (state === 'join' || state === 'join-own') {
       const mine = grid(i + 1, { w, k, y0 });
       line(mine, `${state === 'join-own' ? 'join own' : 'hello own'}${grow(4)}`);
