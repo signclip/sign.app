@@ -553,8 +553,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     for (const k of [...thumbs.keys()]) if (k.startsWith('look:')) thumbs.delete(k);
     data.look = items;
     data.double = null;
-    if (st.similar) return showSimilar(true);
-    return openMany();
+    if (st.similar) showSimilar(true); else await openMany();
+    const paired = items.findIndex((x) => x.pair); // a known person on a new device: straight into Doppel, new above, original below
+    return paired >= 0 ? reference(paired) : null;
   }
   /** Doppel of a hello from a known person (15.11.): the original take plays below, where the live picture is. */
   async function pairOn(path, from) {
@@ -571,14 +572,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     delete v.dataset.pair;
     v.pause(); v.removeAttribute('src'); Object.assign(v, { loop: false, muted: false, hidden: true });
   }
-  /** Admin, in Doppel: decide the hello this take belongs to (accept / quiet); its takes leave, the next one shows. */
+  /** Admin, in Doppel: move the person this take belongs to one pile on (up) or back (down); her takes leave, the next one shows. */
   async function decide(how) {
     const at = data.look?.[data.doubleAt];
     if (!at?.[how]) return null;
     try { await at[how](); } catch { return null; } // not reachable: it stays
-    const rest = data.look.filter((x) => x.hello !== at.hello);
+    const rest = data.look.filter((x) => x.group !== at.group);
     if (!rest.length) { pairOff(); return act('edge-out', 'upper-right'); }
-    const next = Math.min(data.look.slice(0, data.doubleAt).filter((x) => x.hello !== at.hello).length, rest.length - 1);
+    const next = Math.min(data.look.slice(0, data.doubleAt).filter((x) => x.group !== at.group).length, rest.length - 1);
     for (const k of [...thumbs.keys()]) if (k.startsWith('look:')) thumbs.delete(k);
     data.look = rest;
     showSimilar(true);
@@ -969,10 +970,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'context-close': return openContext(false);
       // ---------- in the table, not wired yet: each says where it docks ----------
       case 'take-over': return reference(hit.index); // Similar · Doppel: the result above, the live picture below
-      case 'reference-out': data.double = null; data.offers = []; $('#template').removeAttribute('src'); pairOff(); return paint(); // back to viele
-      case 'look-quiet': return decide('quiet'); // admin: this hello not now
+      case 'reference-out': if (data.look?.[data.doubleAt]?.up) return decide('up'); // admin: ↑ = on to the next pile (15.11.)
+        data.double = null; data.offers = []; $('#template').removeAttribute('src'); pairOff(); return paint(); // back to viele
+      case 'look-down': return decide('down'); // admin: ↓ = back a pile (join → hello anew, within → quiet)
       case 'reference-next': case 'reference-before': { // ← next · → before, in the order of the tiles
-        if (data.look?.[data.doubleAt]?.accept && row.action === 'reference-next') return decide('accept'); // admin: ← = welcome, then the next hello (15.11.)
         const n = data.similar.length;
         return n ? reference((data.doubleAt + (row.action === 'reference-next' ? 1 : -1) + n) % n) : null;
       }

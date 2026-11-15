@@ -35,7 +35,8 @@ import { timeLabel, readName } from '../1-model/filename.js';
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { addNew, peek, pickFolder, loginAt, resumeLogin, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
 import { quietHello, devicesOf, quietDevice } from '../8-join/join.js';
-import { helloTakes, accountTakes } from '../8-join/known.js';
+import { helloTakes, accountTakes, firstPieces } from '../8-join/known.js';
+import { doorView, toWithin, backToHello, moveAccount } from '../8-join/door.js';
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
 import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
@@ -163,7 +164,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       s.incoming = list.filter((x) => !expected.includes(x));
       if (!panel.hidden) draw();
     });
-    findAdmin().then(() => hellosToWelcome(ctx)).then((list) => { s.hellos = list; if (!panel.hidden) draw(); }); // admin? then the signer: who said hello
+    findAdmin().then(refreshDoor); // admin? then the signer: who said hello, and the door's piles
     followJoins(ctx).then((states) => { // member: my joins; a state that changed builds its symbol up once
       for (const [label, st] of states) if (s.joinStates?.get?.(label) !== st) s.fresh.add(label);
       s.joinStates = states;
@@ -414,7 +415,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'app') { const app = rowApps()[Number(a)]; if (!app) return null; if (!app.glyph) usedApp(app); return outside(app); } // one app of the row: straight there
     if (what === 'browse') { const x = (s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.look ? x.look() : null; } // an account: tap = look at it
     if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
-    if (what === 'hello') return lookHellos(s.helloGroups?.[Number(a)]?.n); // tap = all waiting hellos of this group as Similar tiles (15.11.)
+    if (what === 'hello') return lookPile(s.piles?.[Number(a)]?.pile); // tap = this pile as Similar tiles (15.11.)
     if (what === 'accept-there') {
       const { url } = s.acceptThere;
       s.acceptThere = null;
@@ -491,25 +492,41 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   /** The other persons on this device (persons.js), with how each starts. */
   const others = () => { const p = globalThis.signPersons; return p ? p.persons().filter((x) => x.id !== p.current()) : []; };
   const START = ['direct', 'record', 'choose']; // straight to the take as left · records at once · the persons to choose at start
-  /**
-   * Admin (15.11.): the hellos waiting in one group as Similar tiles, many of them, each hello's name sign and password
-   * gestures together (they sort by name). A known name (new device) brings the originals: Doppel shows the new take
-   * above and the original below. In Doppel: ← = welcome (account, or for a known person only a device password),
-   * ↓ = not now (quiet/), → = the next take.
-   */
-  async function lookHellos(n) {
-    const store = s.open.get(n)?.store;
-    if (!store) return null;
-    const items = [];
-    for (const x of s.hellos.filter((h) => h.n === n)) {
-      if (items.length >= 40) break; // the tiles of one look; decided ones make room
-      const { takes } = await helloTakes(store, x).catch(() => ({ takes: [] }));
-      for (const t of takes) items.push({ ...t, from: store, hello: x.helloPath,
-        accept: () => welcome(ctx, x).then(load).then(draw),
-        quiet: () => quietHello({ store, helloPath: x.helloPath }).then(load).then(draw) });
-    }
-    return items.length ? onLookAll(items) : null;
+  /** Hellos and the door's piles anew (on load, → on a pile, every 20 s while the menu is open). */
+  async function refreshDoor() {
+    s.hellos = await hellosToWelcome(ctx).catch(() => s.hellos);
+    const door = ctx.admin ? adminStore() : null;
+    s.door = door ? await doorView(door).catch(() => s.door) : null;
+    if (!panel.hidden) draw();
   }
+  setInterval(() => { if (!panel.hidden && (ctx.admin || s.hellos.length)) refreshDoor(); }, 20000);
+  /** The piles shown (15.11.): hello for every signer; join, within, quiet for the admin's door. */
+  const PILES = ['hello', 'join', 'within', 'quiet'];
+  const pileList = (name) => (name === 'hello' ? s.hellos : s.door?.[name] ?? []);
+  /**
+   * Admin (15.11.): one pile as Similar tiles; each person's name sign and password gestures together, a new device of a
+   * known person with the originals (Doppel: new above, original below). In Doppel ↑ = on to the next pile, ↓ = back:
+   * hello ↑ join (welcome) ↓ quiet · join ↑ within ↓ hello anew · within ↓ quiet · quiet ↑ within. ← → = the next take.
+   */
+  async function lookPile(name) {
+    const store = name === 'hello' ? null : adminStore(), items = [], again = () => refreshDoor();
+    for (const x of pileList(name)) {
+      if (items.length >= 40) break; // the tiles of one look; decided ones make room
+      const from = store ?? s.open.get(x.n)?.store;
+      if (!from) continue;
+      const group = x.helloPath ?? x.folder;
+      const steps = name === 'hello' ? { up: () => welcome(ctx, x), down: () => quietHello({ store: from, helloPath: x.helloPath }) }
+        : name === 'join' ? { up: () => toWithin(from, x.helloPath), down: () => backToHello(from, x.helloPath) }
+        : name === 'within' ? { down: () => moveAccount(from, x.folder, 'within', 'quiet').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), false).catch(() => {})) }
+        : { up: () => moveAccount(from, x.folder, 'quiet', 'within').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), true).catch(() => {})) };
+      const wrap = (f) => f && (() => f().then(again));
+      const takes = x.helloPath ? (await helloTakes(from, x).catch(() => ({ takes: [] }))).takes
+        : [...(await firstPieces(from, x.folder).catch(() => new Map())).values()].map((path) => ({ path }));
+      for (const t of takes) items.push({ ...t, from, group, up: wrap(steps.up), down: wrap(steps.down) });
+    }
+    return items.length ? onLookAll(items) : say(t('notReachable'));
+  }
+  const userOfFolder = (folder) => /!\(([^()]*)\)$/.exec(folder)?.[1]?.toLowerCase();
   /** An account's name signs and password gestures (all its devices), oldest first, as Similar tiles. */
   async function lookAccount(a) {
     const store = adminStore(), folder = store && (await store.list('within/').catch(() => [])).map((f) => f.path).find((p) => p.toLowerCase().includes(`!(${a.user.toLowerCase()})/`));
@@ -550,9 +567,10 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const browse = s.accounts ? accountTiles() : s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.share.name }));
     const ws = words().map((w) => w.toLowerCase());
-    const waiting = s.hellos.filter((x) => ws.every((w) => x.name.toLowerCase().includes(w))); // context words find hellos too
-    s.helloGroups = [...new Set(waiting.map((x) => x.n))].map((n) => ({ n, label: String(waiting.filter((x) => x.n === n).length) })); // one circle per group, its count (15.11.)
-    const hellos = s.helloGroups;
+    const found = (x) => ws.every((w) => x.name.toLowerCase().includes(w)); // context words find persons in the piles too
+    s.piles = PILES.filter((p) => p === 'hello' ? s.hellos.length || s.door : s.door) // the overview (15.11.): hello · join · within · quiet with counts
+      .map((p) => ({ pile: p, n: p === 'hello' ? s.hellos[0]?.n ?? s.adminN : s.adminN, label: `${p} ${pileList(p).filter(found).length}` }));
+    const hellos = s.piles;
     const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.accounts || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
@@ -579,7 +597,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     slideEnd: () => { if (!s.apps?.drag) return null; s.apps.x = (s.apps.x ?? 0) + s.apps.drag; s.apps.drag = 0; return draw(); },
     tap: () => tapped(role), // waits 300 ms: it may become a double-tap
     doubleTap: () => { // 14.11.: on a sharing point = encrypted ↔ readable (the line from this device turns double / single)
-      if (role?.startsWith('hello:')) return lookHellos(s.helloGroups?.[Number(role.split(':')[1])]?.n);
+      if (role?.startsWith('hello:')) return lookPile(s.piles?.[Number(role.split(':')[1])]?.pile);
       if (role?.startsWith('person:') || role === 'sp:0') { // how a person starts: direct → records at once → chooses
         const P = globalThis.signPersons, id = role === 'sp:0' ? P?.current() : role.slice(7), now = P?.persons().find((x) => x.id === id)?.start ?? 'direct';
         P?.setStart(id, START[(START.indexOf(now) + 1) % START.length]);
@@ -602,7 +620,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         return draw();
       }
       if ((role?.startsWith('app:') || role === 'out:system' || role === 'row-area') && dir === 'up') return outside(); // ↑ on the row: the system share sheet // ↑ on the row: the classic Android / iOS share sheet
-      if (role?.startsWith('hello:') && dir === 'right') return load().then(draw); // → look again (new hellos); deciding is in the tiles (15.11.)
+      if (role?.startsWith('hello:') && dir === 'right') return refreshDoor(); // → look again; deciding is in the tiles (15.11.)
       if (role?.startsWith('browse:') && s.accounts && dir === 'right') return back(); // → in the accounts: one step back
       const n = circleOf(role);
       if (n && n === s.adminN && dir === 'right') return showAccounts(); // → on the admin tile: who has how much space

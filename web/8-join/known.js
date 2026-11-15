@@ -12,7 +12,8 @@ import { withHello } from './join.js';
 const nameOf = (p) => p.slice(p.lastIndexOf('/') + 1);
 const visual = (p) => /\.(mp4|png)$/.test(p);
 const timeOf = (p) => readName(nameOf(p))?.time ?? '';
-const within = async (store) => (await store.list('within/').catch(() => [])).map((f) => f.path);
+const under = async (store, base) => (await store.list(`${base}/`).catch(() => [])).map((f) => f.path);
+const within = (store) => under(store, 'within');
 
 /** The account folder of this label in within/ ('@(Lena)!(n_…)'), or null. */
 export async function knownFolder(store, label) {
@@ -30,9 +31,9 @@ export function pieceOf(path) {
   return n.words[1] === 'password' ? `password gesture ${n.words[2]}` : '';
 }
 
-/** All takes of an account folder (name signs, password gestures), oldest first. */
-export async function accountTakes(store, folder) {
-  return (await within(store)).filter((p) => p.startsWith(`within/${folder}/`) && visual(p)).sort((a, b) => timeOf(a).localeCompare(timeOf(b)) || a.localeCompare(b));
+/** All takes of an account folder (name signs, password gestures), oldest first; base: within or quiet. */
+export async function accountTakes(store, folder, base = 'within') {
+  return (await under(store, base)).filter((p) => p.startsWith(`${base}/${folder}/`) && visual(p)).sort((a, b) => timeOf(a).localeCompare(timeOf(b)) || a.localeCompare(b));
 }
 
 /** The first of each piece in an account folder → Map(piece → path). */

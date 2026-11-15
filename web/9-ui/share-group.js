@@ -25,6 +25,7 @@ import { sayHello, answerFor, join, advance, readHello } from '../8-join/join.js
 import { honorRemove } from '../8-join/remove-request.js';
 import { welcome as welcomeWithAccount, welcomeDevice, arrive } from '../8-join/welcome.js';
 import { knownFolder, userOf } from '../8-join/known.js';
+import { isAgain } from '../8-join/door.js';
 import { QUOTA } from '../8-join/provision.js';
 import { readName } from '../1-model/filename.js';
 import { newSource } from '../1-model/ids.js';
@@ -129,7 +130,12 @@ export async function welcome(ctx, { n, helloPath }) {
     await describeJoin(sp.store); // the signer's keys readable through the door
     const known = await knownFolder(sp.store, /@\(([^)]*)\)/.exec(helloPath)?.[1] ?? ''); // a known person on a new device (15.11.): her account, a new app password
     if (known) await welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: userOf(known) });
-    else await welcomeWithAccount({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, quota: ctx.quota ?? QUOTA, atlas: ctx.atlasUser, group: ctx.group });
+    else await welcomeWithAccount({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, quota: ctx.quota ?? QUOTA, atlas: ctx.atlasUser, group: ctx.group })
+      .catch(async (e) => { // the account is there already (welcomed once, sent back from join): only a new device password
+        const { person } = readHello(new TextDecoder().decode(await sp.store.read(helloPath)));
+        if (!/exist/i.test(e.message)) throw e;
+        return welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: person.id.toLowerCase() });
+      });
   } else if (sharingPoints.length) {
     await welcomeToGroup({ store: sp.store, helloPath, group: { sharingPoints }, signer: await signerOf(ctx) });
   } else return null;
@@ -241,6 +247,7 @@ export async function followJoins(ctx) {
       const paths = (await both.list('join/')).map((f) => f.path);
       const answer = answerFor(paths, mine.helloPath);
       if (!answer || answer === mine.answer) continue;
+      if (isAgain(answer)) { await joins.set(t.label, null); if (mine.door) states.set(t.label, 'door'); else states.delete(t.label); continue; } // the admin asks anew (15.11.): the hello bubble breathes again
       const pinned = mine.door ? signerOfText(ctx.doorSigner) : null; // project.json names the signer: only that seal counts
       const signers = pinned ? await trustedSigners(pinned, await certificatesIn(both)) // the anchor and whoever it certified (second device, paper)
         : signerKeys(readDescription(dec.decode(await both.read(mine.door ? `join/${SELF}` : SELF))));
