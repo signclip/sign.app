@@ -60,7 +60,7 @@ function edgeBar(kind, { cx, cy, tw, th }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, clip = 'ready', shake = null, zoom = null, apps = null, outOnly = false, persons = [], choosing = false, selfStart = 'direct', browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map() }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
+export function pointShapes(all, { own = '', admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, clip = 'ready', shake = null, zoom = null, apps = null, outOnly = false, persons = [], choosing = false, selfStart = 'direct', browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map(), leaving = new Set(), sending = null }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const tw = 86 * k; // a tile: a rounded rectangle, two layers behind it = much lies inside
   const th = 64 * k;
   const y0 = top + 72 * k; // first row, under the handle
@@ -157,11 +157,11 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
    */
   function joinIcon(i, t, state) {
     const me = grid(0, { w, k, y0 });
-    const grow = (n) => (fresh.has(t.label) ? ` appear a${n}` : ''); // a new state: the symbol builds up, me → line → group → own
+    const grow = (n) => (leaving.has(t.label) ? ' leave' : fresh.has(t.label) ? ` appear a${n}` : ''); // a new state: the symbol builds up, me → line → group → own · joined (15.11.): hello and join go
     const line = (b, cls) => shapes.splice(2, 0, { type: 'path', d: `M ${me.cx} ${me.cy} L ${b.cx} ${b.cy}`, cls: `join-line ${cls}` }); // under the tiles
     const group = grid(i, { w, k, y0 });
     if (state !== 'door') line(group, `${state === 'hello' ? 'hello' : 'join'}${grow(2)}`);
-    tile(i, `sp:${t.n}`, `sp join-group${state === 'door' || state === 'ready' ? ' door breathe' : state === 'hello' ? ' waiting' : ''}${grow(3)}`, state === 'door' ? 'hello' : state === 'ready' ? 'join' : t.label); // before hello and join: it says what a tap does (15.11.)
+    tile(i, `sp:${t.n}`, `sp join-group${sending === `sp:${t.n}` ? ' sending' : state === 'door' || state === 'ready' ? ' door breathe' : state === 'hello' ? ' waiting' : ''}${grow(3)}`, state === 'door' ? 'hello' : state === 'ready' ? 'join' : t.label); // before hello and join: it says what a tap does (15.11.)
     if (state === 'join' || state === 'join-own') {
       const mine = grid(i + 1, { w, k, y0 });
       line(mine, `${state === 'join-own' ? 'join own' : 'hello own'}${grow(4)}`);

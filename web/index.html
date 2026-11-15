@@ -36,6 +36,8 @@
     .consent-dot { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 2; pointer-events: none; }
     .appear { transform-box: fill-box; transform-origin: center; animation: appear .32s cubic-bezier(.2,.8,.3,1.2) both; }
     .a1 { animation-delay: .04s } .a2 { animation-delay: .08s } .a3 { animation-delay: .12s } .a4 { animation-delay: .16s } .a5 { animation-delay: .2s } .a6 { animation-delay: .24s } .a7 { animation-delay: .28s } .a8 { animation-delay: .32s } .a9 { animation-delay: .36s }
+    .sending { stroke-dasharray: 8 6; animation: sending .6s linear infinite; } @keyframes sending { to { stroke-dashoffset: -14; } } /* data on the way (hello, join): the edge runs */
+    .leave { animation: leave .7s ease-in forwards; transform-box: fill-box; transform-origin: center; } @keyframes leave { to { transform: scale(.2); opacity: 0; } } /* joined: hello and join go */
     @keyframes appear { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
     @media (prefers-reduced-motion: reduce) { .appear { animation: none; } } /* a corner of the window to drag */
     * { -webkit-tap-highlight-color: transparent; } [data-role]:focus { outline: none; } /* the arcs answer themselves, no blue box */

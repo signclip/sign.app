@@ -115,6 +115,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   let sealWith = null; deviceKeys().then((k) => { sealWith = k.device; }, () => {}); // the list is sealed like every .sign
   const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()), deviceKey: sealWith });
   const all = () => tiles(s.entries, s.rules, s.open, s.runs).filter((x) => { const e = s.entries[x.n - 1]; return e && !(e.key && !e.path); })
+    .filter((x) => !(x.group && s.joinStates?.get?.(x.label) === 'within' && s.doorLabels?.has(x.label))) // joined (15.11.): the door is no tile any more; my Sign is
     .map((x) => { const to = s.moved?.get(s.entries[x.n - 1]?.id); return to ? { ...x, moved: to, label: `→ ${to.replace(/^https?:\/\//, '').split('/')[0]}` } : x; })
     .map((x) => (x.n === s.adminN ? { ...x, service: 'admin', label: 'Hello (admin)' } : x.n === s.atlasN ? { ...x, service: 'atlas', label: 'Atlas' } : x.n === s.groupsN ? { ...x, service: 'groups', label: 'Groups' } : x)); // Admin and Atlas are no storage (15.11.) // devices (this one and the person's others) are no tiles: their check keys are for the seals // this device is the own tile (0), not a second one
 
@@ -173,7 +174,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (!panel.hidden) draw();
     });
     findAdmin().then(refreshDoor); // admin? then the signer: who said hello, and the door's piles
-    followJoins(ctx).then((states) => { // member: my joins; a state that changed builds its symbol up once
+    followJoins(ctx).then(async (states) => { // member: my joins; a state that changed builds its symbol up once
+      for (const [label, st] of states) if (st === 'within' && (await joins.get(label).catch(() => null))?.door) (s.doorLabels ??= new Set()).add(label); // joined doors: no tile
       for (const [label, st] of states) if (s.joinStates?.get?.(label) !== st) s.fresh.add(label);
       s.joinStates = states;
       if (!panel.hidden) draw();
@@ -444,9 +446,9 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'sp' && s.joinStates.get(ctx.tileOf(Number(a))?.label) === 'ready') { // join breathes: a tap takes the answer (15.11.)
       const label = ctx.tileOf(Number(a)).label, mine = await joins.get(label);
       await joins.set(label, { ...mine, tapped: true });
-      s.flash = role; draw();
+      s.sending = role; navigator.vibrate?.(10); draw(); // the answer comes in, the key turns, my Sign is opened
       const states = await followJoins(ctx).catch(() => s.joinStates);
-      s.flash = null;
+      s.sending = null; navigator.vibrate?.(states.get(label) === 'ready' ? [40, 40, 40] : 20);
       for (const [l, st] of states) if (s.joinStates?.get?.(l) !== st) s.fresh.add(l);
       s.joinStates = states;
       return draw();
@@ -454,9 +456,13 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'own' && s.joinStates.get(ctx.tileOf(Number(a))?.label) === 'join-own') { // the icon complete: tap my space = on to the consent (15.11.)
       const label = ctx.tileOf(Number(a)).label, mine = await joins.get(label);
       await joins.set(label, { ...mine, state: 'within' });
+      (s.leaving ??= new Set()).add(label); draw(); // hello and join go …
+      await new Promise((ok) => setTimeout(ok, 700));
+      s.leaving.delete(label); (s.doorLabels ??= new Set()).add(label);
       s.joinStates.set(label, 'within');
       const n = s.entries.findIndex((e, i) => s.open.get(i + 1)?.spec?.kind === 'nextcloud' && e.path?.includes('/Sign')) + 1;
-      s.focus = n || null; // its strand bars: tap = goes there → consented (dot) → off
+      if (n) { s.fresh.add(`sp:${n}`); s.focus = n; } // … my Sign appears beside me: tap = consent (the first circle), carry me onto it = always there
+      navigator.vibrate?.(20);
       return draw();
     }
     if (what === 'own') { // my own space still dashed (14.11.): the answer came without an account → ask again (a new hello)
@@ -466,10 +472,10 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     }
     if (what === 'sp' && s.joinStates.get(ctx.tileOf(Number(a))?.label) === 'door') { // onboarding: tap the hello bubble = hello (14.11.)
       const label = ctx.tileOf(Number(a)).label;
-      s.flash = role; draw(); // seen at once; the hello takes a moment
+      s.sending = role; navigator.vibrate?.(10); draw(); // on its way: the edge runs while name sign and gestures go out
       return helloToDoor(ctx, label).catch(() => null).then((m) => {
-        s.flash = null;
-        if (m) { s.joinStates.set(label, m.state); s.fresh.add(label); onHello(); } else s.shake = role; // nothing went out (no name sign yet, door not reachable): it shakes
+        s.sending = null;
+        if (m) { s.joinStates.set(label, m.state); s.fresh.add(label); onHello(); navigator.vibrate?.(20); } else { s.shake = role; navigator.vibrate?.([40, 40, 40]); } // sent: the dotted line builds up · nothing went out: it shakes
         draw(); setTimeout(() => { s.shake = null; draw(); }, 400);
       });
     }
@@ -643,13 +649,14 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         : name === 'join' ? { up: () => toWithin(from, x.helloPath), down: () => takeBack(from, x) }
         : name === 'within' ? { down: () => moveAccount(from, x.folder, 'within', 'quiet').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), false).catch(() => {})) }
         : { up: () => moveAccount(from, x.folder, 'quiet', 'within').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), true).catch(() => {})),
-          down: async () => { // ↓ twice within 5 s = deleted for good: account and files (GDPR, 15.11.); once = it waits
-            if (!(s.armed?.folder === x.folder && Date.now() - s.armed.at < 5000)) { s.armed = { folder: x.folder, at: Date.now() }; return 'wait'; }
+          down: async (choices = {}) => { // ↓ = it asks (Backup · Modell as chips); ↓ again within 15 s = deleted for good: account and files (GDPR, 15.11.)
+            if (!(s.armed?.folder === x.folder && Date.now() - s.armed.at < 15000)) { s.armed = { folder: x.folder, at: Date.now() }; return 'wait'; }
             s.armed = null;
+            await keepCopy(userOfFolder(x.folder), x.folder, choices); // first the copies asked for; if one fails, nothing is deleted
             await deleteAccount(ctx.admin, userOfFolder(x.folder)).catch(() => {});
             return deleteFolder(from, x.folder);
           } };
-      const wrap = (f) => f && (() => f().then((r) => (r === 'wait' ? r : again().then(() => r))));
+      const wrap = (f) => f && ((...a) => f(...a).then((r) => (r === 'wait' ? r : again().then(() => r))));
       const takes = x.helloPath ? (await helloTakes(from, x).catch(() => ({ takes: [] }))).takes
         : [...(await firstPieces(from, x.folder).catch(() => new Map())).values()].map((path) => ({ path }));
       for (const t of takes) items.push({ ...t, from, group, up: wrap(steps.up), down: wrap(steps.down) });
@@ -661,6 +668,24 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     const { person } = readHello(dec.decode(await store.read(x.helloPath)));
     if (ctx.admin && !(await knownFolder(store, person.label))) await deleteAccount(ctx.admin, person.id.toLowerCase()).catch(() => {}); // gone already = fine
     return backToHello(store, x.helloPath);
+  }
+  /**
+   * Before an account is deleted (15.11.): Backup = its Sign/ copied whole into atlas backup/<account>/ (kept for the
+   * person, not counted) · Modell = copied into atlas model/<account>/ (the person allowed modeling). Read through
+   * atlas's share of that Sign/; without the atlas login here nothing can be kept, so nothing is deleted (throws).
+   */
+  async function keepCopy(user, folder, { backup = false, model = false } = {}) {
+    if (!backup && !model) return;
+    if (!ctx.atlas) throw new Error('atlas login needed to keep a copy');
+    const a = ctx.atlas, at = (f = '') => new WebDavStore({ base: webdavUrl(a.server, a.user, f), user: a.user, password: a.password, name: 'atlas' });
+    const share = (await sharedWithMe(a)).find((x) => x.owner?.toLowerCase() === user);
+    if (!share) throw new Error('no share of that Sign/');
+    for (const [want, base] of [[backup, 'backup'], [model, 'model']]) {
+      if (!want) continue;
+      await makeFolder(a, base).catch(() => {}); await makeFolder(a, `${base}/${folder}`).catch(() => {});
+      const r = await copyRoute(at(share.folder), at(`${base}/${folder}`), { kinds: ['v', 'a', 'x', 'l', 'm'] });
+      if (r.failed.length) throw new Error(`${r.failed.length} not copied`);
+    }
   }
   const userOfFolder = (folder) => /!\(([^()]*)\)$/.exec(folder)?.[1]?.toLowerCase();
   /** An account's name signs and password gestures (all its devices), oldest first, as Similar tiles. */
@@ -708,7 +733,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       .map((p) => ({ pile: p, n: p === 'hello' ? s.hellos[0]?.n ?? s.adminN : s.adminN, label: `${p} ${pileList(p).filter(found).length}` }));
     if (s.atlasN) s.piles.push({ pile: 'index', n: s.atlasN, label: 'index' }); // beside Atlas: its index (15.11.)
     const hellos = s.piles;
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.index || s.accounts || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.index || s.accounts || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates, leaving: s.leaving ?? new Set(), sending: s.sending ?? null }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();

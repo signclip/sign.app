@@ -587,8 +587,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (!at?.[how]) return null;
     navigator.vibrate?.(how === 'up' ? 20 : [12, 50, 12]); // felt at once: on = one pulse, back = two
     let r;
-    try { r = await at[how](); } catch { navigator.vibrate?.([40, 40, 40]); return null; } // not reachable: it stays, three pulses
-    if (r === 'wait') { navigator.vibrate?.(250); return null; } // asks once more: the same gesture again within 5 s (delete for good)
+    try { r = await at[how](how === 'down' ? data.deleteChoices ?? {} : undefined); } catch { navigator.vibrate?.([40, 40, 40]); return null; } // not reachable: it stays, three pulses
+    if (r === 'wait') { // asks first (15.11.): Backup · Modell as chips (tap = yes), the same gesture again within 15 s = delete for good
+      navigator.vibrate?.(250);
+      data.deleteChoices = { backup: false, model: false };
+      data.offers = [{ text: 'Backup', offer: true, origin: 'delete' }, { text: 'Modell', offer: true, origin: 'delete' }];
+      return paint();
+    }
+    data.deleteChoices = null; if (data.offers?.some((o) => o.origin === 'delete')) data.offers = [];
     const rest = data.look.filter((x) => x.group !== at.group);
     if (!rest.length) { pairOff(); return act('edge-out', 'upper-right'); }
     const next = Math.min(data.look.slice(0, data.doubleAt).filter((x) => x.group !== at.group).length, rest.length - 1);
@@ -1058,6 +1064,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     },
     tap: (x, y, role) => {
       if (!$('#share').hidden && role !== 'point') return menu.show(false); // a tap beside the circles closes them
+      if (role?.startsWith('offer:') && data.deleteChoices) { const k = role.slice(6) === 'Backup' ? 'backup' : 'model'; data.deleteChoices[k] = !data.deleteChoices[k]; data.offers = data.offers.map((o) => (o.text === role.slice(6) ? { ...o, picked: data.deleteChoices[k] } : o)); navigator.vibrate?.(10); return paint(); } // before deleting: keep a copy?
       if (role?.startsWith('offer:') && data.gestureChoices) { data.gestureWord = role.slice(6); suggestGesture(); return paint(); } // this word for the password gesture
       if (role?.startsWith('offer:')) return adopt(role.slice(6)); // a greyed context of the result above: now mine
       return act('tap', role, { x, y });
