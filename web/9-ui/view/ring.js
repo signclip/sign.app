@@ -74,8 +74,8 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   }
   const cw = Math.min(w, 390 * k); // one column: the take as on a phone; wider screens have room beside it
   const d = POINT_D * k, ring = (d / 2) * RING;
-  const double = Boolean(st.similar && data.double && !st.full); // Similar · Doppel: the reference above, the live picture below
-  const many = Boolean(st.similar && !double && !st.full); // Similar · viele: half (above the line, to drag into it) or full
+  const double = Boolean(st.similar && data.double); // Similar · Doppel: the reference above, the live picture below
+  const many = Boolean(st.similar && !double); // Similar · viele: half (above the line, to drag into it) or full
   const half = many && !data.manyFull, low = double || many; // the take window moves down, the upper half is free
   const side = w >= 1.9 * cw && (double || half); // wide (iPad across, 15.11.): Doppel and Similar · halb beside the take, not above
   const sideness = side ? data.lowT ?? 1 : 0;
@@ -99,19 +99,19 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const g = { st, data, w, h, k, cw, cx, cy, F, win, ring, shapes: [], edge: grow ? edge : null, grow, fieldY, side, deep };
   g.add = (type, o) => g.shapes.push({ type, ...o });
 
-  const video = st.full ? { cx: g.cx, cy: h / 2, d: Math.max(w, h), radius: 0 } : { cx: g.cx, cy, d: F, radius: 18 * k, window: win };
+  const video = { cx: g.cx, cy, d: F, radius: 18 * k, window: win };
   const [px, py] = onShape(win, 0, ring);
-  const point = st.full ? { cx: g.cx, cy: h - 80 * k, d } : { cx: px, cy: py, d }; // its outer ring touches the window
+  const point = { cx: px, cy: py, d }; // its outer ring touches the window
   const stretched = Boolean(data.items?.length) && ['line', 'record', 'stream'].includes(st.screen);
 
   const [, pyLow] = onShape(win, 0, ring);
   const [, pointTop] = onShape(win, 0, 2 * ring);
-  if (!st.similar && !st.full) g.add('sheet', { x: 0, y: 24 * k, w, h: Math.max(0, pointTop - 32 * k), r: 0, cls: 'top-zone', role: 'top-zone' }); // the free part above: pulled down = Similar (below Android's own pull-down strip)
-  if (!st.similar && !st.full) g.add('sheet', { x: 0, y: winBottom + 14 * k, w, h: Math.max(0, h - winBottom - 14 * k), r: 0, cls: 'bottom-zone', role: 'bottom-zone' }); // the free part below: tap = the context arc straightens, write at once (15.11.)
+  if (!st.similar) g.add('sheet', { x: 0, y: 24 * k, w, h: Math.max(0, pointTop - 32 * k), r: 0, cls: 'top-zone', role: 'top-zone' }); // the free part above: pulled down = Similar (below Android's own pull-down strip)
+  if (!st.similar) g.add('sheet', { x: 0, y: winBottom + 14 * k, w, h: Math.max(0, h - winBottom - 14 * k), r: 0, cls: 'bottom-zone', role: 'bottom-zone' }); // the free part below: tap = the context arc straightens, write at once (15.11.)
   const boxTop = fieldY - 64 * k - deep; // the open context field's box: its top edge is where the bottom arc lies, pushed up = closed
-  if ((data.open ?? 0) > 0.5 && !st.full && !many) g.add('sheet', { x: cx - cw / 2 + 12 * k, y: boxTop, w: cw - 24 * k, h: 88 * k + deep, r: 22 * k, cls: 'field-box' });
+  if ((data.open ?? 0) > 0.5 && !many) g.add('sheet', { x: cx - cw / 2 + 12 * k, y: boxTop, w: cw - 24 * k, h: 88 * k + deep, r: 22 * k, cls: 'field-box' });
   if (many && !half) similarTiles(g, pyLow - ring - 10 * k + (h - pyLow + ring + 10 * k) * grow); // full: down to the bottom, only arcs and context on top
-  if (!st.full) {
+  {
     if (!many || half) g.add('rest', { field: { x: g.cx - F / 2, y: cy - F / 2, s: F, r: 18 * k }, win, cls: 'field-rest' }); // nothing shows outside the window (14.11.)
     strandArcs(g);
     if (!many || half) { photoPoint(g); soundBars(g); }
@@ -121,29 +121,27 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const template = double ? referenceWindow(g, point) : templateVideo(g);
   if (!stretched) chipArea(g, point, double ? template : null);
   if (stretched) g.shapes.push(...timelineShapes(data.items, { timeMs: data.timeMs ?? 0, sub: st.sub ?? 'play', zoom: data.timeZoom ?? 1, cx: g.cx, y: point.cy, k, w }));
-  else if (!st.full && !double && (!many || half)) g.shapes.push(...arcShapes(win, ring, { ...data, bend: data.bend ?? (st.sub === 'spread' ? 0 : 1) }, { k, w }));
+  else if (!double && (!many || half)) g.shapes.push(...arcShapes(win, ring, { ...data, bend: data.bend ?? (st.sub === 'spread' ? 0 : 1) }, { k, w }));
   if (st.screen === 'delete') deleteChips(g);
-  if (data.waits && !st.full) { // pinching the waits: inner ring = start, outer = stop (1 s ≈ 8 px)
+  if (data.waits) { // pinching the waits: inner ring = start, outer = stop (1 s ≈ 8 px)
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (4 + data.waits.startMs / 125) * k, cls: 'wait-ring start' });
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (4 + data.waits.stopMs / 125) * k, cls: 'wait-ring stop' });
   }
-  if (st.full) { // review: where it comes from, in colour and in form: own = a solid edge (coral), from Similar = dashed (blue)
-    const other = data.fullFrom === 'similar';
-    for (let x = 0; x < w; x += other ? 18 * k : w) g.add('sheet', { x, y: 0, w: other ? 12 * k : w, h: 5 * k, r: 0, cls: `from ${other ? 'other' : 'own'}` });
-  }
+
   if (half) similarTiles(g, side ? h - 14 * k : point.cy - ring - 10 * k, side ? [0, cx - cw / 2 - 8 * k] : [0, w]); // half: above the line (wide: beside it), a result can be dragged onto it
-  if (data.start && !st.full && !many) g.shapes.push(...startShapes(data.start, { win, point, k, ring })); // the start: whose state, how it starts (15.11.)
-  if (data.focus && !st.full) g.add('circle', { cx: data.focus.x, cy: data.focus.y, r: (34 - 12 * (data.focusT ?? 0)) * k, fade: 1 - (data.focusT ?? 0) * 0.8, cls: 'focus-mark' }); // where it focuses
+  if (data.start && !many) g.shapes.push(...startShapes(data.start, { win, point, k, ring })); // the start: whose state, how it starts (15.11.)
+  if (data.focus) g.add('circle', { cx: data.focus.x, cy: data.focus.y, r: (34 - 12 * (data.focusT ?? 0)) * k, fade: 1 - (data.focusT ?? 0) * 0.8, cls: 'focus-mark' }); // where it focuses
   if (data.feedback && !many) { // saved: a green ring going out · gone: a red dashed ring going in (R7); p 0 → 1 over 0.9 s
     const p = data.feedbackP ?? 0;
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (data.feedback === 'saved' ? 4 + 26 * p : 30 - 26 * p) * k, fade: 1 - p, cls: `feedback ${data.feedback}` });
   }
-  if (!many || half) g.add('point', { ...point, cls: `${pointClass(st)}${data.photo ? ' photo' : ''}${data.paused && st.screen === 'record' ? ' paused' : ''}`, role: 'point' });
+  if (!many || half) g.add('point', { ...point, cls: `${pointClass(st)}${data.photo && st.screen !== 'line' ? ' photo' : ''}${data.paused && st.screen === 'record' ? ' paused' : ''}${st.screen === 'line' && data.replayPaused ? ' stopped' : ''}`, role: 'point',
+    href: st.screen === 'line' ? data.lineThumbs?.[data.line?.at ?? 0] ?? null : null }); // in the line: that take's picture inside, play / pause over it (16.11.)
 
   const centre = (role) => { const s = g.shapes.find((x) => x.role === role && x.cls !== 'hit'); return !s ? null : s.s ? [s.x + s.s / 2, s.y + s.s / 2, s.s] : s.x1 != null ? [(s.x1 + s.x2) / 2, s.y1, 24 * k] : null; };
   if (data.cutMark) { const c = centre(data.cutMark); if (c) g.add('line', { x1: c[0], y1: c[1] - c[2] * 0.75, x2: c[0], y2: c[1] + c[2] * 0.75, cls: 'cut-mark' }); } // split (15.11.): past the mark a line across the take
   if (data.joinMark) { const [a, b] = data.joinMark.map(centre); if (a && b) g.add('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], cls: 'join-mark' }); } // join: a band between the two
-  const noPicture = look(st, 'v') === 'off' && st.screen !== 'line' && !st.full; // visual off: no picture, the window in the background colour (15.11.)
+  const noPicture = look(st, 'v') === 'off' && st.screen !== 'line'; // visual off: no picture, the window in the background colour (15.11.)
   const field = { x: cx - cw / 2 + 12 * k, w: cw - 24 * k }; // the typing row lies in the box (one column, centred), on phone, tablet, portrait and landscape
   return { video, template, point, window: win, fieldY, field, hideLive: (many && !half) || noPicture, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
 }
@@ -260,7 +258,6 @@ function soundBars({ st, data, win, cx, cw, k, add }) {
  */
 function chipArea({ st, data, cx, win, k, cw, F, shapes, fieldY, deep }, point, ref = null) {
   if (st.screen === 'line') return;
-  if (st.full && st.mode !== 'line') return;
   const open = (data.open ?? 0) > 0.5; // the context field is open: the rest sits in it, its lowest row stays free to type
   const offers = data.offers ?? [];
   const theirs = ref ? offers.filter((o) => o.origin === 'similar') : [];
@@ -268,8 +265,7 @@ function chipArea({ st, data, cx, win, k, cw, F, shapes, fieldY, deep }, point, 
   const held = st.hold?.target === 'chip' ? st.hold.text : null;
   const mark = (s) => (held && s.role && s.role.split(':').pop() === held ? { ...s, cls: `${s.cls} hold` } : s); // the held context, as property
   if (theirs.length) shapes.push(...chipShapes(theirs, { cx: ref.cx, y: onShape(ref.window, 180, 0)[1] - 10 * k - rowHeight(theirs, k) / 2, k, w: ref.d * 0.8 }));
-  if (!open && !st.full && look(st, 'x') === 'off') return; // context off: no chips; on: they show, empty = one dashed chip (15.11.)
-  if (st.full) { shapes.push(...chipShapes(mine, { timeMs: data.timeMs, cx, y: point.cy - 70 * k, k, w: cw }).map(mark)); return; }
+  if (!open && look(st, 'x') === 'off') return; // context off: no chips; on: they show, empty = one dashed chip (15.11.)
   const { now, rest } = splitNow(mine);
   const [ex, ey] = extentOf(win);
   const inWindow = (list) => [{ type: 'clip-in', id: `clip${shapes.length}`, d: outlinePath(win) }, ...list, { type: 'clip-out' }];
@@ -298,7 +294,7 @@ function alongEdge(shapes, { cx, cy, ex, ey, gap }) {
 
 /** A template (Vorlage) beside the own take: smaller, blue, lower left inside the window. */
 function templateVideo({ st, data, win, k, add }) {
-  if (!data.template || st.full) return null;
+  if (!data.template) return null;
   const [ex, ey] = extentOf(win);
   const template = { cx: win.cx - ex * 0.55, cy: win.cy + ey * 0.55, d: 88 * k };
   add('video', { ...template, cls: 'video other template', role: 'template' });
@@ -396,13 +392,19 @@ const SVG = {
     + `<rect x="${s.x}" y="${s.y - s.h / 2}" width="${s.w}" height="${s.h}" rx="${s.h / 2}"/>`
     + `<text x="${s.x + s.w / 2}" y="${s.y + 5}" text-anchor="middle">${esc(s.text)}</text></g>`,
   hint: (s) => `<circle cx="${s.cx}" cy="${s.cy}" r="${s.r}" class="${s.cls}" style="--dx:${s.dx}px;--dy:${s.dy}px"/>`,
-  point: (s) => {
-    const core = s.cls.includes('paused') // the icons (15.11.): ● start · ■ stop · ❚❚ paused (double-tap goes on)
-      ? `<rect x="${s.cx - 13}" y="${s.cy - 15}" width="9" height="30" rx="3" class="core"/><rect x="${s.cx + 4}" y="${s.cy - 15}" width="9" height="30" rx="3" class="core"/>`
-      : s.cls.includes('recording')
-      ? `<rect x="${s.cx - 16}" y="${s.cy - 16}" width="32" height="32" rx="8" class="core"/>` // stop
-      : `<circle cx="${s.cx}" cy="${s.cy}" r="${s.d / 2}" class="core"/>`;
-    return `<g class="${s.cls}"${roleOf(s)}><circle cx="${s.cx}" cy="${s.cy}" r="${(s.d / 2) * 1.35}" class="ring"/>${core}</g>`;
+  point: (s) => { // 16.11.: ● start · ❚❚ during a take (tap = pause) · ● dashed = paused (tap = on) · photo = a shutter ·
+    const pause = `<rect x="${s.cx - 13}" y="${s.cy - 15}" width="9" height="30" rx="3" class="core"/><rect x="${s.cx + 4}" y="${s.cy - 15}" width="9" height="30" rx="3" class="core"/>`; // in the line: the take's picture, ▶ / ❚❚ over it
+    const play = `<path d="M ${s.cx - 10} ${s.cy - 15} L ${s.cx + 15} ${s.cy} L ${s.cx - 10} ${s.cy + 15} Z" class="core"/>`;
+    const r = s.d / 2, ring = `<circle cx="${s.cx}" cy="${s.cy}" r="${r * 1.35}" class="ring"/>`;
+    if (s.cls.includes('line')) { // the take's picture inside the point
+      const pic = s.href ? `<clipPath id="pt"><circle cx="${s.cx}" cy="${s.cy}" r="${r * 1.3}"/></clipPath><image href="${esc(s.href)}" x="${s.cx - r * 1.3}" y="${s.cy - r * 1.3}" width="${r * 2.6}" height="${r * 2.6}" preserveAspectRatio="xMidYMid slice" clip-path="url(#pt)"/>` : '';
+      return `<g class="${s.cls}"${roleOf(s)}>${pic}${ring}<g class="over">${s.cls.includes('stopped') ? play : pause}</g></g>`;
+    }
+    const core = s.cls.includes('paused') ? `<circle cx="${s.cx}" cy="${s.cy}" r="${r}" class="core"/>`
+      : s.cls.includes('recording') ? pause
+      : s.cls.includes('photo') ? `<circle cx="${s.cx}" cy="${s.cy}" r="${r}" class="core"/><circle cx="${s.cx}" cy="${s.cy}" r="${r * 0.55}" class="shutter"/>`
+      : `<circle cx="${s.cx}" cy="${s.cy}" r="${r}" class="core"/>`;
+    return `<g class="${s.cls}"${roleOf(s)}>${ring}${core}</g>`;
   },
 };
 

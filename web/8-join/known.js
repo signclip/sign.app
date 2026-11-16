@@ -26,7 +26,7 @@ export async function knownFolder(store, label, id = null) {
 /** The account (Nextcloud user) behind a folder: its n_, small. */
 export const userOf = (folder) => /!\(([^()]*)\)$/.exec(folder)?.[1]?.toLowerCase() ?? null;
 
-/** Which piece a file shows: '' = name sign · 'password gesture 1…3' (also the older '(hello password 1)'). */
+/** Which piece a file shows: '' = name sign · 'password gesture 1' · '… 2' · '… own' (also the older '(hello password 1)'). */
 export function pieceOf(path) {
   const n = readName(nameOf(path));
   if (!n) return null;

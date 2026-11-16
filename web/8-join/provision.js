@@ -156,6 +156,38 @@ export function nextQuota(bytes, by) {
   return by < 0 && gb(QUOTAS[i]) > now ? null : QUOTAS[i]; // below the lowest step: no change (null)
 }
 
+/**
+ * Where the door lies (15.11.): the folder that holds hello/ and join/, found from the door's links (project.json) among
+ * the shares of this login, so the admin app never guesses a folder. → 'Sign/Door' · '' (the account itself) · null
+ * (none of the links is a share of this login). Limits: one request; ≤ 1000 shares of the login looked through.
+ */
+export async function doorFolder({ server, user, password }, doors = [], { fetch = globalThis.fetch } = {}) {
+  const res = await fetch(`${base(server)}/ocs/v2.php/apps/files_sharing/api/v1/shares?format=json`, { headers: ocsHeaders(basic(user, password)) });
+  if (!res.ok) return null;
+  const shares = (await res.json().catch(() => ({})))?.ocs?.data ?? [];
+  const tokenOf = (url) => /\/s\/([A-Za-z0-9]+)/.exec(url ?? '')?.[1] ?? null;
+  for (const d of doors) {
+    for (const url of [d.read, d.drop]) {
+      const s = shares.find((x) => x.token && x.token === tokenOf(url));
+      if (!s) continue;
+      const p = String(s.path ?? '').replace(/^\/+|\/+$/g, ''); // e.g. "Door/join"
+      return p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
+    }
+  }
+  return null;
+}
+
+/**
+ * The account's real user id (16.11.): a login may be typed as an e-mail or in another case, but the WebDAV path
+ * needs the id. → id, or the given user when it cannot be asked (offline, the browser blocks it).
+ */
+export async function userId({ server, user, password }, { fetch = globalThis.fetch } = {}) {
+  try {
+    const res = await fetch(`${base(server)}/ocs/v2.php/cloud/user?format=json`, { headers: ocsHeaders(basic(user, password)) });
+    return (res.ok && (await res.json())?.ocs?.data?.id) || user;
+  } catch { return user; }
+}
+
 /** A folder in someone's own files (WebDAV MKCOL; there already = fine). */
 export async function makeFolder({ server, user, password }, folder, { fetch = globalThis.fetch } = {}) {
   const res = await fetch(`${base(server)}/remote.php/dav/files/${encodeURIComponent(user)}/${encodeURIComponent(folder)}/`, { method: 'MKCOL', headers: { Authorization: basic(user, password) } });
@@ -171,6 +203,27 @@ export async function shareFolder({ server, user, password }, folder, withUser, 
   const d = await res.json().catch(() => ({}));
   if (!res.ok && d.ocs?.meta?.statuscode !== 403) throw new Error(`share: ${d.ocs?.meta?.message ?? res.status}`); // 403 = shared already
   return d.ocs?.data?.id ?? null;
+}
+
+/** People of this Nextcloud a name finds (16.11., the sharing search, no admin needed). → [{ id, label }] */
+export async function findPeople({ server, user, password }, search, { fetch = globalThis.fetch } = {}) {
+  const res = await fetch(`${base(server)}/ocs/v2.php/apps/files_sharing/api/v1/sharees?search=${encodeURIComponent(search)}&itemType=folder&shareType[]=0&perPage=20&format=json`, { headers: ocsHeaders(basic(user, password)) });
+  if (!res.ok) throw new Error(`sharees: ${res.status}`);
+  const d = (await res.json()).ocs?.data ?? {};
+  return [...(d.exact?.users ?? []), ...(d.users ?? [])].map((x) => ({ id: x.value?.shareWith, label: x.label })).filter((x) => x.id);
+}
+
+/** Who has access to one of my folders (16.11.): [{ id (share), user, label }] — people of this Nextcloud and cloud ids. */
+export async function sharesOf({ server, user, password }, folder, { fetch = globalThis.fetch } = {}) {
+  const res = await fetch(`${base(server)}/ocs/v2.php/apps/files_sharing/api/v1/shares?path=${encodeURIComponent(`/${folder}`)}&format=json`, { headers: ocsHeaders(basic(user, password)) });
+  if (!res.ok) throw new Error(`shares: ${res.status}`);
+  return ((await res.json()).ocs?.data ?? []).filter((x) => [0, 6].includes(Number(x.share_type))).map((x) => ({ id: x.id, user: x.share_with, label: x.share_with_displayname || x.share_with }));
+}
+
+/** One access taken back (a share deleted). */
+export async function unshare({ server, user, password }, id, { fetch = globalThis.fetch } = {}) {
+  const res = await fetch(`${base(server)}/ocs/v2.php/apps/files_sharing/api/v1/shares/${encodeURIComponent(id)}?format=json`, { method: 'DELETE', headers: ocsHeaders(basic(user, password)) });
+  if (!res.ok) throw new Error(`unshare: ${res.status}`);
 }
 
 /** What others shared with me: [{ owner, label, folder (where it sits in my files) }]. */

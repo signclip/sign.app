@@ -15,7 +15,11 @@
 //            app is open, and after one tap on its tile per session for permission); upkeep runs only while
 //            the app is open (native app: EXTEND(S10, background) a background task).
 
+import { connect } from '../2-storage/connect.js';
 import { note as debugNote } from './debug.js';
+import { doorPart } from './share-door.js';
+import { accountPart } from './share-accounts.js';
+import { pilesOf, roleOf, accountsOf } from '../8-join/flow.js';
 import { findList, changeList, rulesOf } from '../2-storage/list.js';
 import { readList } from '../2-storage/sharing-point.js';
 import { openAll, afterTake, sources, runRules, reconnect } from '../2-storage/sharing-points.js';
@@ -46,10 +50,11 @@ import { bind } from './touch.js';
 import { revokeAppPassword, setDisplayName } from '../8-join/provision.js';
 import { renames, adoptRename, declineRename } from '../8-join/rename.js';
 import { nameSignOf } from '../8-join/join.js';
-import { isAdmin, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled, deleteAccount, groupsOf, setGroup, matchAccounts } from '../8-join/provision.js';
+import { findPeople, isAdmin, doorFolder, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled, deleteAccount, groupsOf, setGroup, matchAccounts } from '../8-join/provision.js';
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
+import { newSource } from '../1-model/ids.js';
 import { rowLimit, pointShapes, confirmShapes } from './view/points.js';
 import { toSvg } from './view/ring.js';
 
@@ -119,7 +124,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   const all = () => tiles(s.entries, s.rules, s.open, s.runs).filter((x) => { const e = s.entries[x.n - 1]; return e && !(e.key && !e.path); })
     .filter((x) => !(x.group && s.joinStates?.get?.(x.label) === 'within' && s.doorLabels?.has(x.label))) // joined (15.11.): the door is no tile any more; my Sign is
     .map((x) => { const to = s.moved?.get(s.entries[x.n - 1]?.id); return to ? { ...x, moved: to, label: `→ ${to.replace(/^https?:\/\//, '').split('/')[0]}` } : x; })
-    .map((x) => (x.n === s.adminN ? { ...x, service: 'admin', label: 'Hello (admin)' } : x.n === s.atlasN ? { ...x, service: 'atlas', label: 'Atlas' } : x.n === s.groupsN ? { ...x, service: 'groups', label: 'Groups' } : x)); // Admin and Atlas are no storage (15.11.) // devices (this one and the person's others) are no tiles: their check keys are for the seals // this device is the own tile (0), not a second one
+    .filter((x) => ![s.adminN, s.atlasN, s.groupsN].includes(x.n)) // Admin, Atlas, Groups (15.11.): a login is an account (the small circle upper left), no storage tile
+    .filter((x) => !(ctx.role && doorLabel && x.label === doorLabel)); // a role has no door // Admin and Atlas are no storage (15.11.) // devices (this one and the person's others) are no tiles: their check keys are for the seals // this device is the own tile (0), not a second one
 
   // ---------- upkeep: what is due runs by itself (2-storage/upkeep.js) ----------
   const host = async () => { const { pickup } = await deviceKeys(); return { id: device, pickup: pickup.public, privateKey: pickup.privateKey }; };
@@ -167,12 +173,13 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       const added = await changeList(own, { add: { label: `${person.label} · ${device.slice(2, 6)}`, path: null, id: device, key: key.public } }, meta()).catch(() => null);
       if (added) return load(); // once; if it cannot be written, the list stays as it was
     }
+    if (await takePendingLogin().catch(() => false)) return load(); // a role login moved here from another account (15.11.)
     s.open = await openAll(s.entries, { keychain, own, folders });
     onSources(sources(s.rules, s.open, own));
     waitingShares(ctx).then(async (list) => { // asks in the background
       const expected = expectedOf(ctx, list); // from accounts I brought in: taken in without a tap
       for (const item of expected) await acceptWaiting(ctx, item).catch(() => {});
-      s.incoming = list.filter((x) => !expected.includes(x));
+      s.incoming = [...list.filter((x) => !expected.includes(x)), ...await groupFolders().catch(() => [])]; // and group folders others added me to (16.11.)
       if (!panel.hidden) draw();
     });
     findAdmin().then(refreshDoor); // admin? then the signer: who said hello, and the door's piles
@@ -182,7 +189,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       s.joinStates = states;
       if (!panel.hidden) draw();
     });
-    joinProject(ctx, project).catch(() => {}); // the first group: the project's door (also after its password came)
+    await roleByName(); // Admin, Atlas, Groups (15.11.): known by the login's name, before the door is asked
+    if (!ctx.role) joinProject(ctx, project).catch(() => {}); // the first group: the project's door (also after its password came); a role says no hello
     checkMoves().catch(() => {});
   }
   /** Sealed moves (15.11.): a sharing point that says its content went elsewhere breathes "→ host"; a tap follows it. ≤ 1 look per tile per 10 min. */
@@ -202,7 +210,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   async function edit(change) {
     if (change?.remove != null) await moveNote(change.remove).catch(() => {}); // taken away right after everything was copied out: a sealed move note stays behind
     if (change?.remove != null) await logoutEntry(change.remove).catch(() => {}); // a login taken away: its app password deletes itself, the keychain forgets it
-    if (change?.remove != null && [s.adminN, s.atlasN, s.groupsN].includes(change.remove)) { ctx.admin = undefined; s.adminN = s.atlasN = s.groupsN = null; ctx.groups = null; ctx.atlas = null; s.door = null; s.accounts = s.account = s.index = null; } // Admin or Atlas taken away: asked anew
+    if (change?.remove != null && [s.adminN, s.atlasN, s.groupsN].includes(change.remove)) { ctx.admin = undefined; ctx.door = null; s.adminN = s.atlasN = s.groupsN = null; ctx.groups = null; ctx.atlas = null; s.door = null; s.accounts = s.account = s.index = null; } // Admin or Atlas taken away: asked anew
     await changeList(own, change, meta());
     await load();
     draw();
@@ -247,6 +255,10 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
   const ctx = { s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on) };
+  // the admin's door and what Admin, Atlas, Groups do: their own files (15.11., share-door.js, share-accounts.js)
+  const { refreshDoor, lookPile, pileList, adminStore } = doorPart(ctx, { panel, onLookAll });
+  const { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, showGroups, groupTiles, addToGroup } = accountPart(ctx, { words, onLookAll, project });
+  ctx.showIndex = showIndex;
 
   // ---------- doing what a gesture says ----------
   async function shareTo(n, kinds = null) {
@@ -423,11 +435,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       const cloudId = entry?.path?.startsWith('cloud:') ? entry.path.slice(6) : cloudIdOf(readPaste(entry?.path ?? ''));
       return cloudId ? giveOut(ctx, result.give.from, cloudId) : say(t('notReachable'));
     }
-    if (result.action === 'give') { // ↑: an account on the clipboard = shared to it (it comes in as a tile); else my WebDAV address
-      const cloudId = cloudIdOf(readPaste(await clipboardText()));
-      if (cloudId && ctx.tileOf(result.n)?.canGive) return giveToAccount(ctx, result.n, cloudId);
-      return giveOut(ctx, result.n, 'link');
-    }
+    if (result.action === 'give' && ctx.role === 'groups' && words().length) return groupTo(result.n, words()); // Groups (16.11.): ↑ on a group folder with names as context = those people get it
+    if (result.action === 'give') return giveOut(ctx, result.n, 'link'); // ↑ = its link to the clipboard (16.11.: giving to an account is drawing a line onto its tile)
     for (const change of result.edits ?? [result.edit]) await edit(change);
     return null;
   }
@@ -440,6 +449,16 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (canPick()) return pickFolder(ctx);
       s.shake = 'sp:0'; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; // the phone: with the native app (S4)
     }
+    if (what === 'account') { // an account upper left (16.11.): what its role does; my own: its Sign/ tile lights up
+      const acc = logins()[Number(a)];
+      if (acc?.role === 'admin') return lookPile('hello');
+      if (acc?.role === 'atlas') return showIndex();
+      if (acc?.role === 'groups') return showGroups(); // Groups (16.11.): tap = all groups; ← = a new one
+      const n = acc && [...s.open].find(([, sp]) => sp.spec?.server === acc.server && sp.spec?.user === acc.user && sp.spec?.folder)?.[0];
+      if (n) { s.flash = `sp:${n}`; draw(); setTimeout(() => { s.flash = null; draw(); }, 600); }
+      return null;
+    }
+    if (what === 'person' && a === globalThis.signPersons?.current()) return ctx.role === 'admin' ? lookPile('hello') : ctx.role === 'atlas' ? showIndex() : null; // my own account: what my role does
     if (what === 'person') { globalThis.signPersons?.switchTo(a); return location.reload(); } // another person on this device: in
     if (what === 'sp' && ctx.tileOf(Number(a))?.moved) return bringIn(ctx, ctx.tileOf(Number(a)).moved); // moved: a tap follows to the new sharing point
     const svc = what === 'sp' ? ctx.tileOf(Number(a))?.service : null;
@@ -474,7 +493,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     }
     if (what === 'sp' && s.joinStates.get(ctx.tileOf(Number(a))?.label) === 'door') { // onboarding: tap the hello bubble = hello (14.11.)
       const label = ctx.tileOf(Number(a)).label;
-      s.sending = role; navigator.vibrate?.(10); draw(); // on its way: the edge runs while name sign and gestures go out
+      s.sending = role; s.sent = 0; navigator.vibrate?.(10); draw(); // on its way: the line runs, a dot per file (name sign, gestures)
       return helloToDoor(ctx, label).catch(() => null).then((m) => {
         s.sending = null;
         if (m) { s.joinStates.set(label, m.state); s.fresh.add(label); onHello(); navigator.vibrate?.(20); } else { s.shake = role; navigator.vibrate?.([40, 40, 40]); } // sent: the dotted line builds up · nothing went out: it shakes
@@ -501,11 +520,13 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     }
     if (what === 'confirm') return confirmTap(a); // the first circle
     if (what === 'sp-kind') return apply(gestureOn(targetFor(ctx.tileOf(Number(a)), 'tap-kind'), 'tap-kind', s.rules, { kind: b }));
+    if (what === 'add' && s.group) return addToGroup(); // a group open (Groups, 16.11.): + = the names written as context get access
+    if (what === 'add' && s.groupList) return words().length && s.groupsN ? newGroup(s.groupsN).then(showGroups) : say(t('menu.paste')); // all groups open: + with a name written as context = a new group folder (16.11.)
     if (what === 'add') return addNew(ctx); // the one + tile
     if (what === 'out') return outside(); // the share sign: the last take to other apps (the system sheet)
     if (what === 'app') { const app = rowApps()[Number(a)]; if (!app) return null; if (!app.glyph) usedApp(app); return outside(app); } // one app of the row: straight there
-    if (what === 'browse') { const x = (s.index ? indexTiles() : s.accounts ? accountTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.look ? x.look() : null; } // an account: tap = look at it
-    if (what === 'incoming') return acceptWaiting(ctx, s.incoming[Number(a)]);
+    if (what === 'browse') { const x = (s.index ? indexTiles() : s.accounts ? accountTiles() : s.groupList ? groupTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.look ? x.look() : null; } // an account: tap = look at it
+    if (what === 'incoming') { const x = s.incoming[Number(a)]; return x?.groupFolder ? takeGroupFolder(x) : acceptWaiting(ctx, x); } // a group folder: one tap = in my menu, like join
     if (what === 'hello') return lookPile(s.piles?.[Number(a)]?.pile); // tap = this pile as Similar tiles (15.11.)
     if (what === 'accept-there') {
       const { url } = s.acceptThere;
@@ -534,212 +555,129 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (project?.atlas && user === project.atlas.toLowerCase() && s.atlasN !== n) { s.atlasN = n; ctx.atlas = login; atlasCount(login).catch(() => {}); } // this device also holds the atlas login
       if (ctx.admin) continue;
       if (!askedAdmin.has(key)) { const yes = await isAdmin(login, { group: project?.group ?? undefined }); if (yes !== null) askedAdmin.set(key, yes); }
-      if (askedAdmin.get(key)) { ctx.admin = login; s.adminN = n; debugNote({ admin: user }); } // in sign-debug.txt: which login is the admin
+      if (askedAdmin.get(key)) {
+        ctx.admin = login; s.adminN = n; await setRole('admin', n).catch(() => {});
+        const at = await doorFolder(login, project?.doors ?? []).catch(() => null); // where hello/ and join/ really lie (15.11.)
+        ctx.door = at == null ? null : connect({ kind: 'nextcloud', label: 'door', id: 'door', server: login.server, user: login.user, folder: at }, { secret: login.password }).store;
+        debugNote({ admin: user, door: at ?? 'not found among the shares of this login' }); // in sign-debug.txt
+      }
     }
     return ctx.admin ?? null;
   }
-  /**
-   * atlas (14.11.): every account's Sign/ is shared read only with atlas; atlas counts what lies there and writes
-   * only the summary (summary/accounts.json), shared read only with the admin (project.json admin). ≤ once an hour.
-   */
-  async function atlasCount(login, { now = false } = {}) {
-    let last = 0;
-    try { last = Number(localStorage.getItem('sign.atlasAt') || 0); } catch { /* private mode */ }
-    if (!now && Date.now() - last < EVERY_MS) return; // → on index: count now (15.11.)
-    const root = (folder = '') => new WebDavStore({ base: webdavUrl(login.server, login.user, folder), user: login.user, password: login.password, name: 'atlas' });
-    const shares = (await sharedWithMe(login)).filter((x) => x.folder !== 'summary').map((x) => ({ ...x, store: root(x.folder) }));
-    await makeFolder(login, 'summary');
-    const store = root();
-    try { await store.remove?.(SUMMARY); } catch { /* first time */ }
-    await store.write(SUMMARY, new TextEncoder().encode(await summarize(shares)));
-    if (project?.admin) await shareFolder(login, 'summary', project.admin); // only the summary goes to the admin
-    try { localStorage.setItem('sign.atlasAt', String(Date.now())); } catch { /* private mode */ }
-  }
-  /** The admin reads atlas's summary (shared into the admin's files as summary/) → Map(user → counts). */
-  async function atlasSummary() {
-    try {
-      const store = new WebDavStore({ base: webdavUrl(ctx.admin.server, ctx.admin.user), user: ctx.admin.user, password: ctx.admin.password, name: 'admin' });
-      return readSummary(new TextDecoder().decode(await store.read(SUMMARY)));
-    } catch { return new Map(); }
-  }
-  /**
-   * Groups (15.11.): group folders live in their own account, so a group outlives the account of any one person. ← on
-   * Groups = a new folder there, named by the context words (else the date), with its read and drop links as tiles; the
-   * invitation goes to the clipboard. Whoever holds the Groups login welcomes; dragging the group onto a teacher's
-   * account shares it there.
-   */
-  async function newGroup(n) {
-    const sp = s.open.get(n), name = words().join(' ').trim() || `Gruppe ${shown(Date.now(), 'day')}`;
-    if (!sp?.spec) return say(t('notReachable'));
-    s.flash = `sp:${n}`; draw();
-    try {
-      const folder = [sp.spec.folder, name].filter(Boolean).join('/');
-      await makeFolder(ctx.groups, folder);
-      await makeOrRenew({ ...ctx, s: { ...s, open: new Map([...s.open, [n, { ...sp, spec: { ...sp.spec, folder }, entry: { ...sp.entry, label: name } }]]) } }, n);
-      navigator.vibrate?.(20);
-    } catch { navigator.vibrate?.([40, 40, 40]); say(t('notReachable')); }
-    s.flash = null; return draw();
-  }
-  /** Atlas (15.11.): the index — every account with its takes per strand, from atlas's own summary; first tile = back. */
-  async function showIndex() {
-    say(t('menu.wait'));
-    try {
-      const store = new WebDavStore({ base: webdavUrl(ctx.atlas.server, ctx.atlas.user), user: ctx.atlas.user, password: ctx.atlas.password, name: 'atlas' });
-      s.index = [...readSummary(dec.decode(await store.read(SUMMARY)))].map(([user, c]) => ({ user, c }));
-      say('');
-    } catch { s.index = null; return say(t('notReachable')); }
-    return draw();
-  }
-  const countedAt = () => { try { const at = Number(localStorage.getItem('sign.atlasAt') || 0); return at ? shown(at).slice(5, 16) : '–'; } catch { return '–'; } };
-  const indexTiles = () => [{ label: `← ${countedAt()}`, go: () => { s.index = null; draw(); } }, ...s.index.filter((x) => words().every((w) => (x.c.label ?? x.user).toLowerCase().includes(w.toLowerCase()))).map((x) => ({ label: `@${x.c.label ?? x.user} · ${statsOf(x.c)}` }))];
-  /** → on the admin tile: the accounts with their space as tiles; ↓ rests, ↑ wakes, two fingers apart / together = more / less space, the first tile = back (14.11.). */
-  async function showAccounts() {
-    s.accounts = [];
-    say(t('menu.wait'));
-    try {
-      const [list, counts] = await Promise.all([listAccounts(ctx.admin, { group: project?.group, skip: [project?.atlas, project?.admin, project?.groups, ctx.admin?.user] }), atlasSummary()]);
-      s.accounts = list.map((a) => ({ ...a, counts: counts.get(a.user) ?? null })); // takes and strands from atlas
-      say('');
-    } catch { s.accounts = null; return say(t('notReachable')); }
-    return draw();
-  }
-  const gb = (b) => (b < 0 ? '∞' : `${Math.round(b / 2 ** 30)}`);
-  function accountTiles() {
-    if (!s.accounts) return null;
-    if (s.account) return lookTiles(s.account);
-    return [{ label: '←', go: () => { s.accounts = null; s.account = null; draw(); } }, ...matchAccounts(s.accounts, words()).map((a) => ({ // the context words find accounts, like Similar
-      label: `${a.enabled ? '' : '◌ '}${a.quota > 0 && a.used / a.quota >= 0.9 ? '⚠ ' : ''}@${a.label}${a.lastLogin ? ` · ${shown(a.lastLogin, 'day').slice(5, 10)}` : ''}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
-      look: () => openAccount(a), // tap = look at it: its devices and groups
-      down: () => setEnabled(ctx.admin, a.user, false).then(showAccounts, () => say(t('notReachable'))), // ↓ rests (◌)
-      up: () => setEnabled(ctx.admin, a.user, true).then(showAccounts, () => say(t('notReachable'))), // ↑ wakes
-      more: (by) => { const q = nextQuota(a.quota, by); return q ? setQuota(ctx.admin, a.user, q).then(showAccounts, () => say(t('notReachable'))) : null; },
-    }))];
-  }
   /** The other persons on this device (persons.js), with how each starts. */
-  const others = () => { const p = globalThis.signPersons; return p ? p.persons().filter((x) => x.id !== p.current()) : []; };
-  const START = ['direct', 'record', 'choose']; // straight to the take as left · records at once · the persons to choose at start
-  /** Hellos and the door's piles anew (on load, → on a pile, every 20 s while the menu is open). */
-  async function refreshDoor() {
-    s.hellos = await hellosToWelcome(ctx).catch(() => s.hellos);
-    const door = ctx.admin ? adminStore() : null;
-    s.door = door ? await doorView(door).catch(() => s.door) : null;
-    s.renames = door ? await renames(door).catch(() => s.renames ?? []) : []; // a person renamed herself: in the hello pile
+  /** The other persons on this device (persons.js), with their roles. */
+  const others = () => { const p = globalThis.signPersons; return p ? accountsOf(p.persons(), p.current(), new Map(p.persons().map((x) => [x.id, x.role ?? null]))).filter((x) => !x.current) : []; };
+  /**
+   * The accounts kept on this device (16.11.): every login (server + user) once, a small circle upper left, as the + is
+   * upper right. Role as form and colour (flow.js roleOf); the one in use is ringed. → [{ server, user, label, role, current, n }]
+   */
+  function logins() {
+    const seen = new Map();
+    for (const [n, sp] of s.open) {
+      const { kind, server, user } = sp.spec ?? {};
+      if (!user || !['nextcloud', 'webdav'].includes(kind) || seen.has(`${server} ${user}`)) continue;
+      const role = roleOf(user, project ?? {}, { admin: ctx.admin?.server === server && ctx.admin?.user === user });
+      seen.set(`${server} ${user}`, { server, user, label: user, role, n });
+    }
+    const list = [...seen.values()];
+    const inUse = list.find((a) => (ctx.role ? a.role === ctx.role : !a.role)) ?? null;
+    return list.map((a) => ({ ...a, current: a === inUse }));
+  }
+  /** This person's role, from her logins' names (project.json); isAdmin may add 'admin' later (findAdmin). */
+  async function roleByName() {
+    for (const [n, sp] of s.open) {
+      const role = sp.spec?.kind === 'nextcloud' ? roleOf(sp.spec.user, project ?? {}) : null;
+      if (role) return setRole(role, n).catch(() => {});
+    }
+  }
+  /**
+   * A role login came in (15.11.). This person has not said hello yet: she becomes that account (named after the role,
+   * ringed upper left; her request at the door goes). She has: the login moves to a new account of its own on this device
+   * (its password stays in the keychain by its q_), and the app opens as that account.
+   */
+  async function setRole(role, n) {
+    if (ctx.role === role) return;
+    const P = globalThis.signPersons, label = { admin: project?.admin, atlas: project?.atlas, groups: project?.groups }[role] || role;
+    const e = s.entries[n - 1], said = doorLabel && (await joins.get(doorLabel).catch(() => null));
+    if (said && P && e && !P.persons().some((x) => x.id === P.current() && x.role)) {
+      await changeList(own, { remove: n }, meta()); // out of my list, not logged out
+      const id = P.add();
+      if (!id) return;
+      P.setRole(id, role, label);
+      localStorage.setItem('sign.name', label); localStorage.setItem('sign.onboard', '99'); // the new account: its name, no onboarding steps
+      localStorage.setItem('sign.pendingLogin', JSON.stringify({ for: id, entry: { label: e.label, path: e.path, id: e.id } }));
+      return location.reload();
+    }
+    ctx.role = role;
+    if (role === 'admin') s.adminN ??= n; else if (role === 'atlas') s.atlasN ??= n; else s.groupsN ??= n;
+    P?.setRole?.(P.current(), role, label);
+    s.fresh.add(`person:${P?.current()}`); // it builds up there: the request disappears into the small circle
     if (!panel.hidden) draw();
   }
-  setInterval(() => { if (!panel.hidden && (ctx.admin || s.hellos.length)) refreshDoor(); }, 20000);
-  /** The piles shown (15.11.): hello for every signer; join, within, quiet for the admin's door. */
-  const PILES = ['hello', 'join', 'within', 'quiet'];
-  const pileList = (name) => (name === 'hello' ? [...s.hellos, ...(s.renames ?? [])] : s.door?.[name] ?? []);
   /**
-   * Admin (15.11.): one pile as Similar tiles; each person's name sign and password gestures together, a new device of a
-   * known person with the originals (Doppel: new above, original below). In Doppel ↑ = on to the next pile, ↓ = back:
-   * hello ↑ join (welcome) ↓ quiet · join ↑ within ↓ hello anew · within ↓ quiet · quiet ↑ within. ← → = the next take.
+   * Groups (16.11.): a group folder of the Groups account given to people of this Nextcloud, found by the names written
+   * as context (the sharing search); they read and add (no deleting). Each gets it as a waiting tile, a tap = in.
    */
-  async function lookPile(name) {
-    if (name === 'index') return showIndex();
-    const store = name === 'hello' ? null : adminStore(), items = [], again = () => refreshDoor();
-    for (const x of pileList(name)) {
-      if (items.length >= 40) break; // the tiles of one look; decided ones make room
-      if (x.account && x.old) { // a rename (15.11.): the new name sign above beside the first one; ↑ = the new name, ↓ = not
-        const from = adminStore(), first = from && (await firstPieces(from, x.folder).catch(() => new Map())).get('');
-        if (!from) continue;
-        items.push({ path: `hello/${nameSignOf(x.path.slice(6))}`, pair: first ?? null, from, group: x.path,
-          up: () => adoptRename(from, x).then(() => setDisplayName(ctx.admin, x.account, x.name).catch(() => {})).then(again),
-          down: () => declineRename(from, x).then(again) });
-        continue;
+  async function groupTo(n, names) {
+    const sp = s.open.get(n), login = ctx.groups;
+    if (!sp?.spec?.folder || !login || sp.spec.user !== login.user) return say(t('notReachable'));
+    s.flash = `sp:${n}`; draw();
+    let given = 0;
+    for (const name of names) {
+      const found = await findPeople(login, name).catch(() => []);
+      const one = found.find((x) => x.label.toLowerCase() === name.toLowerCase() || x.id.toLowerCase() === name.toLowerCase()) ?? (found.length === 1 ? found[0] : null);
+      if (one && await shareFolder(login, sp.spec.folder, one.id, { permissions: 5 }).then(() => true, () => false)) given++;
+    }
+    s.flash = null; navigator.vibrate?.(given === names.length ? 20 : [40, 40, 40]);
+    return say(`${sp.entry.label} → ${given}/${names.length}`);
+  }
+  /** Group folders others gave to my own account and not yet in my list → waiting tiles [{ groupFolder, n, folder, owner }]. */
+  async function groupFolders() {
+    const out = [];
+    for (const [n, sp] of s.open) {
+      const spec = sp.spec;
+      if (spec?.kind !== 'nextcloud' || spec.folder || sp.store?.readOnly || roleOf(spec.user, project ?? {})) continue; // my own account's login, not a role
+      const secret = await keychain.get(sp.entry.id);
+      for (const x of await sharedWithMe({ server: spec.server, user: spec.user, password: secret }).catch(() => [])) {
+        const path = webdavUrl(spec.server, spec.user, x.folder);
+        if (!s.entries.some((e) => e.path === path) && !out.some((o) => o.folder === x.folder)) out.push({ groupFolder: true, n, folder: x.folder, owner: x.owner, path });
       }
-      const from = store ?? s.open.get(x.n)?.store;
-      if (!from) continue;
-      const group = x.helloPath ?? x.folder;
-      const steps = name === 'hello' ? { up: () => welcome(ctx, x), down: () => backToHello(from, x.helloPath) } // ↓ = quiet, the device says hello anew
-        : name === 'join' ? { up: () => toWithin(from, x.helloPath), down: () => takeBack(from, x) }
-        : name === 'within' ? { down: () => moveAccount(from, x.folder, 'within', 'quiet').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), false).catch(() => {})) }
-        : { up: () => moveAccount(from, x.folder, 'quiet', 'within').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), true).catch(() => {})),
-          down: async (choices = {}) => { // ↓ = it asks (Backup · Modell as chips); ↓ again within 15 s = deleted for good: account and files (GDPR, 15.11.)
-            if (!(s.armed?.folder === x.folder && Date.now() - s.armed.at < 15000)) { s.armed = { folder: x.folder, at: Date.now() }; return 'wait'; }
-            s.armed = null;
-            await keepCopy(userOfFolder(x.folder), x.folder, choices); // first the copies asked for; if one fails, nothing is deleted
-            await deleteAccount(ctx.admin, userOfFolder(x.folder)).catch(() => {});
-            return deleteFolder(from, x.folder);
-          } };
-      const wrap = (f) => f && ((...a) => f(...a).then((r) => (r === 'wait' ? r : again().then(() => r))));
-      const takes = x.helloPath ? (await helloTakes(from, x).catch(() => ({ takes: [] }))).takes
-        : [...(await firstPieces(from, x.folder).catch(() => new Map())).values()].map((path) => ({ path }));
-      for (const t of takes) items.push({ ...t, from, group, up: wrap(steps.up), down: wrap(steps.down) });
     }
-    return items.length ? onLookAll(items) : say(t('notReachable'));
+    return out;
   }
-  /** join ↓ (15.11.): not taken yet → the account made for this hello goes (a known person's account stays), quiet/, hello anew. */
-  async function takeBack(store, x) {
-    const { person } = readHello(dec.decode(await store.read(x.helloPath)));
-    if (ctx.admin && !(await knownFolder(store, person.label))) await deleteAccount(ctx.admin, person.id.toLowerCase()).catch(() => {}); // gone already = fine
-    return backToHello(store, x.helloPath);
+  /** One tap on a waiting group folder: it comes into my menu, reached with my own login (like join). */
+  async function takeGroupFolder(x) {
+    const login = s.open.get(x.n)?.entry, id = newSource();
+    const secret = login && await keychain.get(login.id);
+    if (!secret) return say(t('notReachable'));
+    await keychain.set(id, secret);
+    s.incoming = s.incoming.filter((y) => y !== x);
+    await edit({ add: { label: x.folder.split('/').pop(), path: x.path, id }, marks: ['show', 'write'] });
+    return say(`${t('share')} ← ${x.owner}`);
   }
-  /**
-   * Before an account is deleted (15.11.): Backup = its Sign/ copied whole into atlas backup/<account>/ (kept for the
-   * person, not counted) · Modell = copied into atlas model/<account>/ (the person allowed modeling). Read through
-   * atlas's share of that Sign/; without the atlas login here nothing can be kept, so nothing is deleted (throws).
-   */
-  async function keepCopy(user, folder, { backup = false, model = false } = {}) {
-    if (!backup && !model) return;
-    if (!ctx.atlas) throw new Error('atlas login needed to keep a copy');
-    const a = ctx.atlas, at = (f = '') => new WebDavStore({ base: webdavUrl(a.server, a.user, f), user: a.user, password: a.password, name: 'atlas' });
-    const share = (await sharedWithMe(a)).find((x) => x.owner?.toLowerCase() === user);
-    if (!share) throw new Error('no share of that Sign/');
-    for (const [want, base] of [[backup, 'backup'], [model, 'model']]) {
-      if (!want) continue;
-      await makeFolder(a, base).catch(() => {}); await makeFolder(a, `${base}/${folder}`).catch(() => {});
-      const r = await copyRoute(at(share.folder), at(`${base}/${folder}`), { kinds: ['v', 'a', 'x', 'l', 'm'] });
-      if (r.failed.length) throw new Error(`${r.failed.length} not copied`);
-    }
+  /** A login waiting for this account (setRole moved it here): into my list once. */
+  async function takePendingLogin() {
+    let p = null; try { p = JSON.parse(localStorage.getItem('sign.pendingLogin') || 'null'); } catch { /* none */ }
+    if (!p || p.for !== globalThis.signPersons?.current()) return false;
+    localStorage.removeItem('sign.pendingLogin');
+    await changeList(own, { add: p.entry }, meta());
+    return true;
   }
-  const userOfFolder = (folder) => /!\(([^()]*)\)$/.exec(folder)?.[1]?.toLowerCase();
-  /** An account's name signs and password gestures (all its devices), oldest first, as Similar tiles. */
-  async function lookAccount(a) {
-    const store = adminStore(), folder = store && (await store.list('within/').catch(() => [])).map((f) => f.path).find((p) => p.toLowerCase().includes(`!(${a.user.toLowerCase()})/`));
-    if (!folder) return say(t('notReachable'));
-    const paths = await accountTakes(store, folder.slice(7, folder.indexOf('/', 7)));
-    return paths.length ? onLookAll(paths.map((path) => ({ path, from: store }))) : null;
-  }
+  const START = ['direct', 'record', 'choose']; // straight to the take as left · records at once · the persons to choose at start
   /** The project's own Nextcloud (its door's server), where the admin logs in. */
   const projectServer = () => { try { return new URL(project?.doors?.[0]?.read ?? project?.read).origin; } catch { return null; } };
-  /** The admin's own folder with hello/ join/ within/ quiet/ (the door), or null. */
-  const adminStore = () => [...s.open.values()].find((sp) => sp.store && sp.spec?.kind === 'nextcloud' && sp.spec.server === ctx.admin?.server && sp.spec.user === ctx.admin?.user)?.store ?? null;
-  ctx.adminStore = adminStore; // share-add.js (another signer) reaches the door through it
-  /** An account looked at (14.11.): its devices (↓ = quiet, "Gerät sperren") and its groups as context chips (tap a faint one = in, ↓ = out). */
-  async function openAccount(a) {
-    say(t('menu.wait'));
-    const store = adminStore();
-    const [devices, groups] = await Promise.all([store ? devicesOf(store, a.user).catch(() => []) : [], groupsOf(ctx.admin, a.user).catch(() => ({ all: [], mine: [] }))]);
-    s.account = { a, devices, groups, store };
-    say('');
-    return draw();
-  }
-  /** Takes and strands of an account, from atlas: '12 Takes · v 12 · a 9 · x 12 · l 3'. */
-  const statsOf = (c) => (c ? [`${c.chains ?? 0} Takes`, ...['v', 'a', 'x', 'l'].map((k) => `${k} ${c[k] ?? 0}`)].join(' · ') : '–');
-  function lookTiles({ a, devices, groups, store }) {
-    const again = () => openAccount(a), fail = () => say(t('notReachable'));
-    return [
-      { label: `← @${a.label}`, go: () => { s.account = null; draw(); } },
-      { label: statsOf(a.counts), look: () => lookAccount(a) }, // what the account holds (atlas: takes per strand); tap = its gestures
-      ...devices.map((d) => ({ label: d.device.label, down: () => quietDevice(store, d.helloPath).then(again, fail) })),
-      ...groups.all.map((g) => (groups.mine.includes(g)
-        ? { label: `(${g})`, down: () => setGroup(ctx.admin, a.user, g, false).then(again, fail) } // in this group: ↓ = out
-        : { label: `(${g})`, faint: true, look: () => setGroup(ctx.admin, a.user, g, true).then(again, fail) })), // tap = in
-    ];
-  }
-
   function draw() {
     const { width: w, height: h } = panel.getBoundingClientRect();
-    const browse = s.index ? indexTiles() : s.accounts ? accountTiles() : s.browse ? browseChips(ctx) : null;
-    const incoming = s.incoming.map((x) => ({ label: x.share.name }));
+    const browse = s.index ? indexTiles() : s.accounts ? accountTiles() : s.groupList ? groupTiles() : s.browse ? browseChips(ctx) : null;
+    const incoming = s.incoming.map((x) => ({ label: x.groupFolder ? x.folder.split('/').pop() : x.share.name }));
     const ws = words().map((w) => w.toLowerCase());
     const found = (x) => ws.every((w) => x.name.toLowerCase().includes(w)); // context words find persons in the piles too
-    s.piles = PILES.filter((p) => p === 'hello' ? s.hellos.length || s.door : s.door) // the overview (15.11.): hello · join · within · quiet with counts
-      .map((p) => ({ pile: p, n: p === 'hello' ? s.hellos[0]?.n ?? s.adminN : s.adminN, label: `${p} ${pileList(p).filter(found).length}` }));
-    if (s.atlasN) s.piles.push({ pile: 'index', n: s.atlasN, label: 'index' }); // beside Atlas: its index (15.11.)
+    const count = (p) => pileList(p).filter(found).length;
+    s.piles = ctx.admin ? pilesOf(Object.fromEntries(['hello', 'join', 'within', 'quiet'].map((p) => [p, count(p)])), { atlas: Boolean(s.atlasN) }) // the admin: always all four (15.11.), 0 = faint
+      : s.hellos.length ? pilesOf({ hello: count('hello') }).slice(0, 1) : []; // a group's signer: its hellos
+    s.piles = s.piles.map((p) => ({ ...p, n: s.adminN, label: p.count == null ? p.pile : `${p.pile} ${p.count}` }));
     const hellos = s.piles;
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.index || s.accounts || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates, leaving: s.leaving ?? new Set(), sending: s.sending ?? null }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, name: person.label, sent: s.sent ?? 0, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.index || s.accounts || s.groupList || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others(), accounts: logins(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates, leaving: s.leaving ?? new Set(), sending: s.sending ?? null }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();
@@ -782,6 +720,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         const [, a, b] = role.split(':');
         return apply(gestureOn(Number(b), 'cut', s.rules, { from: Number(a) }));
       }
+      if (role?.startsWith('browse:') && s.group && ['down', 'down-out', 'up'].includes(dir)) { const x = groupTiles()[Number(role.split(':')[1])]; return dir === 'up' ? x?.up?.() : x?.down?.(); } // a member ↓ = out of this group · ↑ on the group = new member links
       if (role?.startsWith('browse:') && s.accounts && ['down', 'down-out', 'up'].includes(dir)) { const x = accountTiles()[Number(role.split(':')[1])]; return dir === 'up' ? x?.up?.() : x?.down?.(); } // account: ↓ rests ↑ wakes · device: ↓ quiet · group: ↓ out (14.11.)
       if (role?.startsWith('person:') && (dir === 'down' || dir === 'down-out')) { // off this device; its files stay
         if (!globalThis.signPersons?.remove(role.slice(7))) { s.shake = role; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; }
@@ -792,6 +731,12 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (role?.startsWith('hello:') && dir === 'right') return refreshDoor(); // → look again; deciding is in the tiles (15.11.)
       if (role?.startsWith('browse:') && s.accounts && dir === 'right') return back(); // → in the accounts: one step back
       const n = circleOf(role);
+      if (role?.startsWith('account:')) { // ← = what its role opens · ↓ = log out (its app password deletes itself)
+        const acc = logins()[Number(role.split(':')[1])];
+        if (dir === 'left') return acc?.role === 'admin' ? showAccounts() : acc?.role === 'atlas' ? showIndex() : acc?.role === 'groups' ? newGroup(acc.n) : null;
+        if (dir === 'down' || dir === 'down-out') return logout(acc);
+      }
+      if (role === `person:${globalThis.signPersons?.current()}` && dir === 'left') return ctx.role === 'admin' ? showAccounts() : ctx.role === 'atlas' ? showIndex() : ctx.role === 'groups' ? newGroup(s.groupsN) : null; // ← on my account: what my role opens
       if (n && n === s.adminN && dir === 'left') return showAccounts(); // ← on Admin: the accounts (15.11.: ← = further, → = again)
       if (n && n === s.atlasN && dir === 'left') return showIndex(); // ← on Atlas: the index
       if (n && n === s.groupsN && dir === 'left') return newGroup(n); // ← on Groups: a new group folder, named by the context words
@@ -900,6 +845,8 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (s.index) { s.index = null; draw(); return true; }
     if (s.account) { s.account = null; draw(); return true; }
     if (s.accounts) { s.accounts = null; draw(); return true; }
+    if (s.group) { s.group = null; draw(); return true; }
+    if (s.groupList) { s.groupList = null; draw(); return true; }
     return false;
   }
 
@@ -921,7 +868,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     /** The open store of the sharing point with this path (a share target named in a chain), or null. */
     storeOf: (path) => [...s.open.values()].find((sp) => sp.entry.path === path)?.store ?? null,
     /** The name sign was just taken: the hello to the project's door goes out now. */
-    joinProject: () => joinProject(ctx, project).then((started) => (started ? load().then(draw) : null)),
+    joinProject: () => (ctx.role ? Promise.resolve(null) : joinProject(ctx, project).then((started) => (started ? load().then(draw) : null))),
     /** A ring arc dropped on tile n (app.js): that strand always goes there. */
     dropKind: (n, kind) => apply(gestureOn(targetFor(ctx.tileOf(n), 'drop-kind'), 'drop-kind', s.rules, { kind })),
   };

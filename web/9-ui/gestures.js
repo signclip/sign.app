@@ -48,9 +48,9 @@ export const VERBS = {
 /** [action, gesture, target, mode, what it does, held?] */
 export const TABLE = [
   // the point: records; the edge rule on it
-  ['take', 'tap', 'point', 'any', 'all switched-on strands start / stop together'],
-  ['take-while-held', 'hold', 'point', 'any', 'all switched-on strands record while held'],
-  ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait · during a take: pause / go on'],
+  ['take', 'tap', 'point', 'any', 'all switched-on strands start; during a take pause / go on (saved by ← → ↑ on the point) · in the line: play / pause that take (16.11.)'],
+  ['take-while-held', 'hold', 'point', 'any', 'all switched-on strands record while held; in the line: live at once, then it records (16.11.)'],
+  ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait'],
   ['waits', 'pinch', 'point', 'any', 'two fingers on the point: across = into the take\'s time (wider / narrower) · up-down = the waits longer / shorter (rings show them) (15.11.)'],
   ['share-last', 'up-out', 'point', 'any', 'out over the upper edge: the sharing points as circles, tap = share there'],
   ['aside-last', 'down', 'point', 'any', 'set the last take aside (it stays, dashed)'],
@@ -88,8 +88,7 @@ export const TABLE = [
   ['similar-out', 'edge-out', 'upper-right', 'any', 'push Similar off'],
   ['share-in', 'edge-in', 'middle-right', 'any', 'pull the sharing points in'],
   ['share-out', 'edge-out', 'middle-right', 'any', 'push them off'],
-  ['full', 'up', 'top-middle', 'any', 'full screen: only picture and point'],
-  ['from-top', 'down', 'top-middle', 'any', 'pulled down from the top: in full screen = everything again, else Similar comes in at the top'],
+  ['from-top', 'down', 'top-middle', 'any', 'pulled down from the top: Similar comes in at the top'],
   ['from-top-far', 'down-out', 'top-middle', 'any', 'pulled down from the top all the way: Similar · viele over the whole screen at once'],
   ['from-top', 'down', 'top-zone', 'any', 'pulled down anywhere above the point: Similar comes in (Android keeps its own strip at the very top)'],
   ['from-top-far', 'down-out', 'top-zone', 'any', 'pulled down far from above the point: Similar · viele full at once'],
@@ -107,7 +106,6 @@ export const TABLE = [
   ['take-over', 'spread', 'similar-item', 'any', 'fly to this result: it comes into the window (Doppel)'],
   ['into-line', 'drag', 'similar-item>point', 'any', 'lay this result on the chain: it flies into the arc, a new line on top'],
   ['into-line', 'drag', 'similar-item>line-arc', 'any', 'the same, dropped on the line'],
-  ['reference-full', 'spread', 'reference', 'any', 'Similar · voll: nearer still, the result in full screen, to review like a line'],
   ['reference-out', 'squeeze', 'reference', 'any', 'farther: back to Similar · viele'],
   ['reference-next', 'left', 'reference', 'any', 'the next result comes from the right'],
   ['reference-before', 'right', 'reference', 'any', 'the result before comes from the left'],
@@ -116,8 +114,8 @@ export const TABLE = [
   // the line in its arc over the point, the chain under it (view/arc.js): opened and closed by the scale
   ['line-zoom', 'pinch', 'line-arc', 'any', 'two fingers on the line: the takes apart (bigger) / together (smaller), continuous'],
   ['line-zoom', 'pinch', 'item', 'any', 'the same, starting on a take of the line'],
-  ['straighten', 'spread', 'line-arc', 'any', 'spread further when the takes are as far apart as they go: straight, then full screen'],
-  ['bend', 'squeeze', 'line-arc', 'any', 'squeeze further when they are as close as they go: from full screen to straight, then the arc'],
+  ['straighten', 'spread', 'line-arc', 'any', 'spread further when the takes are as far apart as they go: the take opens as its timeline; spread on there = cut at the point (16.11.)'],
+  ['bend', 'squeeze', 'line-arc', 'any', 'squeeze further when they are as close as they go: the two takes under the fingers become one (16.11.)'],
   ['levels-open', 'spread', 'level', 'any', 'spread the older lines of the chain apart: their pictures show'],
   ['levels-close', 'squeeze', 'level', 'any', 'push them together again'],
   ['level-open', 'tap', 'level', 'any', 'open this older line'],
@@ -160,7 +158,7 @@ export const EXCEPTIONS = [
 /** Intent × keyword (Initial §4.2): saying it does the same as the gesture. */
 export const VOICE = {
   take: 'Start', next: 'Weiter', before: 'Zurück', after: 'Zusammenfügen',
-  'remove-last': 'Alle löschen', 'share-last': 'Senden', share: 'Senden', full: 'Vollbild',
+  'remove-last': 'Alle löschen', 'share-last': 'Senden', share: 'Senden',
 };
 
 const rows = TABLE.map(([action, gesture, target, mode, what, held = null]) => ({ action, gesture, target, mode, what, held }));
@@ -198,7 +196,7 @@ const OUT = ['share', 'share-last', 'share-strand'];
 const BACK = ['similar-farther']; // pushed back over the edge it came from
 const AWAY = ['remove', 'remove-last', 'remove-strand'];
 const ALWAYS = ['ready', 'sticky'];
-const VIEW = ['similar-nearer', 'similar-farther', 'take-over', 'reference-full', 'reference-out', 'straighten', 'bend', 'levels-open', 'levels-close', 'chips-in', 'chips-out', 'context-open', 'context-arc', 'context-close'];
+const VIEW = ['similar-nearer', 'similar-farther', 'take-over', 'reference-out', 'straighten', 'bend', 'levels-open', 'levels-close', 'chips-in', 'chips-out', 'context-open', 'context-arc', 'context-close'];
 const CONTENT = ['point', 'item'];
 
 /** Rows that break the grammar (and are no named exception) → list of problems; [] = consistent. */

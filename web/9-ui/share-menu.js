@@ -1,35 +1,26 @@
 // share-menu.js — the sharing menu after ↑ on the point: what each gesture on a sharing point means. No chips.
 //
-// Purpose:   ↑ on the point shows every sharing point of the list as a small tile in the upper half
-//            (view/points.js). Settings sit on the tile itself and are set with the gestures that mean
-//            the same everywhere (UI doc, section 3):
-//            (decided 13.11.: a connection = what is new goes there; a copy also takes everything so far)
-//              tap               share the last take there, now
-//              hold              NEW goes there from now on (the strands that are on in the ring); held again = off
-//              double-tap        encrypted ↔ readable (14.11.); a sharing point others read shakes (needs a group key)
-//              drag tile → tile  COPY there: everything so far once, then what is new (a line with a chevron);
-//                                this device (0) onto a tile = all my takes; a tile onto 0 = bring it here once
-//              tap this device   choose a new folder or disk on it (14.11.; phone: native app S4); + is for links only
-//                                (a backup is restored); dropped again = the connection ends
-//            encryption is no gesture (13.11.): always where it can be. On the way it always is (HTTPS); at rest
-//            a sharing point only I read (a picked folder or disk: private) gets everything encrypted (backup format) by
-//            itself; sharing points others read (group, link, the project's Nextcloud for training) stay readable until a
-//            group key exists (EXTEND(S9, group key): sealed for each member in the join)
-//              ↓ on a line       cut that connection (↓ = remove, everywhere)
-//              ←                 bring it into Similar (show; writing too when it allows it), again = out
-//              tap an edge bar   this strand goes there, or not (left visual, right audio, bottom context)
-//              drag a ring arc   onto a tile = that strand goes there (A onto B = B gets A)
-//              ↑                 give it out read-only (decided 13.11.): a cloud id or another account's link on the
-//                                clipboard = shared to it, that account comes in as a tile with a line (a tap on it
-//                                opens its page to accept); else the own WebDAV address goes on the clipboard
-//              drag my Nextcloud onto another account's tile = shared to it, read-only (a share, no copy)
-//              drag my Nextcloud onto + = a group: a read link and a drop link (dragged again = new links)
-//              ↓                 out of the list
-//              admin             hold + = log in at the project's server · → on the admin tile = accounts (context words
-//                                find them; ↓ rests, ↑ wakes, two fingers = space, tap = look: devices ↓ = quiet, groups as
-//                                chips, faint = tap in, ↓ = out) · a hello: tap = name sign, ← = welcome (join), → = again
-//            Two dashed tiles at the end bring new ones in: clipboard (link, address, server) · folder.
-//            Every change = one edit of the list (list.js editList → a new chain version).
+// Purpose:   one gesture, one meaning, on every tile (16.11., with the user). The target decides what a line means.
+//              EINBINDEN     + (upper right): link, cloud id or server from the clipboard → a tile · hold + = log in ·
+//                            tap this device = a folder or disk on it · a waiting share (dashed blue): tap = in
+//              tap           share the last take there, now (the first time: the first circle asks what and how much)
+//              hold          from now on every new take goes there (the strands on in the ring); hold again = off
+//              drag → tile   a line = a connection, by the target:
+//                              onto a folder of mine          COPY (from now on; held on first = everything so far too)
+//                              onto a folder only I read      encrypted BACKUP (the target tile gets a dark inner edge)
+//                              onto another account's tile    READ for that account (thin blue line, a share, no copy);
+//                                                             its tile tapped = its server's page, to accept there
+//                              onto +                         a GROUP: a read link and a drop link
+//              double-tap    encrypted ↔ readable, for what goes there from now on
+//              ←             show in Similar (with writing when it allows it) · again = out
+//              →             look again (reachable? what is new?)
+//              ↑             its link to the clipboard · on this device: the overview sheet (PDF) out
+//              ↓             the tile out of the list (a group with both its links) · ↓ on a line = that connection ends
+//              edge bar tap  this strand goes there → also consented (bar with a dot) → off
+//              account ○     upper left: tap = what its role does · ← = what its role opens · ↓ = log out
+//            Colours: blue = shows in Similar (view) · coral edge = I write there (view + write) · inner dashed = read
+//            only · dark inner edge = encrypted there · coral line solid = everything over there (full copy, backup),
+//            dashed = a part, new takes go in from now on · blue dotted line = read for another account.
 // Depends:   nothing (rules come from 2-storage/list.js)
 // Test:      tests/ui.test.mjs
 // Limits:    up to 40 sharing points; kinds v a x l.
@@ -69,6 +60,9 @@ export function tiles(entries, rules, open = new Map(), runs = new Map()) {
       shown: Boolean(show),
       write: Boolean(show?.write) && !readOnly,
       copyTo: rules.filter((r) => r.from === n && r.mark === 'always').map((r) => r.to),
+      copyAll: rules.filter((r) => r.from === n && (r.mark === 'backup' || (r.mark === 'always' && r.all))).map((r) => r.to), // 16.11.: these hold everything (a full copy, a backup)
+      alwaysAll: Boolean(ruleOf(rules, n, 'always')?.all),
+      encrypted: sp?.spec?.kind === 'folder' || rules.some((r) => r.to === n && r.mark === 'backup'), // what lies there is encrypted: shown on the tile itself
       backupTo: rules.filter((r) => r.from === n && r.mark === 'backup').map((r) => r.to),
       giveTo: rules.filter((r) => r.from === n && r.mark === 'show').map((r) => r.to), // shared to it, read-only
       backupOwn: Boolean(ruleOf(rules, n, 'backup')), // this device backs up there
@@ -176,7 +170,7 @@ export function gestureOn(n, gesture, rules, extra = {}) {
       const there = ruleOf(rules, n, 'always', from) ?? ruleOf(rules, n, 'backup', from);
       if (there) return { edit: { rule: { from, to: n, mark: there.mark }, on: false } }; // dropped again = undone
       if (extra.private) return { edit: { rule: { from, to: n, mark: 'backup', kinds: [] }, on: true } }; // only I read it: encrypted, all
-      return { edit: { rule: { from, to: n, mark: 'always', kinds: [] }, on: true }, ...(extra.sofar ? { once: { from, n } } : {}) }; // from now on; held on first (15.11.) = + everything so far
+      return { edit: { rule: { from, to: n, mark: 'always', kinds: [], all: Boolean(extra.sofar) }, on: true }, ...(extra.sofar ? { once: { from, n } } : {}) }; // from now on; held on first (15.11.) = + everything so far, kept whole (16.11.)
     }
 
     case 'cut': { // ↓ on a line: that connection ends (copy or encrypted)

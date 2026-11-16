@@ -67,6 +67,8 @@ export function personStorage(raw) {
     },
     /** The current person's name went into the take field: the registry shows it. */
     named(label) { raw.setItem(REG, JSON.stringify(reg().map((p) => (p.id === cur() ? { ...p, label } : p)))); },
+    /** This person's role (15.11.): 'admin' · 'atlas' · 'groups' · null; she is named after it (8-join/flow.js roleOf). */
+    setRole(id, role, label = null) { raw.setItem(REG, JSON.stringify(reg().map((p) => (p.id === id ? { ...p, role, ...(label ? { label } : {}) } : p)))); },
     /** Start: 'direct' ↔ 'choose'. */
     setStart(id, start) { raw.setItem(REG, JSON.stringify(reg().map((p) => (p.id === id ? { ...p, start } : p)))); },
   };

@@ -88,10 +88,10 @@
     .arriving { opacity: .6; } .thumb.flying { stroke-width: 3; }
     .now-mark { stroke: var(--fg); stroke-width: 2; opacity: .5; }
     .point .ring { fill: none; stroke: var(--rc-stroke); stroke-width: 3; } .point .core { fill: var(--rc-stroke); }
-    .point.paused .core { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 4; stroke-dasharray: 6 5; } /* paused: hollow, dashed */
-    .point.photo .core { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 6; } /* photo button: a white disc in a ring */
+    .point.paused .core { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 4; stroke-dasharray: 6 5; } /* paused: hollow, dashed, tap = on */
+    .point.photo .ring { stroke: var(--mut); stroke-width: 4; } .point.photo .core { fill: var(--card); stroke: var(--mut); stroke-width: 2; } .point.photo .shutter { fill: none; stroke: var(--mut); stroke-width: 2; } /* photo (16.11.): grey shutter, no coral: one picture */
     .photo { fill: var(--card); stroke: var(--mut); stroke-width: 2; } .photo.on { fill: var(--rc); stroke: var(--rc-stroke); stroke-width: 3; }
-    .point.waiting .ring { stroke-dasharray: 8 6; } .point.line .core { opacity: .55; }
+    .point.waiting .ring { stroke-dasharray: 8 6; } .point.line .over .core { fill: var(--card); opacity: .7; } /* line (16.11.): the take's picture inside, play / pause over it */
     .point.with .ring { stroke: var(--hold); stroke-width: 5; } /* the point acts on the held property */
     /* panels slide in from the edges */
     body.full #similar, body.full #chips, body.full #share { display: none; }
@@ -143,12 +143,17 @@
     .join-group.waiting, .join-own.waiting { fill: none; stroke-dasharray: 3 3; }
     .badge.ran { fill: var(--hold); stroke: var(--hold); stroke-dasharray: none; } .badge.failed { fill: none; stroke: var(--rc-stroke); stroke-dasharray: none; stroke-width: 2.5; }
     .hello { fill: none; stroke: var(--sc-stroke); stroke-width: 2.5; stroke-dasharray: 6 4; } .hello-dot { fill: var(--sc-stroke); pointer-events: none; }
+    .hello.faint { opacity: .35; } .join-line.sending { stroke-dasharray: 2 6; animation: sending .6s linear infinite; } .file-dot { fill: var(--sc-stroke); pointer-events: none; } .file-dot.walking { animation: walk .5s ease-in-out infinite alternate; } @keyframes walk { to { opacity: .3; } } /* 15.11.: hello on its way, a dot per file */
+    .join-group.said { fill: var(--sc); stroke: var(--sc-stroke); stroke-width: 2.5; } .tile-name { font-weight: 600; pointer-events: none; } .tile-word { pointer-events: none; fill: var(--mut); } .tile-word.done { fill: var(--fg); font-weight: 600; } /* hello stays, highlighted, the name inside */
+    .sp.shown.write { stroke: var(--rc-stroke); stroke-width: 3.5; } /* 16.11.: blue = shows in Similar (view) · with a coral edge = I also write there (view + write) · inner dashed = read only */
+    .sp.person.account { fill: var(--card); stroke: var(--mut); } /* an account kept on this device (16.11.): white, its initial inside; a role colours it */
+    .sp.person.role-admin { fill: var(--rc); stroke: var(--rc-stroke); } .sp.person.role-atlas { fill: var(--sc); stroke: var(--sc-stroke); } .sp.person.role-groups { fill: var(--nest); stroke: var(--nest-b); } .account-equator { stroke: var(--sc-stroke); pointer-events: none; } .account-current { fill: none; stroke: var(--fg); stroke-width: 2; pointer-events: none; } /* accounts upper left (15.11.): role = form and colour, current = ringed */
     .sp.cloud { fill: none; stroke: var(--sc-stroke); stroke-width: 2; }
     .sp.incoming { fill: none; stroke: var(--sc-stroke); stroke-width: 2.5; stroke-dasharray: 6 4; } .sp.incoming.there { fill: var(--sc); fill-opacity: .4; }
     .glyph { fill: none; stroke: var(--mut); stroke-width: 1.5; pointer-events: none; }
     .strand.mini { stroke-width: 5; stroke-linecap: round; }
     .hit { fill: none; stroke: transparent; stroke-width: 22; }
-    .bridge { fill: none; stroke: var(--rc-stroke); stroke-width: 6; opacity: .35; } .bridge.give { stroke: var(--sc-stroke); stroke-width: 3; opacity: .7; } .chevron.give { stroke: var(--sc-stroke); } .bridge.backup { stroke-dasharray: 3 3; opacity: .6; }
+    .bridge { fill: none; stroke: var(--rc-stroke); stroke-width: 6; opacity: .35; } .bridge.give { stroke: var(--sc-stroke); stroke-width: 3; opacity: .8; stroke-dasharray: 1 7; stroke-linecap: round; } .chevron.give { stroke: var(--sc-stroke); } .bridge.new { stroke-dasharray: 10 7; } .bridge.all { opacity: .55; } .encrypted-edge { fill: none; stroke: var(--video); stroke-width: 2.5; pointer-events: none; } /* 16.11.: solid = everything over there · dashed = a part, new goes in · dark inner edge = encrypted */
     .label { font: 500 12px Inter, system-ui, sans-serif; fill: var(--fg); pointer-events: none; }
     .chip.on { outline: 2px solid var(--rc-stroke); }
     span.chip { display: inline-block; margin: 4px; padding: 6px 12px; border-radius: 16px; background: var(--sc-stroke); color: #fff; }

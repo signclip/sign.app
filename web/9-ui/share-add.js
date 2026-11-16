@@ -20,6 +20,7 @@ import { Nextcloud, webdavUrl } from '../2-storage/nextcloud.js';
 import { giveStrands, giveAll } from '../2-storage/routes.js';
 import { connect, takeIn, acceptPage, pendingPage, myCloudId, cloudIdParts } from '../2-storage/connect.js';
 import { newSource } from '../1-model/ids.js';
+import { userId } from '../8-join/provision.js';
 import { timeLabel } from '../1-model/filename.js';
 import { describeNew } from '../2-storage/sharing-points.js';
 import { deviceKeys } from './device-keys.js';
@@ -180,6 +181,7 @@ async function finishLogin(ctx, got, id) {
   try { localStorage.removeItem(PENDING); } catch { /* private mode */ }
   globalThis.Capacitor?.Plugins?.Browser?.close?.().catch?.(() => {}); // logged in: back to the app by itself
   await keychain.set(id, got.appPassword);
+  got = { ...got, user: await userId({ server: got.server, user: got.user, password: got.appPassword }) }; // the id, not the typed login (16.11.): the WebDAV path needs it
   const account = { kind: 'nextcloud', server: got.server, user: got.user, folder: '' };
   const { store } = connect(account, { secret: got.appPassword });
   const root = await store.folders('');

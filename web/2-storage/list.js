@@ -37,7 +37,7 @@ export function rulesOf(text) {
     if (r.marks.includes('quiet')) { for (const k of [...rules.keys()]) if (k.startsWith(pair)) rules.delete(k); continue; }
     const mark = r.marks.find((m) => RULE_MARKS.includes(m));
     if (!mark) continue;
-    rules.set(pair + mark, { from: r.from, to: r.to, mark, kinds: r.what ?? [], write: r.marks.includes('write'), time: r.time });
+    rules.set(pair + mark, { from: r.from, to: r.to, mark, kinds: r.what ?? [], write: r.marks.includes('write'), all: r.marks.includes('all'), time: r.time }); // all (16.11.): everything so far too, not only new
   }
   return [...rules.values()];
 }
@@ -53,7 +53,7 @@ export function wants(kinds, path) {
  * A change → the text of the next version. edit, one of:
  *   { add: { label, path, id, key }, marks: ['show', 'write'] }    bring a sharing point in
  *   { remove: n }                                                  take it out with all its rules
- *   { rule: { from, to, mark, kinds, write }, on: true | false }   set or end one rule
+ *   { rule: { from, to, mark, kinds, write, all }, on: true | false }   set or end one rule (all = everything so far too)
  *   { label: 'Kurs 3', n }                                         rename
  * meta: { device (q_), person: { id, label }, now (ms), time } → { text, entries, rules }
  */
@@ -91,7 +91,7 @@ export async function editList(oldText, edit, { device, person, now = Date.now()
     ...(old.head.id ? [defLine('chain.1', { id: writeId(old.head.id, await hashBytes(enc.encode(oldText))) })] : []),
   ], [
     ...rules.map((r) => {
-      const marks = r.write ? [r.mark, 'write'] : [r.mark];
+      const marks = [r.mark, ...(r.write ? ['write'] : []), ...(r.all ? ['all'] : [])];
       return relationLine({ what: r.kinds, from: r.from, to: r.to, marks, time: r.time });
     }),
     ...(old.head.id ? ['{:chain.1}'] : []),

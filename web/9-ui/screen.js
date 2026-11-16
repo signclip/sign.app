@@ -41,9 +41,9 @@ export function mountScreen({ root, live, replay, template, pair = null, overlay
     screen.last = view;
     const css = globalThis.document?.documentElement.style; // the context field follows the window: row and box share x and width
     css?.setProperty('--field-y', `${view.fieldY}px`); css?.setProperty('--field-x', `${view.field.x}px`); css?.setProperty('--field-w', `${view.field.w}px`);
-    fit(live, view.video, st.full);
+    fit(live, view.video, false);
     if (live) live.style.visibility = view.hideLive ? 'hidden' : ''; // Similar · viele: the tiles take the window
-    fit(replay, view.video, st.full);
+    fit(replay, view.video, false);
     const two = pair?.dataset.on && view.template; // Doppel of two takes (15.11.): side by side above, below stays free for the own take
     if (two) { const b = view.template, half = { cx: b.cx - b.d / 4, cy: b.cy, d: b.d / 2 - 4, radius: 14 }; fit(template, half, false); fit(pair, { ...half, cx: b.cx + b.d / 4 }, false); pair.hidden = false; }
     else { fit(template, view.template, false); if (pair) pair.hidden = true; } // the small template, or in Similar · Doppel the reference window

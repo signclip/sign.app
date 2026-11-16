@@ -14,6 +14,8 @@
 // Name sign:  the first take of the onboarding goes with the hello as a take of its own (join.js sayHello, 15.11.).
 // Limits:    one hello per device and group; a renew reaches members on their next start.
 
+import { WebDavStore } from '../2-storage/webdav.js';
+import { webdavUrl } from '../2-storage/nextcloud.js';
 import { readFile } from '../1-model/file.js';
 import { Nextcloud } from '../2-storage/nextcloud.js';
 import { readDescription, signerKeys } from '../2-storage/sharing-point.js';
@@ -37,7 +39,7 @@ import { copy } from './system-share.js';
 const dec = new TextDecoder();
 
 /** The group of a label in the list: its read and drop entries (both links), or null. */
-function groupOf(ctx, label) {
+export function groupOf(ctx, label) {
   const tiles = ctx.all().filter((t) => t.label === label);
   const read = tiles.find((t) => t.drop);
   return read ? { read, drop: ctx.tileOf(read.drop) } : null;
@@ -71,7 +73,8 @@ export async function makeOrRenew(ctx, n) {
   if (before) { // renew: new links, the old stop, a new join for everyone who joined
     const paths = (await sp.store.list()).map((f) => f.path);
     const members = paths.filter((p) => p.startsWith('hello/') && p.endsWith('.chain.sign') && answerFor(paths, p));
-    ({ group } = await renewGroup(nc, { folder, label, store: sp.store, members, signer: await signerOf(ctx) }));
+    const tokens = [before.read.n, before.drop.n].map((x) => /\/public\.php\/dav\/files\/([^/]+)/.exec(s.entries[x - 1]?.path ?? '')?.[1]).filter(Boolean); // the group's own links: a link given out to view stays
+    ({ group } = await renewGroup(nc, { folder, label, tokens, store: sp.store, members, signer: await signerOf(ctx) }));
     for (const x of [Math.max(before.read.n, before.drop.n), Math.min(before.read.n, before.drop.n)]) await edit({ remove: x });
   } else {
     group = await makeGroup(nc, { folder, label });
@@ -84,12 +87,15 @@ export async function makeOrRenew(ctx, n) {
 /** Signer: hellos waiting in my group folders → [{ n, helloPath, name }]. */
 export async function hellosToWelcome(ctx) {
   const out = [];
-  for (const [n, sp] of ctx.s.open) {
-    const adminFolder = ctx.admin && sp.spec?.server === ctx.admin.server && sp.spec?.user === ctx.admin.user; // the admin's own folders: the door lives there
-    if (sp.spec?.kind !== 'nextcloud' || !(groupOf(ctx, sp.entry.label) || adminFolder)) continue;
+  const door = ctx.admin ? ctx.adminStore?.() : null; // the admin: the door's folder (found from its links, 15.11.)
+  const groupsAt = (label) => (ctx.groups ? new WebDavStore({ base: webdavUrl(ctx.groups.server, ctx.groups.user, label), user: ctx.groups.user, password: ctx.groups.password, name: label }) : null); // Groups (16.11.): its own folders, with rights to move and to honour remove requests
+  const look = [...[...ctx.s.open].filter(([, sp]) => (sp.spec?.kind === 'nextcloud' || (ctx.groups && sp.spec?.kind === 'link' && !sp.store?.dropOnly)) && groupOf(ctx, sp.entry.label)).filter(([, sp], i, all) => all.findIndex(([, x]) => x.entry.label === sp.entry.label) === i) // one look per group
+      .map(([n, sp]) => [n, sp.spec?.kind === 'link' ? groupsAt(sp.entry.label) : sp.store]),
+    ...(door ? [[ctx.s.adminN, door]] : [])];
+  for (const [n, store] of look) {
     try {
-      for (const helloPath of await waitingHellos(sp.store)) out.push({ n, helloPath, name: /@\(([^)]*)\)/.exec(helloPath)?.[1] ?? '?' });
-      await groupUpkeep(sp.store);
+      for (const helloPath of await waitingHellos(store)) out.push({ n, store, helloPath, name: /@\(([^)]*)\)/.exec(helloPath)?.[1] ?? '?' });
+      await groupUpkeep(store);
     } catch { /* not reachable now */ }
   }
   return out;
@@ -128,8 +134,8 @@ export async function groupUpkeep(store) {
 }
 
 /** Signer: tap on a hello circle = welcome: both links sealed for that device. */
-export async function welcome(ctx, { n, helloPath }) {
-  const sp = ctx.s.open.get(n);
+export async function welcome(ctx, { n, helloPath, store = null }) {
+  const sp = { ...ctx.s.open.get(n), ...(store ? { store } : {}) }; // the door's folder when the admin welcomes (15.11.)
   const g = groupOf(ctx, sp.entry.label);
   const sharingPoints = g ? [g.read, g.drop].map((x) => ({ label: x.label, path: ctx.s.entries[x.n - 1].path, id: null })) : [];
   if (ctx.admin) { // the admin app (14.11.): an own account for the person (QUOTA), its app password sealed into the answer
@@ -226,7 +232,8 @@ async function sayHelloTo(ctx, label, { door = false } = {}) {
   const drop = door ? doorLinks(ctx.s.open.get(g.read.n)?.store, open) : open; // a door's drop link is hello/ itself
   const keys = await deviceKeys();
   const device = { id: ctx.device, label: ctx.person.label, key: keys.device.public };
-  const helloPath = await sayHello({ store: drop, device, deviceKey: keys.device, person: ctx.person, target: label, pickup: keys.pickup.public, takes: await ctx.helloTakes?.({ door }).catch(() => []) ?? [] }); // name sign (and at the door the password gestures) as takes of their own
+  const helloPath = await sayHello({ store: drop, device, deviceKey: keys.device, person: ctx.person, target: label, pickup: keys.pickup.public, takes: await ctx.helloTakes?.({ door }).catch(() => []) ?? [],
+    onFile: (n) => { ctx.s.sent = n; ctx.draw?.(); } }); // name sign (and at the door the password gestures) as takes of their own; a dot per file on the line
   await joins.set(label, { helloPath, state: 'hello', door });
 }
 
@@ -256,7 +263,7 @@ export async function followJoins(ctx) {
         if (!mine.label) await joins.set(t.label, { ...mine, label: ctx.person.label }); // the name it joined with
         else if (ctx.person.label && mine.label !== ctx.person.label) { // renamed (15.11.): the admin is told, sealed, with the new name sign; the ID stays
           const keys = await deviceKeys();
-          await sayRename({ store: doorLinks(read, drop), device: { id: ctx.device, label: ctx.person.label, key: keys.device.public }, deviceKey: keys.device, person: ctx.person, account: mine.account.user, old: mine.label, nameSign: await ctx.nameSign?.().catch(() => null) });
+          await sayRename({ store: doorLinks(read, drop), device: { id: ctx.device, label: ctx.person.label, key: keys.device.public }, deviceKey: keys.device, person: ctx.person, account: mine.account.user, old: mine.label, takes: (await ctx.helloTakes?.({ door: false }).catch(() => []) ?? []).map((x) => ({ ...x, words: ['rename'] })) }); // the name sign as a take of its own
           await joins.set(t.label, { ...mine, label: ctx.person.label });
         }
       } catch { /* not reachable now */ }

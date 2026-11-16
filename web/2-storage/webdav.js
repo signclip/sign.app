@@ -44,7 +44,7 @@ export class WebDavStore {
     if (res.status === 404) return [];
     if (res.status !== 207) throw new Error(`PROPFIND ${folder}: ${res.status}`);
     const xml = await res.text();
-    const basePath = new URL(this.base).pathname;
+    const basePath = decodeURIComponent(new URL(this.base).pathname); // decoded like every href (16.11.): a user or folder with a space, @ or umlaut stays relative
     return xml.split(/<d:response>/i).slice(1).map((block) => {
       const href = decodeURIComponent(/<d:href>([^<]*)<\/d:href>/i.exec(block)?.[1] ?? '');
       return { path: href.startsWith(basePath) ? href.slice(basePath.length) : href, folder: /<d:collection\s*\/>/i.test(block), size: Number(/<d:getcontentlength>(\d+)/i.exec(block)?.[1] ?? 0) };

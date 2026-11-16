@@ -52,11 +52,12 @@ export async function welcomeToGroup({ store, helloPath, group, signer, now = Da
 /**
  * Renew both links (a link was passed on, someone has to go): new links, the old ones stopped, and a
  * new sealed join for every member still in. members: hello paths of those who stay. old: the links
- * made before ({ read: { id }, drop: { id } }), or null = stop every public link the folder has.
+ * made before ({ read: { id }, drop: { id } }), or tokens: [token of the group's own links] (16.11.: only those stop;
+ * a link given out to view, outside the app, stays as it is).
  * → { group (the new links), joins: [path] }
  */
-export async function renewGroup(nc, { folder, label, old = null, store, members, signer, password = undefined, now = Date.now() }) {
-  const before = old ? [old.read?.id, old.drop?.id].filter(Boolean) : (await nc.linksOf(folder)).map((l) => l.id); // no ids kept: every public link of the folder
+export async function renewGroup(nc, { folder, label, old = null, tokens = [], store, members, signer, password = undefined, now = Date.now() }) {
+  const before = old ? [old.read?.id, old.drop?.id].filter(Boolean) : (await nc.linksOf(folder)).filter((l) => tokens.includes(l.token)).map((l) => l.id); // only the group's own links
   const group = await makeGroup(nc, { folder, label, password });
   for (const id of before) await nc.stopShare(id);
   const joins = [];

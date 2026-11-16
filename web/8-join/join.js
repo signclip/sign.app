@@ -4,7 +4,7 @@
 //            Each file lies in exactly one folder; the first word of its name says the state.
 //              1 hello        name sign recorded → (hello …) in hello/ (drop only); the name sign and the password
 //                             gestures go along as takes of their own (15.11.): every file of each take, named
-//                             (hello)@(Lena)…(name sign) and (word)@(Lena)…(password gesture 1…3), and the hello
+//                             (hello)@(Lena)…(name sign) and (word)@(Lena)…(password gesture 1 · 2 · own), and the hello
 //                             points to their chains by !( ) (never by name)
 //              2 hello back   a signer with a z_ of this sharing point seals the access + her sharing
 //                             points → (join …) in join/ (read-only link); the device checks the seal
@@ -46,7 +46,7 @@ async function chainFile({ by, device, deviceKey, now, defs = [], line, raw = nu
 export const nameSignOf = (helloName) => buildName({ ...readName(helloName), kind: 'v', ext: 'mp4' });
 
 const STRAND = (d) => d.id?.u && !['chain', 'sharing-point', '?', '_'].includes(d.kind);
-const rank = (p) => { const part = readName(nameOf(p))?.part ?? ''; return part === 'name sign' ? 0 : Number(/(\d+)$/.exec(part)?.[1] ?? 9); };
+const rank = (p) => { const part = readName(nameOf(p))?.part ?? ''; return part === 'name sign' ? 0 : part.endsWith(' own') ? 3 : Number(/(\d+)$/.exec(part)?.[1] ?? 9); }; // name sign · 1 · 2 · own
 const kindRank = (p) => (/\.chain\.sign$/.test(p) ? 9 : /\.v\.(mp4|png|webm)$/.test(p) ? 0 : 1);
 
 /**
@@ -93,24 +93,36 @@ export async function quietHello({ store, helloPath }) {
 const belowOf = async (bytes) => ({ id: readFile(dec.decode(bytes)).head.id, hash: await hashBytes(bytes) });
 
 /**
- * 1 · Device: say hello. device: { id, label, key } · pickup: ECDH public key · target: label ·
- * takes: [{ from (store of the device), visual (path of the take's visual strand), part ('name sign' · 'password gesture 1…3'),
- * words (front of the name: ['hello'] for the name sign; none = the take's own context words) }] (15.11.).
- * Each take goes whole (every strand and its chain, bytes unchanged, only renamed); the hello comes last and points to them.
+ * Takes that go along with a note into hello/ (hello, rename): each whole, bytes unchanged, renamed to
+ * (words)@(person)…(part). → { defs: [':chain.2!(…)' …], refs: [':chain.2' …] } for the note that points to them.
  */
-export async function sayHello({ store, device, deviceKey = null, person, target, pickup, takes = [], now = Date.now() }) {
-  const defs = [defLine('sharing-point.1', { hint: device.label, id: `${device.id} z_${device.key}` })], refs = [];
+export async function takesAlong({ store, takes = [], person, folder = 'hello/', onFile = () => {} }) {
+  const defs = [], refs = [];
+  let sent = 0;
   for (const t of takes) {
     for (const p of await takeFiles(t.from, t.visual)) {
       const n = readName(nameOf(p)), bytes = await t.from.read(p);
-      await store.write(`hello/${buildName({ ...n, to: [], words: t.words ?? n.words, person: person.label, part: t.part })}`, bytes)
+      await store.write(`${folder}${buildName({ ...n, to: [], words: t.words ?? n.words, person: person.label, part: t.part })}`, bytes)
         .catch((err) => { if (!(err instanceof ExistsError)) throw err; }); // sent once already (same take, same bytes)
+      onFile(++sent); // the surface: one dot more on the line
       if (!p.endsWith('.chain.sign')) continue;
       const name = `chain.${refs.length + 2}`;
       defs.push(defLine(name, { id: writeId(readFile(dec.decode(bytes)).head.id, await hashBytes(bytes)) }));
       refs.push(`:${name}`);
     }
   }
+  return { defs, refs };
+}
+
+/**
+ * 1 · Device: say hello. device: { id, label, key } · pickup: ECDH public key · target: label ·
+ * takes: [{ from (store of the device), visual (path of the take's visual strand), part ('name sign' · 'password gesture 1' · '… 2' · '… own'),
+ * words (front of the name: ['hello'] for the name sign; none = the take's own context words) }] (15.11.).
+ * Each take goes whole (every strand and its chain, bytes unchanged, only renamed); the hello comes last and points to them.
+ */
+export async function sayHello({ store, device, deviceKey = null, person, target, pickup, takes = [], now = Date.now(), onFile = () => {} }) {
+  const { defs, refs } = await takesAlong({ store, takes, person, onFile });
+  defs.unshift(defLine('sharing-point.1', { hint: device.label, id: `${device.id} z_${device.key}` }));
   const f = await chainFile({ by: person, device: device.id, deviceKey, now, words: ['hello', target], defs,
     line: ['hello', target, `pickup ${pickup}`, '{:sharing-point.1}', ...(refs.length ? [`{${refs.join(' ')}}`] : [])] });
   const path = `hello/${f.name}`;

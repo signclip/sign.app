@@ -23,7 +23,7 @@ export const STEPS = [
   ['take', 'point'], // name sign (the name is its context)
   ['take', 'point'], // password gesture 1: a drawn word as a pale chip (↓ on it = another)
   ['take', 'point'], // password gesture 2: another drawn word
-  ['take', 'point'], // password gesture 3: one's own
+  ['take', 'point'], // password gesture own: one's own word
   ['share-last', 'point'], // the sharing menu: the door breathes as a hello bubble
   ['hello', 'panel'], // drag yourself onto it
   ['replay-back', 'point'], // watch it

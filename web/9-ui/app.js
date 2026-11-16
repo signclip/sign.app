@@ -15,7 +15,7 @@
 //   edges: middle left strands · upper right Similar · middle right share · top: ↑ full, ↓ Similar
 //   scale: spread over the free part above the take = Similar comes nearer (closed → half → full), squeeze = it goes;
 //          spread on a tile = fly to it (Doppel), again = voll; ↑ on Similar = pushed back (full → half → closed);
-//          on the line: the takes apart / together (zoom), at the end straight, then full screen; older lines: apart
+//          on the line: the takes apart / together (zoom); past the widest the take opens as its timeline (16.11.); older lines: apart
 //          · squeeze = back the same steps · the context field opens by a tap on its arc only (15.11.)
 //   window: a circle as large as fits, or ellipse / rounded rectangle; arcs by degrees: line −60…60 · audio 60…140 ·
 //          context 140…220 · visual 220…300 · line: the oldest left · Similar as tiles at the top: one onto the line or
@@ -30,6 +30,8 @@
 // Limits:    Whisper only after a take (live and keywords: EXTEND(S2, live)); one take records at a time; one property
 //            held at a time. Every row of the gesture table has a case below, wired or EXTEND (tests/ui).
 
+import { accountTakes } from '../8-join/known.js'; // the search in within/ for one person (16.11.)
+import { PASSWORD_PARTS } from '../8-join/flow.js'; // the pieces of a hello's password gestures
 import './persons-boot.js'; // first: several persons on this device (persons.js)
 import { translator } from '../0-i18n/t.js';
 import { LocalStore, lasting } from '../2-storage/local.js';
@@ -108,6 +110,7 @@ function kept(key, make) {
     return make();
   }
 }
+
 
 export async function start({ locales, lang = navigator.language.slice(0, 2) }) {
   const t = translator(locales, lang);
@@ -238,7 +241,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       let list = []; try { list = JSON.parse(localStorage.getItem('sign.passwords') || '[]'); } catch { /* none */ }
       let name = null; try { name = localStorage.getItem('sign.nameSign'); } catch { /* private mode */ }
       return [...(name ? [{ from: store, visual: name, part: 'name sign', words: ['hello'] }] : []),
-        ...(door ? list.slice(0, 3).map((visual, i) => ({ from: store, visual, part: `password gesture ${i + 1}`, // in front: its word ((password Apfel) → (Apfel))
+        ...(door ? list.slice(0, 3).map((visual, i) => ({ from: store, visual, part: PASSWORD_PARTS[i], // in front: its word ((password Apfel) → (Apfel))
           words: (readName(visual.slice(visual.lastIndexOf('/') + 1))?.words ?? []).filter((w) => w !== 'password') })) : [])];
     },
     nameSign: async () => { // the first take of the onboarding goes along with every hello
@@ -424,8 +427,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const videos = await takeVisuals(); // videos and pictures, newest first
     take.replayAt = Math.max(-1, Math.min(videos.length - 1, take.replayAt + by));
     $('#replay').hidden = take.replayAt < 0;
-    if (take.replayAt < 0) return step('done');
-    data.line = { count: videos.length, at: take.replayAt }; // newest first: the one playing sits at the top of the arc
+    if (take.replayAt < 0) { data.replayPaused = false; return step('live'); } // past the newest: live, a tap records (16.11.)
+    data.line = { count: videos.length, at: take.replayAt };
+    data.replayPaused = false; // newest first: the one playing sits at the top of the arc
     lineThumbs();
     await show(videos[take.replayAt]);
     step(st.mode === 'line' ? (by > 0 ? 'before' : 'next') : 'replay-back');
@@ -505,12 +509,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     return r.chain;
   }
   /** Split a take of the line in its middle (15.11.): a new line with its two parts ('( ) in ms), nothing copied. */
-  async function splitTake(i) {
+  async function splitTake(i, atMs = null) {
     const key = await keyOfItem(i), el = key && await chainBytes(key);
     if (!el) return null;
     const length = Number(/ 0_(\d+)/.exec(readFile(dec.decode(el.bytes)).head["'t"] ?? '')?.[1] ?? 0);
     if (!length) return null; // a picture has no time to cut
-    const half = Math.round(length / 2);
+    const half = Math.round(atMs != null && atMs > 100 && atMs < length - 100 ? atMs : length / 2); // at the point (timeline), else the middle
     const r = await addLine({ own: store, chainPath: take.lastChain, elements: [{ ...el, part: [0, half] }, { ...el, part: [half, length] }], device, person, deviceKey: await sealKey() });
     take.lastChain = r.chain;
     index = await reindex();
@@ -620,6 +624,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   /** Files from elsewhere as the Similar tiles (admin: a hello's name sign and password gestures, 15.11.); closing Similar ends it. */
   async function lookAt(items) {
     for (const k of [...thumbs.keys()]) if (k.startsWith('look:')) thumbs.delete(k);
+    const groups = new Map(); // 16.11.: one tile per hello (her line: name sign, password gesture 1 · 2 · own), not one per take
+    for (const x of items) groups.set(x.group ?? x.path, [...(groups.get(x.group ?? x.path) ?? []), x]);
+    items = [...groups.values()].map((pieces) => ({ ...pieces[0], pieces }));
     data.look = items;
     data.double = null;
     if (st.similar) showSimilar(true); else await openMany();
@@ -642,7 +649,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
   /** Admin, in Doppel: move the person this take belongs to one pile on (up) or back (down); her takes leave, the next one shows. */
   async function decide(how) {
-    const at = data.look?.[data.doubleAt];
+    const at = data.look?.[data.lookAt ?? data.doubleAt];
     if (!at?.[how]) return null;
     navigator.vibrate?.(how === 'up' ? 20 : [12, 50, 12]); // felt at once: on = one pulse, back = two
     let r;
@@ -655,8 +662,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     }
     data.deleteChoices = null; if (data.offers?.some((o) => o.origin === 'delete')) data.offers = [];
     const rest = data.look.filter((x) => x.group !== at.group);
+    data.compare = null;
     if (!rest.length) { pairOff(); return act('edge-out', 'upper-right'); }
-    const next = Math.min(data.look.slice(0, data.doubleAt).filter((x) => x.group !== at.group).length, rest.length - 1);
+    const next = Math.min(data.look.slice(0, data.lookAt ?? data.doubleAt).filter((x) => x.group !== at.group).length, rest.length - 1);
     for (const k of [...thumbs.keys()]) if (k.startsWith('look:')) thumbs.delete(k);
     data.look = rest;
     showSimilar(true);
@@ -664,6 +672,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
   /** A tile key → { store, path } of its picture or video: an index key, or look:i. */
   const atOf = (key) => {
+    if (key?.startsWith('cmp:')) { const c = data.compare?.[Number(key.slice(4))]; return c ? { store: c.from, path: c.path } : null; } // a result of the search in within/
     if (!key?.startsWith('look:')) return takeOf(key) && visualOf(takeOf(key));
     const x = data.look?.[Number(key.slice(5))];
     return x ? { store: x.from, path: x.path } : null;
@@ -681,6 +690,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
 
   /** Similar · Doppel: result i of the tiles plays above in the same window as the live picture (loop, muted). */
   async function reference(i) {
+    if (data.compare && data.similar[i]?.startsWith('cmp:')) { // a result of the search in within/ tapped: it plays in the Doppel
+      const c = data.compare[Number(data.similar[i].slice(4))], t = $('#template');
+      t.src = URL.createObjectURL(new Blob([await c.from.read(c.path)], { type: 'video/mp4' })); t.loop = true; t.muted = true; t.play().catch(() => {});
+      data.double = data.similar[i];
+      return paint();
+    }
+    const looked = data.look?.[Number(data.similar[i]?.slice(5))];
+    if (looked?.pieces) return lookLine(i, looked); // a hello: its line in the take window (16.11.)
     const key = data.similar[i];
     const at = key && atOf(key);
     if (!at) return null;
@@ -690,9 +707,41 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     else { delete v.dataset.picture; v.poster = ''; v.src = URL.createObjectURL(blob); v.loop = true; v.muted = true; v.play().catch(() => {}); }
     data.double = key;
     data.doubleAt = i;
+    v.onended = null;
     if (!data.look) await offerContext(takeOf(key));
     await pairOn(data.look?.[Number(key.slice(5))]?.pair, data.look?.[Number(key.slice(5))]?.from);
     return paint();
+  }
+  /**
+   * A hello tapped (16.11.): her line plays in the take window — name sign → password gesture 1 → 2 → own, again from the
+   * start. A known person (a new device): the original piece from within/ plays in the Similar area as Doppel (phone: above,
+   * tablet landscape: beside), piece by piece with the new one. ↑ on the point = on (hello → join → within), ↓ = back.
+   */
+  async function lookLine(i, x) {
+    data.lookAt = i; data.doubleAt = i;
+    const known = Boolean(x.known);
+    const v = $('#replay'), t = $('#template');
+    // 16.11.: comparing = a second search, only in the sharing point within/, for this person (her ID, else her name):
+    // its results are the Similar tiles now; the one of the same piece plays in the Doppel. Squeezed back = the hellos again.
+    data.compare = known ? (await accountTakes(x.from, x.known).catch(() => [])).map((path) => ({ path, from: x.from })) : null;
+    for (const k of [...thumbs.keys()]) if (k.startsWith('cmp:')) thumbs.delete(k);
+    data.double = known && data.compare.length ? 'cmp:0' : null; // without an original Similar stays as the hellos
+    showSimilar(true);
+    let j = 0;
+    const go = async () => {
+      if (data.lookAt !== i || data.look?.[i] !== x) { v.onended = null; return; } // another tile, or Similar closed
+      const p = x.pieces[j % x.pieces.length];
+      await show(p.path, p.from); v.loop = false; v.muted = false;
+      const at = data.compare?.findIndex((c) => c.path === p.pair) ?? -1; // the result of the same piece
+      if (known && at >= 0) {
+        t.src = URL.createObjectURL(new Blob([await p.from.read(p.pair)], { type: 'video/mp4' })); t.loop = true; t.muted = true; delete t.dataset.picture; t.poster = ''; t.play().catch(() => {});
+        data.double = `cmp:${at}`;
+      }
+      data.pieceAt = j % x.pieces.length;
+      paint();
+    };
+    v.onended = () => { j++; go(); };
+    return go();
   }
   /** An index key (chain or strand) → its take chain entry. */
   const takeOf = (key) => index.tables.chains.get(key) ?? [...(index.tables.weave.get(key) ?? [])].map((k) => index.tables.chains.get(k)).find((c) => c && index.tables.takes.has(c.key)) ?? null;
@@ -769,6 +818,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (on) draw($(id), chips, onChip);
   };
   const showSimilar = (on) => { // at the top: metadata and strand choice as chips, the hits as tiles (view)
+    if (data.look && data.compare) { data.similar = data.compare.map((_, i) => `cmp:${i}`); data.similar.forEach(thumbOf); return panel('#similar', on, [], () => {}); } // the search in within/ (16.11.)
     if (data.look) { data.similar = data.look.map((_, i) => `look:${i}`); data.similar.forEach(thumbOf); return panel('#similar', on, [], () => {}); }
     const hits = similar(index, { words: data.words, filters: filtersOf(index, filter) });
     data.similar = hits.slice(0, MANY).map((h) => h.key);
@@ -886,13 +936,20 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (hit.target === 'strand' && hit.kind === 'x' && gesture === 'tap' && !st.hold) hit = { ...hit, target: 'context' }; // the context arc: a tap opens / closes its field (15.11.)
     if (hit.queue && gesture === 'tap' && !st.hold) hit = { ...hit, target: 'queue' }; // the row below: a tap writes there (15.11.)
     if (hit.target === 'delete') return gesture === 'tap' ? removeLast(hit.what) : null;
+    if (data.look && data.lookAt != null && hit.target === 'point') { // 16.11.: a hello in the window: ↑ on the point = on (hello → join → within), ↓ = back
+      if (gesture === 'up' || gesture === 'up-out') return decide('up');
+      if (gesture === 'down' || gesture === 'down-out') return decide('down');
+    }
     const mode = st.mode === 'line' ? 'line' : st.similar ? 'similar' : 'take';
     const held = st.hold?.target ?? null; // what the other finger holds (parallel gesture)
     const row = actionFor({ gesture, target: hit.drag ?? hit.target, mode, held });
     const kind = hit.kind ?? st.hold?.kind;
     if (row && !['take', 'take-while-held', 'strand-while-held', 'add-strand', 'take-with-context'].includes(row.action)) learned(row.action); // takes count when saved
     switch (row?.action) {
-      case 'take': return take.recorder || take.starting ? end() : begin('take');
+      case 'take': // 16.11.: start · during a take pause / go on (← → ↑ on the point save it) · in the line: play / pause that take
+        if (st.screen === 'line') { const v = $('#replay'); if (v.paused) v.play?.().catch(() => {}); else v.pause(); data.replayPaused = v.paused; return paint(); }
+        if (take.recorder?.pause && !take.starting) { if (take.recorder.paused) take.recorder.resume(); else take.recorder.pause(); data.paused = take.recorder.paused; navigator.vibrate?.(10); return paint(); }
+        return take.recorder || take.starting ? end() : begin('take');
       case 'grip': { // hold on a strand, chip or the picture: it is the property now (green), nothing records
         const hold = propertyOf(role);
         if (!hold || propertyRole === role) return null;
@@ -928,14 +985,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'chip-on-off': // a chip as a word for Similar
         data.words = data.words.includes(hit.text) ? data.words.filter((w) => w !== hit.text) : [...data.words, hit.text];
         return st.similar ? showSimilar(true) : paint();
-      case 'take-while-held': return begin('take-while-held');
+      case 'take-while-held': if (st.screen === 'line' && take.replayAt >= 0) await replay(-(take.replayAt + 1)); return begin('take-while-held'); // in the line: live at once, then it records
       case 'strand-while-held': return begin('strand-while-held', { kind });
       case 'ready':
-        if (take.recorder?.pause) { // during a take: pause / go on (14.11.); a tap still stops it
-          if (take.recorder.paused) take.recorder.resume(); else take.recorder.pause();
-          data.paused = take.recorder.paused;
-          return paint();
-        }
         settings = choose(settings, 'ready', !st.ready);
         saveSettings();
         return step('ready');
@@ -944,8 +996,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         if (kind === 'x') openContext(st.fields.x === 'on'); // context on: the field opens, typing writes directly
         settings = { ...settings, auto: toRecord(st) }; // the selection stays until changed
         return saveSettings();
-      case 'replay-back': case 'before': return replay(+1);
-      case 'replay-on': case 'next': return replay(-1);
+      case 'replay-back': case 'before': if (take.recorder || take.starting) return end(); return replay(+1); // during a take: ← → ↑ save it (16.11.)
+      case 'replay-on': case 'next': if (take.recorder || take.starting) return end(); return replay(-1);
       case 'scrub': case 'spread': return step(row.action);
       case 'aside-last': case 'remove-last': return step(row.action);
       case 'add-to': return take.lastChain ? step('add-to', { base: take.lastChain, kinds: take.lastKinds }) : null;
@@ -1010,32 +1062,21 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         step('similar-out');
         data.words = [];
         data.double = null; // Doppel ends with Similar
-        if (data.look) { delete data.look; $('#template').removeAttribute('src'); pairOff(); } // a hello looked at: done
+        if (data.look) { delete data.look; data.lookAt = null; data.compare = null; $('#template').removeAttribute('src'); pairOff(); const r = $('#replay'); r.onended = null; r.pause(); r.hidden = take.replayAt < 0; } // a hello looked at: done, the take window live again
         data.manyFull = false;
         delete data.reveal; delete data.grow; delete data.lowT;
         $('#template').removeAttribute('src');
         return showSimilar(false);
-      case 'share-last': take.shareOnce = null; take.shareChain = null; step('share-last'); return menu.show(true); // ↑ on the point: the sharing points as circles
+      case 'share-last': if (take.recorder || take.starting) await end(); take.shareOnce = null; take.shareChain = null; step('share-last'); return menu.show(true); // ↑ on the point: the sharing points as circles
       case 'always-there': return menu.dropKind(hit.n, hit.kind);
-      case 'full': // full screen is for review (14.11.): the line from the current take, like a result in Similar · voll
-        if (!(await takeVisuals()).length) return null;
-        data.fullFrom = 'own';
-        if (take.replayAt < 0) await replay(+1);
-        step('full');
-        return document.documentElement.requestFullscreen?.().catch(() => {});
-      case 'unfull':
-        step('unfull');
-        return document.exitFullscreen?.().catch(() => {});
+      // 16.11.: no full screen by ↑ / ↓ any more
       // ---------- the line in its arc, the chain under it ----------
-      case 'straighten': // spread on the line: straight, then full screen (replay from the current one)
-        if ((data.bend ?? 1) > 0) return animate('bend', data.bend ?? 1, 0);
-        data.fullFrom = 'own';
-        if (take.replayAt < 0) await replay(+1);
-        step('full');
-        return document.documentElement.requestFullscreen?.().catch(() => {});
-      case 'bend': // squeeze: full screen ends, then back into the arc
-        if (st.full) { step('unfull'); return document.exitFullscreen?.().catch(() => {}); }
-        return animate('bend', data.bend ?? 0, 1);
+      case 'straighten': // 16.11.: spread on the line past its widest = this take opens as its timeline (no full screen);
+        if (take.replayAt < 0) await replay(+1); //    spread on further there = cut at the point (pinchEnd)
+        data.timeZoom = 1;
+        return step('spread');
+      case 'bend': // squeeze on the line past its closest = the two takes under the fingers become one (pinchEnd)
+        return null;
       case 'levels-open': data.levelsOpen = true; return paint();
       case 'levels-close': data.levelsOpen = false; return paint();
       case 'level-open': // choose an earlier line of the chain (tap again = back to the current one)
@@ -1063,16 +1104,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         return st.similar ? act('edge-out', 'upper-right') : null;
       case 'share-in': take.shareOnce = null; take.shareChain = null; return menu.show(true); // pulled in from the middle right
       case 'share-out': return menu.show(false);
-      case 'from-top': // ↓ from the top: review ends · closed → viele half → viele full
-        if (st.full) {
-          if (data.double) { $('#replay').hidden = true; $('#replay').pause(); } // review of a result ends: Doppel again
-          step('unfull');
-          return document.exitFullscreen?.().catch(() => {});
-        }
+      case 'from-top': // ↓ from the top: closed → viele half → viele full
         if (st.similar && !data.double) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); } // half → full: the arcs bend out
         return openMany();
-      case 'from-top-far': // a long pull from the top (14.11.): viele full at once; in full screen it just ends it
-        if (st.full) return act('down', 'top-middle');
+      case 'from-top-far': // a long pull from the top (14.11.): viele full at once
         if (!st.similar) await openMany();
         if (!data.double && !data.manyFull) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); }
         return null;
@@ -1088,20 +1123,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'take-over': return reference(hit.index); // Similar · Doppel: the result above, the live picture below
       case 'look-up': return decide('up'); // admin: ↑ = on to the next pile (15.11.)
       case 'reference-out': // squeeze on the result: farther, back to Similar · viele
+        if (data.compare) { data.compare = null; data.lookAt = null; const r = $('#replay'); r.onended = null; r.pause(); showSimilar(true); } // the search in within/ ends: the hellos again
         data.double = null; data.offers = []; $('#template').removeAttribute('src'); pairOff(); return paint(); // back to viele
       case 'look-down': return decide('down'); // admin: ↓ = back a pile (join → hello anew, within → quiet)
       case 'reference-next': case 'reference-before': { // ← next · → before, in the order of the tiles
         const n = data.similar.length;
         return n ? reference((data.doubleAt + (row.action === 'reference-next' ? 1 : -1) + n) % n) : null;
       }
-      case 'reference-full': { // Similar · voll = review: the result fills the screen like a line (↓ from the top = back)
-        const at = atOf(data.double);
-        if (!at) return null;
-        await show(at.path, at.store);
-        data.fullFrom = 'similar';
-        step('full');
-        return document.documentElement.requestFullscreen?.().catch(() => {});
-      }
+      // 16.11.: no full screen of a Similar tile any more (one could not get out of it with gestures)
       case 'share': { // ↑ on an element of the line: that take goes to the sharing points (the menu, as for the last take)
         const chain = takeOf(await keyOfItem(hit.index));
         if (!chain?.from || chain.from.store !== 'own') return null;
@@ -1195,9 +1224,21 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     pinchEnd: (factor, role) => { // spread = nearer / more, squeeze = farther / less, where the first finger lay
       const g = pinchStep(factor);
       if (!g || role === 'live' || role === 'point') return null; // those zoomed continuously
-      if (role === 'line-arc' || role?.startsWith('line:')) { // at the end of the zoom: straight → full, or back
+      if (st.screen === 'line' && st.sub === 'spread') { // 16.11.: in a take's timeline
+        const z = data.timeZoom ?? 1;
+        if (g === 'spread' && z >= 7.9) { // spread on past its widest: cut where the point stands (its moment inside that take)
+          let acc = 0, off = null;
+          for (const it of data.items ?? []) { if ((data.timeMs ?? 0) < acc + (it.ms ?? 0)) { off = (data.timeMs ?? 0) - acc; break; } acc += it.ms ?? 0; }
+          step('done');
+          return splitTake(0, off);
+        }
+        if (g === 'squeeze' && z <= 0.26) return step('done'); // squeezed shut: back to the line
+        return null;
+      }
+      if (role === 'line-arc' || role?.startsWith('line:')) { // at the end of the zoom: past its widest = the timeline, past its closest = join
         const z = data.lineZoom ?? 1;
-        if (g === 'spread' ? z < LINE_ZOOM[1] : z > LINE_ZOOM[0] && !st.full && (data.bend ?? 1) > 0.5) return null;
+        if (g === 'spread' ? z < LINE_ZOOM[1] : z > LINE_ZOOM[0]) return null;
+        if (g === 'squeeze') { const i = role?.startsWith('line:') ? Number(role.slice(5)) : 0; return joinTakes(i, i > 0 ? i - 1 : i + 1); } // the take under the finger and its neighbour toward the point
         return act(g, 'line-arc');
       }
       return act(g, role ?? 'top-zone');
@@ -1246,10 +1287,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (me?.start === 'choose' && P.persons().length > 1) menu.choose();
     else if (me?.start === 'record') { const tryRecord = (n) => setTimeout(() => { if (camera && !take.recorder) act('tap', 'point'); else if (n) tryRecord(n - 1); }, 900); tryRecord(4); } // the camera comes just after the start
   }
-  // Android "back" (14.11.): one step back, never out of the app by surprise: sharing menu → full screen → Similar → context field
+  // Android "back" (14.11.): one step back, never out of the app by surprise: sharing menu → Similar → context field
   globalThis.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
     if (!$('#share').hidden) return menu.back() || menu.show(false); // an account → the accounts → closed
-    if (st.full) return act('down', 'top-middle');
     if (data.double) { data.double = null; data.offers = []; $('#template').removeAttribute('src'); pairOff(); return paint(); } // Doppel → viele
     if (st.similar) return act('edge-out', 'upper-right');
     if ((data.open ?? 0) > 0) return openContext(false);

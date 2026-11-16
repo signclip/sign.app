@@ -10,7 +10,8 @@
 //                          (disk unplugged) or not reachable · green ring = shared to last
 //              edge bars   which strands go there: solid = always, dashed = only on a tap, grey = not
 //                          (the same sides as on the field: ring.js SIDES)
-//              bridges     lines between tiles: copy (solid) or encrypted backup (double line);
+//              bridges     lines between tiles (16.11.): solid = everything is there (a full copy, a backup), dashed =
+//                          a part, new takes go in · encrypted is the tile's dark inner edge, not a line;
 //                          0 → n = every take goes there
 //              run dot     lower right: filled = the last copy/backup there went through · open ring = it failed
 //              seal        upper left: filled = its sharing-point.sign is sealed by one of its signers (verified) ·
@@ -60,7 +61,7 @@ function edgeBar(kind, { cx, cy, tw, th }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, clip = 'ready', shake = null, zoom = null, apps = null, outOnly = false, persons = [], choosing = false, selfStart = 'direct', browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map(), leaving = new Set(), sending = null }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
+export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [], admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, clip = 'ready', shake = null, zoom = null, apps = null, outOnly = false, persons = [], choosing = false, selfStart = 'direct', browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map(), leaving = new Set(), sending = null }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const tw = 86 * k; // a tile: a rounded rectangle, two layers behind it = much lies inside
   const th = 64 * k;
   const y0 = top + 72 * k; // first row, under the handle
@@ -117,12 +118,14 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
     const dx = Math.sign(b.cx - a.cx) || 1; // its direction there runs from a's side to b's side
     bridges.push([{ cx: mid.cx - dx, cy: mid.cy }, { cx: mid.cx + dx, cy: mid.cy }, cls]);
   };
+  // 16.11.: a line says how much is over there: solid = everything (a full copy, a backup) · dashed = a part, new takes
+  // go in from now on. Encrypted is no line: the tile itself has a dark inner edge.
   for (const t of all) {
     if (t.under) continue;
-    if (t.always) bridge(0, t.n, 'own');
-    if (t.backupOwn) bridge(0, t.n, 'backup');
-    for (const m of t.copyTo) bridge(t.n, m, 'own');
-    for (const m of t.backupTo) bridge(t.n, m, 'backup');
+    if (t.always) bridge(0, t.n, t.alwaysAll ? 'own all' : 'own new');
+    if (t.backupOwn) bridge(0, t.n, 'own all');
+    for (const m of t.copyTo) bridge(t.n, m, (t.copyAll ?? []).includes(m) ? 'own all' : 'own new');
+    for (const m of t.backupTo) bridge(t.n, m, 'own all');
     for (const m of t.giveTo ?? []) bridge(t.n, m, 'give'); // shared to that account, read-only
   }
 
@@ -132,11 +135,12 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
   for (const t of all) {
     if (t.under) continue; // the drop link of a group: drawn as part of its read tile
     if (joining(t)) { joinIcon(slot.get(t.n), t, joinStates.get(t.label)); continue; } // joining: the growing icon
-    const cls = ['sp', t.state, t.shown && 'shown', t.always && 'always', focus === t.n && 'focus', t.moved && 'door breathe'].filter(Boolean).join(' '); // moved (15.11.): breathes, tap = follow
+    const cls = ['sp', t.state, t.shown && 'shown', t.write && 'write', t.always && 'always', focus === t.n && 'focus', t.moved && 'door breathe'].filter(Boolean).join(' '); // moved (15.11.): breathes, tap = follow
     const { cx, cy } = tile(slot.get(t.n), `sp:${t.n}`, `${cls}${t.group ? ' group' : ''}`, t.label);
     if (t.n === admin) add('circle', { cx: cx + tw / 2 - 4 * k, cy: cy - th / 2 + 4 * k, r: 7 * k, cls: 'badge admin' }); // the admin login: → shows the accounts
     if (t.seal === 'ok' || t.seal === 'wrong') add('circle', { cx: cx - tw / 2 + 4 * k, cy: cy - th / 2 + 4 * k, r: 6 * k, cls: `badge ${t.seal === 'ok' ? 'sealed' : 'unsealed'}` });
     if (t.readOnly && !t.drop) add('sheet', { x: cx - tw / 2 + 5 * k, y: cy - th / 2 + 5 * k, w: tw - 10 * k, h: th - 10 * k, r: 10 * k, cls: 'view-only' });
+    if (t.encrypted) add('sheet', { x: cx - tw / 2 + 3 * k, y: cy - th / 2 + 3 * k, w: tw - 6 * k, h: th - 6 * k, r: 12 * k, cls: 'encrypted-edge' }); // what lies there is encrypted (16.11.)
     if (t.run === 'ok' || t.run === 'error') { // last copy or backup: filled dot = went through · open ring = failed
       add('circle', { cx: cx + tw / 2 - 4 * k, cy: cy + th / 2 - 4 * k, r: 6 * k, cls: `badge ${t.run === 'ok' ? 'ran' : 'failed'}` });
     }
@@ -160,8 +164,18 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
     const grow = (n) => (leaving.has(t.label) ? ' leave' : fresh.has(t.label) ? ` appear a${n}` : ''); // a new state: the symbol builds up, me → line → group → own · joined (15.11.): hello and join go
     const line = (b, cls) => shapes.splice(2, 0, { type: 'path', d: `M ${me.cx} ${me.cy} L ${b.cx} ${b.cy}`, cls: `join-line ${cls}` }); // under the tiles
     const group = grid(i, { w, k, y0 });
-    if (state !== 'door') line(group, `${state === 'hello' ? 'hello' : 'join'}${grow(2)}`);
-    tile(i, `sp:${t.n}`, `sp join-group${sending === `sp:${t.n}` ? ' sending' : state === 'door' || state === 'ready' ? ' door breathe' : state === 'hello' ? ' waiting' : ''}${grow(3)}`, state === 'door' ? 'hello' : state === 'ready' ? 'join' : t.label); // before hello and join: it says what a tap does (15.11.)
+    const going = sending === `sp:${t.n}`;
+    if (state !== 'door' || going) line(group, `${going ? 'hello sending' : state === 'hello' ? 'hello' : 'join'}${grow(2)}`); // a tap on hello: the line is there at once and runs (15.11.)
+    if (going) for (let d = 0; d < Math.min(sent, 13); d++) { // a dot per file that went (name sign and 3 gestures: 4 takes × 3 files), the newest walking
+      const f = (d + 1) / 14;
+      add('circle', { cx: me.cx + (group.cx - me.cx) * f, cy: me.cy + (group.cy - me.cy) * f, r: 3.5 * k, cls: `file-dot${d === sent - 1 ? ' walking' : ''}` });
+    }
+    const said = state === 'hello' || state === 'join' || state === 'join-own'; // after hello: hello stays, highlighted, with the name in the tile; the door's name (Sign) under it
+    const { cx: gx, cy: gy } = tile(i, `sp:${t.n}`, `sp join-group${going ? ' sending' : state === 'door' || state === 'ready' ? ' door breathe' : state === 'hello' ? ' said' : ''}${grow(3)}`, state === 'door' ? 'hello' : state === 'ready' ? 'join' : t.label);
+    if (said || going) {
+      if (name) add('label', { x: gx, y: gy - 4 * k, text: name, cls: 'label tile-name' });
+      add('label', { x: gx, y: gy + 14 * k, text: 'hello', cls: `label tile-word${said ? ' done' : ''}` });
+    }
     if (state === 'join' || state === 'join-own') {
       const mine = grid(i + 1, { w, k, y0 });
       line(mine, `${state === 'join-own' ? 'join own' : 'hello own'}${grow(4)}`);
@@ -175,17 +189,37 @@ export function pointShapes(all, { own = '', admin = null, pulse = null, flash =
     at.set(`hello:${i}`, { cx, cy, r: 26 * k });
     if (x.n != null && slot.has(x.n)) shapes.splice(1 + shapes.findIndex((s) => s.role === 'sheet' && s.type === 'line'), 0,
       { type: 'path', d: `M ${centre(x.n).cx} ${centre(x.n).cy} L ${cx} ${cy}`, cls: 'join-line hello' }); // under the tiles
-    add('circle', { cx, cy, r: 26 * k, cls: 'hello', role: `hello:${i}` });
-    add('circle', { cx: cx + 10 * k, cy: cy - 10 * k, r: 8 * k, cls: 'hello-dot' });
+    add('circle', { cx, cy, r: 26 * k, cls: `hello${x.faint ? ' faint' : ''}${shake === `hello:${i}` ? ' shake' : ''}`, role: `hello:${i}` }); // a pile: always there, 0 = faint, a tap on 0 shakes (15.11.)
+    if (!x.faint) add('circle', { cx: cx + 10 * k, cy: cy - 10 * k, r: 8 * k, cls: 'hello-dot' });
     add('label', { x: cx, y: cy + 44 * k, text: x.label, cls: 'label' });
   });
   incoming.forEach((x, i) => tile(next++, `incoming:${i}`, 'sp incoming', x.label)); // waiting for me: tap = take in
   if (acceptThere) tile(next++, 'accept-there', 'sp incoming there', acceptThere.label); // tap = their page to accept
   // the other persons on this device (14.11.): small round tiles upper left, their initial inside; tap = switch,
   // ↓ = off this device, double-tap = how this person starts (dot: chooses at start · ring: records at once)
-  persons.forEach((p, i) => {
+  // 15.11.: every person is an account, the current one ringed; a role shows as form and colour (no text): Admin a rounded
+  // square (coral), Atlas a circle with its equator (blue), Groups yellow (belongs together, as the chips' bubble)
+  // 16.11.: the accounts kept on this device first (each login once, its initial inside), then the other persons
+  const one = (role, p, i, extra = '') => {
     const c = { cx: 30 * k + i * 34 * k, cy: top + 20 * k, r: 13 * k }; // above the tiles, beside the handle
-    add('circle', { ...c, cls: `sp person round${choosing ? ' breathe' : ''}${shake === `person:${p.id}` ? ' shake' : ''}`, role: `person:${p.id}` });
+    const cls = `sp person round${extra}${p.role ? ` role-${p.role}` : ''}${shake === role ? ' shake' : ''}`;
+    if (p.role === 'admin') add('sheet', { x: c.cx - c.r, y: c.cy - c.r, w: 2 * c.r, h: 2 * c.r, r: 5 * k, cls, role });
+    else add('circle', { ...c, cls, role });
+    if (p.role === 'atlas') add('line', { x1: c.cx - c.r, y1: c.cy, x2: c.cx + c.r, y2: c.cy, cls: 'glyph account-equator' });
+    if (p.current) add('circle', { cx: c.cx, cy: c.cy, r: c.r + 4 * k, cls: 'account-current' });
+    add('label', { x: c.cx, y: c.cy + 5 * k, text: (p.label || '?').slice(0, 1).toUpperCase(), cls: 'label person-initial' });
+    at.set(role, c);
+    return c;
+  };
+  accounts.forEach((a, i) => one(`account:${i}`, a, i, ' account'));
+  persons.forEach((p, j) => {
+    const i = accounts.length + j;
+    const c = { cx: 30 * k + i * 34 * k, cy: top + 20 * k, r: 13 * k }; // above the tiles, beside the handle
+    const cls = `sp person round${p.role ? ` role-${p.role}` : ''}${choosing ? ' breathe' : ''}${shake === `person:${p.id}` ? ' shake' : ''}${fresh.has(`person:${p.id}`) ? ' appear a0' : ''}`;
+    if (p.role === 'admin') add('sheet', { x: c.cx - c.r, y: c.cy - c.r, w: 2 * c.r, h: 2 * c.r, r: 5 * k, cls, role: `person:${p.id}` });
+    else add('circle', { ...c, cls, role: `person:${p.id}` });
+    if (p.role === 'atlas') add('line', { x1: c.cx - c.r, y1: c.cy, x2: c.cx + c.r, y2: c.cy, cls: 'glyph account-equator' });
+    if (p.current) add('circle', { cx: c.cx, cy: c.cy, r: c.r + 4 * k, cls: 'account-current' });
     const same = persons.some((q) => q !== p && (q.label || '?')[0].toUpperCase() === (p.label || '?')[0].toUpperCase()); // Admin and Atlas: two letters (15.11.)
     add('label', { x: c.cx, y: c.cy + 5 * k, text: (p.label || '?').slice(0, same ? 2 : 1).replace(/^./, (x) => x.toUpperCase()), cls: 'label person-initial' });
     if (p.start === 'choose') add('circle', { cx: c.cx + 9 * k, cy: c.cy - 9 * k, r: 3.5 * k, cls: 'badge person-start' });

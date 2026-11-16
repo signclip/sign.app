@@ -47,5 +47,6 @@
   "home.restored": "{n} aus dem Backup geholt",
   "home.copied": "{n} geholt",
   "home.key": "Backup: Papier-Passwort kopieren, dann erneut ziehen",
-  "menu.wait": "…"
+  "menu.wait": "…",
+  "menu.noDoor": "Tür nicht gefunden: sign-debug.txt"
 }

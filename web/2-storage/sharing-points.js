@@ -146,7 +146,7 @@ export async function runRules(rules, open, { own, backupKey = null, skip = () =
       if (to?.dropOnly) continue; // a drop link cannot say what is missing: only new takes go there (afterTake)
       const waiting = (!from || !to) && [rule.from, rule.to].some((n) => open.get(n)?.waiting);
       if (waiting) report.push({ rule, waiting: true }); // disk not plugged in: no error, it runs when it is back
-      else if (rule.mark === 'always') report.push({ rule, result: await copyRoute(from, to, { kinds, skip, since: rule.time }) }); // new since the connection (a copy took the rest once)
+      else if (rule.mark === 'always') report.push({ rule, result: await copyRoute(from, to, { kinds, skip, since: rule.all ? null : rule.time }) }); // all: everything (a full copy keeps itself whole) · else new since the connection
       else if (rule.mark === 'backup') {
         if (!backupKey) throw new Error('no backup key on this device');
         const filter = (p) => wants(rule.kinds, p) && !skip(p);

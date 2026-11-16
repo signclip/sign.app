@@ -6,7 +6,7 @@
 //            (VOICE) or later glasses, so this file never changes for a new device.
 //              screen   rest · wait · record · toText · similar · line · pick · share · delete · add · stream
 //              line     play · spread · nextPrev · scrub        share   hello · join · own
-//              stream   live · seg · people                     overlays: full, similar (both any time)
+//              stream   live · seg · people                     overlays: similar (any time; no full screen since 16.11.)
 //            fields: v a x l each 'on' | 'off', ONE selection for everything (decided 08.11.): the point,
 //            always-ready and adding to an element all record the 'on' ones; it stays as chosen (settings.auto)
 //            until changed. Adding to an element: what it has and is 'off' is kept (solid), what is 'on' is
@@ -22,7 +22,7 @@
 export const KINDS = ['v', 'a', 'x', 'l'];
 
 /** Start from the kept selection (settings.auto). */
-export const startState = (on = KINDS) => Object.freeze({ screen: 'rest', sub: null, mode: 'take', full: false, similar: false, held: false, ready: false,
+export const startState = (on = KINDS) => Object.freeze({ screen: 'rest', sub: null, mode: 'take', similar: false, held: false, ready: false,
   fields: Object.freeze(Object.fromEntries(KINDS.map((k) => [k, on.includes(k) ? 'on' : 'off']))), base: null, has: [], aside: false, hold: null });
 export const START = startState();
 
@@ -36,8 +36,6 @@ const go = (s, screen, more = {}) => ({ ...s, screen, sub: null, held: false, on
 export function next(s, e) {
   const a = e.action;
   switch (a) {
-    case 'full': return { ...s, full: true };
-    case 'unfull': return { ...s, full: false };
     case 'similar-in': return { ...s, similar: true };
     case 'similar-out': return { ...s, similar: false, mode: s.screen === 'similar' ? 'take' : s.mode, ...(s.screen === 'similar' ? { screen: 'rest' } : {}) };
     case 'strand-on-off': return { ...s, fields: { ...s.fields, [e.kind]: s.fields[e.kind] === 'on' ? 'off' : 'on' } };
@@ -74,6 +72,7 @@ export function next(s, e) {
     case 'aside-last': return go(s, 'rest', { aside: true });
     case 'remove-last': case 'remove': case 'remove-strand': return go(s, 'delete');
     case 'done': return go(s, s.mode === 'line' ? 'line' : 'rest', s.mode === 'line' ? { sub: 'play' } : {});
+    case 'live': return go(s, 'rest', { mode: 'take' }); // past the newest take of the line (16.11.): live again, a tap records
     case 'replay-back': case 'replay-on': return go(s, 'line', { mode: 'line', sub: 'play' });
     case 'after': case 'together': return go(s, 'line', { mode: 'line', sub: 'play', edits: (s.edits ?? 0) + 1 });
     case 'scrub': return s.mode === 'line' ? { ...s, screen: 'line', sub: 'scrub', held: true } : s;
@@ -103,7 +102,6 @@ export function look(s, k) {
 
 /** The canvas name of a state (Design · Geste Overview), to compare drawing and design one to one. */
 export function canvasStep(s) {
-  if (s.full && s.screen === 'rest') return 'full';
   const map = { rest: 'rest', wait: 'wait', record: 'retry', toText: 'toText', similar: 'search' /* the canvas calls it so */, pick: 'own', delete: 'delete', add: 'retry' };
   if (s.screen === 'line') return { play: 'playlist', spread: 'spread', nextPrev: 'nextPrev', scrub: 'scrub' }[s.sub] ?? 'playlist';
   if (s.screen === 'share') return s.sub ?? 'own';

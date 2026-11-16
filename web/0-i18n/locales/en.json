@@ -47,5 +47,6 @@
   "home.restored": "{n} brought back from the backup",
   "home.copied": "{n} brought here",
   "home.key": "Backup: copy the paper password, then drag again",
-  "menu.wait": "…"
+  "menu.wait": "…",
+  "menu.noDoor": "door not found: sign-debug.txt"
 }
