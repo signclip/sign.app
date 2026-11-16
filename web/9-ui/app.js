@@ -740,7 +740,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     step('similar-out');
     data.words = [];
     data.double = null; // Doppel ends with Similar
-    if (data.ownLine) { ({ line: data.line, lineThumbs: data.lineThumbs } = data.ownLine); delete data.ownLine; } // my line back
+    if (data.ownLine) { ({ line: data.line, lineThumbs: data.lineThumbs, versions: data.versions } = data.ownLine); delete data.ownLine; } // my line back on top
     if (data.look) { delete data.look; data.lookAt = null; data.compare = null; $('#template').removeAttribute('src'); pairOff(); const r = $('#replay'); r.onended = null; r.pause(); r.hidden = take.replayAt < 0; } // a hello looked at: done, the take window live again
     delete data.reveal;
     $('#template').removeAttribute('src');
@@ -777,6 +777,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     else { delete v.dataset.picture; v.poster = posterOf(at.path); v.src = URL.createObjectURL(blob); v.loop = true; v.muted = true; v.play().catch(() => {}); }
     data.double = key;
     data.doubleAt = i;
+    if (!data.look) lineOnTop([at], () => data.double === key); // the opened take: a new line on top of mine
     v.onended = null;
     if (!data.look) await offerContext(takeOf(key));
     await pairOn(data.look?.[Number(key.slice(5))]?.pair, data.look?.[Number(key.slice(5))]?.from);
@@ -796,9 +797,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     data.compare = known ? (await accountTakes(x.from, x.known).catch(() => [])).map((path) => ({ path, from: x.from })) : null;
     for (const k of [...thumbs.keys()]) if (k.startsWith('cmp:')) thumbs.delete(k);
     data.double = known && data.compare.length ? 'cmp:0' : null; // without an original Similar stays as the hellos
-    data.ownLine ??= { line: data.line, lineThumbs: data.lineThumbs }; // 16.11.: her pieces slide into the line; Similar closed = my line again
-    data.line = { count: x.pieces.length, at: 0 }; data.lineThumbs = {};
-    x.pieces.forEach((p, n) => picOf({ store: p.from, path: p.path }).then((url) => { if (data.look?.[i] === x) { data.lineThumbs = { ...data.lineThumbs, [n]: url }; paint(); } }, () => {}));
+    lineOnTop(x.pieces.map((p) => ({ store: p.from, path: p.path })), () => data.look?.[i] === x); // her pieces: a new line on top of mine (chain)
     showSimilar(true);
     let j = 0;
     const go = async () => {
@@ -820,6 +819,16 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
    *  an empty poster makes Android's WebView draw its own grey video sign. */
   const NO_POSTER = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
   const posterOf = (path) => (path && pics.get(path)) || NO_POSTER;
+  /**
+   * Something opened from Similar (16.11., the chain idea): it comes as a new line on top; my line slides down and stays
+   * as a faint arc beneath it, towards the take window (arc.js levels). Similar closed = my line on top again.
+   * items: [{ store, path }] of the visual strands · still(): false once something else is open.
+   */
+  function lineOnTop(items, still = () => true) {
+    if (!data.ownLine) { data.ownLine = { line: data.line, lineThumbs: data.lineThumbs, versions: data.versions ?? 1 }; data.versions = Math.min(4, data.ownLine.versions + 1); arrive(); }
+    data.line = { count: items.length, at: 0 }; data.lineThumbs = {};
+    items.forEach((at, n) => picOf(at).then((url) => { if (still()) { data.lineThumbs = { ...data.lineThumbs, [n]: url }; paint(); } }, () => {}));
+  }
   /** An index key (chain or strand) → its take chain entry. */
   const takeOf = (key) => index.tables.chains.get(key) ?? [...(index.tables.weave.get(key) ?? [])].map((k) => index.tables.chains.get(k)).find((c) => c && index.tables.takes.has(c.key)) ?? null;
   /** Show one picture or video in the replay element (a picture as its poster). */
