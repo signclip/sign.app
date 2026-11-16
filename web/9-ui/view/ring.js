@@ -38,7 +38,7 @@ import { timelineShapes } from './timeline.js';
 import { withHint } from './hint.js';
 import { arcShapes } from './arc.js';
 import { startShapes } from './start.js';
-import { windowOf, onShape, pointsOn, pathThrough, outlinePath, extentOf } from './shape.js';
+import { windowOf, onShape, pointsOn, pathThrough, outlinePath, extentOf, formPath } from './shape.js';
 
 /** The four arcs around the window in degrees (0 = top, clockwise); the line is the upper one. */
 export const ARCS = Object.freeze({ line: [-60, 60], a: [60, 140], x: [140, 220], v: [220, 300], l: [-30, 30] }); // fixed by the user (13.11.), keep; l (14.11.): short, wavy, at the top
@@ -78,8 +78,8 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const d = POINT_D * k, ring = (d / 2) * RING;
   const double = Boolean(st.similar && data.double); // Similar · Doppel: the reference above, the live picture below
   const many = Boolean(st.similar && !double); // Similar · viele: half (above the line, to drag into it) or full
-  const half = false, low = double; // Similar · viele is a cloud over the take (16.11.): the take window stays where it is; only Doppel moves it down
-  const side = w >= 1.9 * cw && double; // wide (iPad across, 15.11.): Doppel beside the take, not above
+  const half = false, low = Boolean(st.similar); // Similar (16.11., user): the take window moves down, the cloud or the reference above it – nothing lies over the take
+  const side = w >= 1.9 * cw && Boolean(st.similar); // wide (iPad across, 15.11.): the cloud or Doppel beside the take, not above
   const sideness = side ? 1 : 0;
   const grow = 0; // (viele ganz with arcs bent to the edges: replaced by the cloud, 16.11.)
   const F0 = Math.min(cw - 16 * k, 2 * ((cw / 2 - 6 * k) / Math.sin(Math.PI / 3) - ring)) - 12 * k; // the line's ends stay on screen; 12 px more room at the sides for the sound (14.11.)
@@ -120,14 +120,14 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   g.add('video', { ...video, cls: st.screen === 'delete' ? 'video faded' : 'video' });
   const template = double ? referenceWindow(g, point) : templateVideo(g);
   if (!stretched) chipArea(g, point, double ? template : null);
-  if (stretched) g.shapes.push(...timelineShapes(data.items, { timeMs: data.timeMs ?? 0, sub: st.sub ?? 'play', zoom: data.timeZoom ?? 1, cx: g.cx, y: point.cy, k, w }));
+  if (stretched) g.shapes.push(...timelineShapes(data.items, { timeMs: data.timeMs ?? 0, sub: st.sub ?? 'play', zoom: data.timeZoom ?? 1, cx: g.cx, y: point.cy, k, w, shape: data.shape }));
   else if (!double) g.shapes.push(...arcShapes(win, ring, { ...data, bend: data.bend ?? (st.sub === 'spread' ? 0 : 1) }, { k, w }));
   if (st.screen === 'delete') deleteChips(g);
   if (data.waits) { // pinching the waits: inner ring = start, outer = stop (1 s ≈ 8 px)
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (4 + data.waits.startMs / 125) * k, cls: 'wait-ring start' });
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (4 + data.waits.stopMs / 125) * k, cls: 'wait-ring stop' });
   }
-  if (many) cloudTiles(g); // Similar · viele: a cloud over the take, flies in from the upper right (16.11.)
+  if (many) cloudTiles(g, side ? { x0: 8 * k, y0: 24 * k, x1: w / 2 - 8 * k, y1: h - 24 * k } : { x0: 8 * k, y0: 24 * k, x1: w - 8 * k, y1: pointTop - 6 * k }); // Similar · viele: a cloud over the take, flies in from the upper right (16.11.)
   if (data.start && !many) g.shapes.push(...startShapes(data.start, { win, point, k, ring })); // the start: whose state, how it starts (15.11.)
   if (data.focus) g.add('circle', { cx: data.focus.x, cy: data.focus.y, r: (34 - 12 * (data.focusT ?? 0)) * k, fade: 1 - (data.focusT ?? 0) * 0.8, cls: 'focus-mark' }); // where it focuses
   if (data.feedback && !many) { // saved: a green ring going out · gone: a red dashed ring going in (R7); p 0 → 1 over 0.9 s
@@ -135,7 +135,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (data.feedback === 'saved' ? 4 + 26 * p : 30 - 26 * p) * k, fade: 1 - p, cls: `feedback ${data.feedback}` });
   }
   g.add('point', { ...point, cls: `${pointClass(st)}${data.photo && st.screen !== 'line' ? ' photo' : ''}${data.paused && st.screen === 'record' ? ' paused' : ''}${st.screen === 'line' && data.replayPaused ? ' stopped' : ''}`, role: 'point',
-    href: st.screen === 'line' ? data.lineThumbs?.[data.line?.at ?? 0] ?? null : null }); // in the line: that take's picture inside, play / pause over it (16.11.)
+    href: st.screen === 'line' ? data.lineThumbs?.[data.line?.at ?? 0] ?? null : null, form: data.shape }); // in the line: that take's picture inside, play / pause over it (16.11.)
 
   const centre = (role) => { const s = g.shapes.find((x) => x.role === role && x.cls !== 'hit'); return !s ? null : s.s ? [s.x + s.s / 2, s.y + s.s / 2, s.s] : s.x1 != null ? [(s.x1 + s.x2) / 2, s.y1, 24 * k] : null; };
   if (data.cutMark) { const c = centre(data.cutMark); if (c) g.add('line', { x1: c[0], y1: c[1] - c[2] * 0.75, x2: c[0], y2: c[1] + c[2] * 0.75, cls: 'cut-mark' }); } // split (15.11.): past the mark a line across the take
@@ -298,7 +298,8 @@ function alongEdgeInside(terms, { win, k, latest }) {
 function templateVideo({ st, data, win, k, add }) {
   if (!data.template) return null;
   const [ex, ey] = extentOf(win);
-  const template = { cx: win.cx - ex * 0.55, cy: win.cy + ey * 0.55, d: 88 * k };
+  const at = { cx: win.cx - ex * 0.55, cy: win.cy + ey * 0.55, d: 88 * k };
+  const template = { ...at, window: windowOf(win, { cx: at.cx, cy: at.cy, F: at.d }) }; // the form of the window (16.11.)
   add('video', { ...template, cls: 'video other template', role: 'template' });
   return template;
 }
@@ -316,21 +317,35 @@ export const cloudHome = ({ w, h }) => ({ x: w * 0.68, y: h * 0.2, s: 1 });
  * moved while pinching, somewhere else. tap = Doppel · a result onto the point = into the line · the cloud onto the
  * point = all onto the chain.
  */
-function cloudTiles({ data, w, h, k, add }) {
+function cloudTiles({ data, w, h, k, add }, box) {
   const keys = data.similar ?? [];
   const home = data.cloud ?? cloudHome({ w, h }), r = data.reveal ?? 1;
   const s = Math.max(CLOUD[0], Math.min(CLOUD[1], home.s)) * (0.3 + 0.7 * r);
-  const cx = w + 80 * k + (home.x - w - 80 * k) * r, cy = -80 * k + (home.y + 80 * k) * r; // from beyond the upper right corner
   const n = Math.max(1, Math.min(keys.length, MANY, Math.round(12 * s * s)));
-  const base = 54 * k * Math.sqrt(s), step = (base + 4 * k) / 1.8; // neighbours in a sunflower lie ≈ 1.8 steps apart: 4 px between tiles
-  const R = step * Math.sqrt(n + 0.5) + base / 2 + 6 * k;
+  let base = 54 * k * Math.sqrt(s), step = (base + 4 * k) / 1.8; // neighbours in a sunflower lie ≈ 1.8 steps apart: 4 px between tiles
+  let R = step * Math.sqrt(n + 0.5) + base / 2 + 6 * k;
+  const fit = Math.min(1, Math.max(0, Math.min(box.x1 - box.x0, box.y1 - box.y0)) / 2 / R); // it stays in the free part (16.11.): above the take, or beside it
+  [base, step, R] = [base * fit, step * fit, R * fit];
+  const clamp = (v, a, b) => (a > b ? (a + b) / 2 : Math.max(a, Math.min(b, v)));
+  const hx = clamp(home.x, box.x0 + R, box.x1 - R), hy = clamp(home.y, box.y0 + R, box.y1 - R);
+  const cx = w + 80 * k + (hx - w - 80 * k) * r, cy = -80 * k + (hy + 80 * k) * r; // from beyond the upper right corner
   add('sheet', { x: cx - R, y: cy - R, w: 2 * R, h: 2 * R, r: R, cls: 'similar-band cloud', role: 'similar-band' });
   keys.slice(0, n).forEach((key, i) => {
     const d = step * Math.sqrt(i + 0.5), a = i * 2.39996; // golden angle: no two in a line; + 0.5 keeps the first two apart
     const size = base * (1 - 0.18 * Math.sqrt(i / n)); // the outer ones a little smaller
     const x = cx + d * Math.cos(a) - size / 2, y = cy + d * Math.sin(a) - size / 2;
-    const path = outlinePath(windowOf(data.shape, { cx: x + size / 2, cy: y + size / 2, F: size })); // the form of my window (14.11.)
+    const path = formPath(data.shape, x, y, size); // the form of my window (14.11.)
     add('thumb', { x, y, s: size, path, id: `st${i}`, href: data.thumbs?.[key], cls: 'thumb other', role: `similar:${i}` });
+    tags(data.tileWords?.[key], { x, y, s: size, k, add }); // the take's chips, small on its picture (16.11.)
+  });
+}
+
+/** Chips of a tile, small, on its lower part (16.11.): one per row from the bottom up, as many as fit, none wider than the tile. */
+function tags(words = [], { x, y, s, k, add }) {
+  const hh = Math.max(9, 11 * k), fs = hh * 0.75;
+  words.slice(0, Math.max(0, Math.floor((s * 0.6) / (hh + 2)))).forEach((text, i) => {
+    const tw = Math.min(s - 6, text.length * fs * 0.58 + hh * 0.8);
+    add('tag', { x: x + (s - tw) / 2, y: y + s - 4 - (i + 1) * (hh + 2) + 2, w: tw, h: hh, fs, text, cls: 'tag' });
   });
 }
 
@@ -397,6 +412,7 @@ const SVG = {
   thumb: (s) => (s.path // in the form of my window (14.11.)
     ? `<clipPath id="${s.id}"><path d="${s.path}"/></clipPath>${s.href ? `<image href="${esc(s.href)}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${s.id})"/>` : ''}<path d="${s.path}" class="${s.cls}${s.href ? ' seen' : ''}"${roleOf(s)}/>`
     : `${s.href ? `<image href="${esc(s.href)}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" preserveAspectRatio="xMidYMid slice" style="clip-path: inset(0 round ${s.round ? s.s / 2 : 12}px)"/>` : ''}<rect x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" rx="${s.round ? s.s / 2 : 12}" class="${s.cls}${s.href ? ' seen' : ''}"${roleOf(s)}/>`),
+  tag: (s) => `<g class="${s.cls}"><rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="${s.h / 2}"/><text x="${s.x + s.w / 2}" y="${s.y + s.h * 0.76}" text-anchor="middle" font-size="${s.fs}">${esc(s.text)}</text></g>`, // a small chip on a picture (16.11.)
   'clip-in': (s) => `<clipPath id="${s.id}"><path d="${s.d}"/></clipPath><g clip-path="url(#${s.id})">`, // a long chip row stays inside its window or box (15.11.)
   'clip-out': () => '</g>',
   chip: (s) => `<g class="${s.cls}"${roleOf(s)}${s.rot ? ` transform="rotate(${s.rot.toFixed(1)} ${s.x + s.w / 2} ${s.y})"` : ''}>`
@@ -408,7 +424,7 @@ const SVG = {
     const play = `<path d="M ${s.cx - 10} ${s.cy - 15} L ${s.cx + 15} ${s.cy} L ${s.cx - 10} ${s.cy + 15} Z" class="core"/>`;
     const r = s.d / 2, ring = `<circle cx="${s.cx}" cy="${s.cy}" r="${r * 1.35}" class="ring"/>`;
     if (s.cls.includes('line')) { // the take's picture inside the point
-      const pic = s.href ? `<clipPath id="pt"><circle cx="${s.cx}" cy="${s.cy}" r="${r * 1.3}"/></clipPath><image href="${esc(s.href)}" x="${s.cx - r * 1.3}" y="${s.cy - r * 1.3}" width="${r * 2.6}" height="${r * 2.6}" preserveAspectRatio="xMidYMid slice" clip-path="url(#pt)"/>` : '';
+      const pic = s.href ? `<clipPath id="pt"><path d="${formPath(s.form, s.cx - r * 1.3, s.cy - r * 1.3, r * 2.6)}"/></clipPath><image href="${esc(s.href)}" x="${s.cx - r * 1.3}" y="${s.cy - r * 1.3}" width="${r * 2.6}" height="${r * 2.6}" preserveAspectRatio="xMidYMid slice" clip-path="url(#pt)"/>` : '';
       return `<g class="${s.cls}"${roleOf(s)}>${pic}${ring}<g class="over">${s.cls.includes('stopped') ? play : pause}</g></g>`;
     }
     const core = s.cls.includes('paused') ? `<circle cx="${s.cx}" cy="${s.cy}" r="${r}" class="core"/>`

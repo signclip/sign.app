@@ -108,7 +108,7 @@ export function listPath({ id, person, time }) {
 export async function findList(store, person = null) {
   const lists = (await store.list('chain/')).map((f) => f.path)
     .map((path) => ({ path, name: readName(path.slice(path.lastIndexOf('/') + 1)) }))
-    .filter((f) => f.name?.words.includes(WORD) && (!person || f.name.person === person))
+    .filter((f) => f.path.endsWith('.sign') && f.name?.words.includes(WORD) && (!person || f.name.person === person))
     .sort((a, b) => String(a.name.time).localeCompare(String(b.name.time)));
   return lists.at(-1)?.path ?? null;
 }

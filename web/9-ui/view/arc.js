@@ -14,7 +14,7 @@
 // Test:      tests/view.test.mjs
 // Limits:    pictures 34 px, 2 px apart; on a 390 px phone ≈ 2–3 a side on the arc, 5 a side straight; ≤ 3 levels.
 
-import { onShape } from './shape.js';
+import { onShape, formPath } from './shape.js';
 
 const S = 34, GAP = 2, LEVEL_GAP = 9, LEVEL_OPEN = 26, FROM = -60, TO = 60;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -87,7 +87,7 @@ export function arcShapes(win, ring, data = {}, { k = 1, w = 390 } = {}) {
     res.push({ type: 'path', d, cls: 'hit', role: `level:${j}` });
     if (data.levelsOpen || chosen) {
       for (const p of lineSpots(win, { ring, k, count, at: current, bend, out, w })) {
-        res.push({ type: 'thumb', x: p.x + p.s * 0.2, y: p.y + p.s * 0.2, s: p.s * 0.6, round: true, cls: `thumb own${chosen ? ' chosen' : ' far'}`, role: `level:${j}` });
+        res.push({ type: 'thumb', x: p.x + p.s * 0.2, y: p.y + p.s * 0.2, s: p.s * 0.6, path: formPath(data.shape, p.x + p.s * 0.2, p.y + p.s * 0.2, p.s * 0.6), id: `lv${j}_${p.i}`, cls: `thumb own${chosen ? ' chosen' : ' far'}`, role: `level:${j}` });
       }
     }
   }
@@ -97,12 +97,13 @@ export function arcShapes(win, ring, data = {}, { k = 1, w = 390 } = {}) {
   // no drawn arc through the point (14.11.): the line shows by its elements; the arc stays as a hit area
   res.push({ type: 'path', d, cls: 'hit', role: 'line-arc' });
   for (const p of lineSpots(win, { ring, k, count, at: current, bend, w, zoom: data.lineZoom ?? 1 })) {
-    res.push({ type: 'thumb', x: p.x, y: p.y, s: p.s, round: true, href: data.lineThumbs?.[current + p.i], cls: `thumb own${Math.abs(p.i) === 1 ? ' near' : ''}${fade}`, role: `line:${p.i}` });
+    res.push({ type: 'thumb', x: p.x, y: p.y, s: p.s, path: formPath(data.shape, p.x, p.y, p.s), id: `ln${p.i + 99}`, href: data.lineThumbs?.[current + p.i], cls: `thumb own${Math.abs(p.i) === 1 ? ' near' : ''}${fade}`, role: `line:${p.i}` });
   }
   if (data.arrive) { // into the point = into the line at the current spot
     const [px, py] = onShape(win, 0, ring);
     const t = data.arrive.t ?? 1, to = S * k, s = lerp(data.arrive.s ?? to, to, t);
-    res.push({ type: 'thumb', x: lerp(data.arrive.x, px - to / 2, t), y: lerp(data.arrive.y, py - to / 2, t), s, round: t > 0.5, cls: 'thumb other flying' });
+    const ax = lerp(data.arrive.x, px - to / 2, t), ay = lerp(data.arrive.y, py - to / 2, t);
+    res.push({ type: 'thumb', x: ax, y: ay, s, path: formPath(data.shape, ax, ay, s), id: 'arrive', cls: 'thumb other flying' });
   }
   return res;
 }

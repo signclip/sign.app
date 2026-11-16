@@ -119,15 +119,16 @@ class KindsStore extends ReadOnlyStore {
 
 /** What Similar reads: the own store and every (show) without from. → [{ name, store }] for buildIndex. */
 export function sources(rules, open, own) {
-  const out = [{ name: 'own', store: own }];
+  const out = [{ name: 'own', store: own, write: true }]; // write: may refresh its index/ parts (3-index/parts.js)
   for (const r of rules.filter((x) => x.mark === 'show' && x.from == null)) {
     const sp = open.get(r.to);
     if (!sp?.store || sp.store.dropOnly) continue; // a drop link shows nothing
-    let store;
-    if (r.write && !sp.store.readOnly) store = sp.store; // brought in for writing too
+    let store, write = false;
+    if (r.write && !sp.store.readOnly) { store = sp.store; write = true; } // brought in for writing too
     else if (r.kinds.length) store = new KindsStore(sp.store, r.kinds); // only some kinds, read only
     else store = new ReadOnlyStore(sp.store);
-    out.push({ name: sp.entry.label, store });
+    const id = `${sp.entry.id ?? sp.entry.label}${r.kinds.length && !write ? `.${r.kinds.join('')}` : ''}`; // its parts in the device cache
+    out.push({ name: sp.entry.label, store, write, id });
   }
   return out;
 }

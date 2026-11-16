@@ -88,6 +88,9 @@ export function pointsOn(win, from, to, out = 0, step = 3) {
 export const pathThrough = (pts) => `M ${pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(' L ')}`;
 
 /** The whole outline as a closed SVG path (for the window and the greyed rest around it). */
+/** A picture of side s at (x, y) in the form of the window (16.11.): take, Similar, line and timeline all alike. */
+export const formPath = (shape, x, y, s) => outlinePath(windowOf(shape ?? 'circle', { cx: x + s / 2, cy: y + s / 2, F: s }));
+
 export function outlinePath(win) {
   if (win.shape === 'rrect') { // true elliptical arcs in the corners
     const { cx, cy, rx, ry, ax, ay } = win;

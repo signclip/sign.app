@@ -13,7 +13,7 @@
 //            while playing at most every animation frame.
 
 import { layout, toSvg } from './view/ring.js';
-import { outlinePath } from './view/shape.js';
+import { outlinePath, windowOf } from './view/shape.js';
 
 /** Fit a <video> into its square (the field, a small round template, or the whole screen). */
 function fit(video, box, full) {
@@ -45,7 +45,7 @@ export function mountScreen({ root, live, replay, template, pair = null, overlay
     if (live) live.style.visibility = view.hideLive ? 'hidden' : ''; // no picture (the visual strand off)
     fit(replay, view.video, false);
     const two = pair?.dataset.on && view.template; // Doppel of two takes (15.11.): side by side above, below stays free for the own take
-    if (two) { const b = view.template, half = { cx: b.cx - b.d / 4, cy: b.cy, d: b.d / 2 - 4, radius: 14 }; fit(template, half, false); fit(pair, { ...half, cx: b.cx + b.d / 4 }, false); pair.hidden = false; }
+    if (two) { const b = view.template, half = { cx: b.cx - b.d / 4, cy: b.cy, d: b.d / 2 - 4, radius: 14 }; const formed = (x) => ({ ...x, window: windowOf(view.window, { cx: x.cx, cy: x.cy, F: x.d }) }); fit(template, formed(half), false); fit(pair, formed({ ...half, cx: b.cx + b.d / 4 }), false); /* both in the form of the window (16.11.) */ pair.hidden = false; }
     else { fit(template, view.template, false); if (pair) pair.hidden = true; } // the small template, or in Similar · Doppel the reference window
     if (template) template.hidden = !view.template;
     const svg = toSvg(view, { w, h });

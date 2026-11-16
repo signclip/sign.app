@@ -13,6 +13,7 @@
 // Test:      tests/view.test.mjs
 // Limits:    0.12 px/ms (spread 0.3, scrub 0.8) on a 390 px phone; draws only what is within the screen.
 
+import { formPath } from './shape.js';
 import { chipW } from './chips.js';
 
 export const ZOOM = { play: 0.12, spread: 0.3, scrub: 0.8 };
@@ -22,9 +23,9 @@ export const ZOOM = { play: 0.12, spread: 0.3, scrub: 0.8 };
  * (t inside the element) · timeMs: "now" on the whole line · sub: play | spread | scrub · zoom (× px/ms, 0.25–8) · cx, y (picture
  * thread), k, w. → shapes
  */
-export function timelineShapes(items = [], { timeMs = 0, sub = 'play', zoom = 1, cx, y, k = 1, w = 390 }) {
+export function timelineShapes(items = [], { timeMs = 0, sub = 'play', zoom = 1, cx, y, k = 1, w = 390, shape }) {
   const t = {
-    k, y, w, timeMs,
+    k, y, w, timeMs, shape,
     px: (ZOOM[sub] ?? ZOOM.play) * k * zoom, // pixels per millisecond; zoom = two fingers side by side on the point (14.11.)
     X: (ms) => cx + (ms - timeMs) * t.px, // where a moment of the line is on the screen
     seen: (x, width = 0) => x + width >= 0 && x <= w, // draw only what is on the screen
@@ -53,7 +54,7 @@ function frames(t, item, start, tone) {
   const size = Math.min(28 * t.k, 500 * t.px - 4 * t.k);
   for (let ms = 0; ms < item.ms; ms += 500) {
     const x = t.X(start + ms);
-    if (t.seen(x, size)) t.out.push({ type: 'thumb', x, y: t.y - 14 * t.k, s: size, cls: `thumb ${tone}` });
+    if (t.seen(x, size)) t.out.push({ type: 'thumb', x, y: t.y - 14 * t.k, s: size, path: formPath(t.shape, x, t.y - 14 * t.k, size), id: `tf${t.out.length}`, cls: `thumb ${tone}` }); // the form of the window (16.11.)
   }
 }
 

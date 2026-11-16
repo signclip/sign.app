@@ -142,9 +142,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const stickyChips = () => sticky.map((text) => ({ text, stable: true }));
   const setChips = (current = data.chips.filter((c) => !c.stable)) => { data.chips = [...stickyChips(), ...current]; };
   setChips([]);
-  let sources = [{ name: 'own', store }];
+  let sources = [{ name: 'own', store, write: true }];
   const ownKeys = await deviceKeys().then((k) => ({ [device]: k.device.public }), () => ({})); // this device's z_: the index checks seals
-  const reindex = () => buildIndex(sources, { keys: ownKeys });
+  const reindex = () => buildIndex(sources, { keys: ownKeys, cache: store }); // parts of sharing points it only reads: index/<id>/ on the device
   let index = await reindex();
   /** The newest version of my newest take: what the chain gestures lay on after a restart. */
   const newestOwnChain = () => {
@@ -579,7 +579,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (!at) return;
     thumbs.set(key, await picOf(at).catch(() => null));
     data.thumbs = Object.fromEntries(thumbs);
+    data.tileWords = { ...(data.tileWords ?? {}), [key]: await wordsOf(key).catch(() => []) }; // the take's chips, small on its picture (16.11.)
     paint();
+  }
+  /** A tile's chips: a hello's name, or the first chips of the take's context (at most 3). */
+  async function wordsOf(key) {
+    if (key.startsWith('look:')) { const x = data.look?.[Number(key.slice(5))]; return x?.name ? [x.name] : []; }
+    if (key.startsWith('cmp:')) { const c = data.compare?.[Number(key.slice(4))]; return c?.name ? [c.name] : []; }
+    const chain = takeOf(key);
+    return chain ? readContext(await contextTextOf(chain)).gestures.flatMap((g) => g.chips.map((c) => c.text)).slice(0, 3) : [];
   }
   /** The elements of the line around the current one get their pictures too (±4, kept by path). */
   async function lineThumbs() {
@@ -596,7 +604,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     let url = URL.createObjectURL(blob);
     if (!at.path.endsWith('.png')) { // a video: draw its first frame
       const v = Object.assign(document.createElement('video'), { src: url, muted: true, playsInline: true, preload: 'auto' });
+      v.setAttribute('playsinline', ''); // 16.11.: Android's WebView and iOS give no frame before a seek – wait for the data, step to 0.1 s, draw when it is there
       await new Promise((done) => { v.onloadeddata = done; v.onerror = done; setTimeout(done, 3000); });
+      await new Promise((done) => { v.onseeked = done; setTimeout(done, 1500); try { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); } catch { done(); } });
       const c = Object.assign(document.createElement('canvas'), { width: 96, height: 96 });
       const s = Math.min(v.videoWidth, v.videoHeight);
       if (s) c.getContext('2d').drawImage(v, (v.videoWidth - s) / 2, (v.videoHeight - s) / 2, s, s, 0, 0, 96, 96);
@@ -907,13 +917,19 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   takeVisuals().then((all) => { data.line = { count: all.length, at: 0 }; return lineThumbs(); }).catch(() => {}); // the line is there from the start
   setTimeout(() => askAgain().catch(() => {}), 5000); // remove requests that could not go out before (the sharing points open first)
 
-  globalThis.visualViewport?.addEventListener('resize', () => { if (navigator.virtualKeyboard?.overlaysContent) return; data.viewH = globalThis.visualViewport.height - $('#screen').getBoundingClientRect().top; paint(); }); // the keyboard (iOS, web): what is typed stays above it (measured from the screen's top, under the notch)
-  if (navigator.virtualKeyboard) { // Android (16.11.): the keyboard lies over the page; its top edge says how much stays visible – everything moves up above it
+  let kbTop = null; // Android's keyboard edge (VirtualKeyboard API), if the WebView reports it
+  const keyboard = () => { // what stays visible above the keyboard, from the screen's top (16.11.): both sources, the smaller wins – a WebView that ignores overlaysContent still resizes visualViewport
+    const top = $('#screen').getBoundingClientRect().top, vv = globalThis.visualViewport;
+    const seen = [vv ? vv.height + vv.offsetTop - top : null, kbTop != null ? kbTop - top : null].filter((x) => x != null && x > 0);
+    data.viewH = seen.length ? Math.min(...seen) : null; paint();
+  };
+  globalThis.visualViewport?.addEventListener('resize', keyboard);
+  if (navigator.virtualKeyboard) {
     navigator.virtualKeyboard.overlaysContent = true;
-    navigator.virtualKeyboard.addEventListener('geometrychange', (e) => { const r = e.target.boundingRect; data.viewH = r.height > 0 ? r.y - $('#screen').getBoundingClientRect().top : null; paint(); });
+    navigator.virtualKeyboard.addEventListener('geometrychange', (e) => { const r = e.target.boundingRect; kbTop = r.height > 0 ? r.y : null; keyboard(); });
   }
   let wideAs = 0; // the screen's height without keyboard, per orientation
-  const measure = () => { const { w, h } = screen.size(); if (w !== wideAs) { wideAs = w; data.fullH = h; } else if (document.activeElement !== say) data.fullH = h; };
+  const measure = () => { const { w, h } = screen.size(); if (w !== wideAs) { wideAs = w; data.fullH = h; } else if (!document.activeElement?.matches?.('input, textarea, [contenteditable]')) data.fullH = h; }; // typing anywhere: the height without keyboard stays
   measure();
   addEventListener('resize', () => { measure(); paint(); });
 

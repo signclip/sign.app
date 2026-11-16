@@ -3,10 +3,12 @@
 //
 // Purpose:   the admin sees per account how many takes, chains and strands, and how much space — without
 //            reading anyone's files. atlas itself is the index over all sharing points (SCHEMA B6).
-// Depends:   a store per account (WebDAV on atlas's view of the share)
+// Depends:   a store per account (WebDAV on atlas's view of the share), index.js, parts.js
 // Test:      tests/connect.test.mjs
 // Limits:    one full listing per account per count (≈ 1 s per 1,000 files over WebDAV); counted at most
 //            once an hour; the summary ≈ 120 bytes per account, ≤ 500 accounts.
+
+import { buildIndex } from './index.js';
 
 export const SUMMARY = 'summary/accounts.json';
 export const EVERY_MS = 60 * 60 * 1000;
@@ -36,4 +38,15 @@ export async function summarize(shares, { now = Date.now() } = {}) {
 /** The summary as the admin reads it → Map(user → counts), or an empty map. */
 export function readSummary(text) {
   try { return new Map((JSON.parse(text).accounts ?? []).map((a) => [a.user, a])); } catch { return new Map(); }
+}
+
+/**
+ * atlas's index over every account (14.11.): the same index as on a device, read through the parts. An account's
+ * Sign/ is shared read only with atlas, so atlas keeps its parts in its own account under index/<user>/;
+ * parts the account's devices wrote into Sign/index/ are taken when fresh. keys: roots of trust (the door's
+ * signer); null = no checking. → Index (tables over all accounts; where a file lies: tables.sharingPoints).
+ * Limits: ~200–300 B per file in memory → 10⁵ Takes ≈ 150 MB; beyond ~10⁶ files SQLite (EXTEND S14).
+ */
+export function atlasIndex(shares, atlasStore, { keys = null } = {}) {
+  return buildIndex(shares.slice(0, 500).map((s) => ({ name: s.owner, store: s.store, id: s.owner })), { keys, cache: atlasStore });
 }

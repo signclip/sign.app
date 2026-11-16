@@ -66,6 +66,7 @@
     .chip rect { stroke: var(--b-next); stroke-width: 1.5; } .chip text { font: 500 14px Inter, system-ui, sans-serif; fill: #4A1B0C; }
     .chip.own rect, .chip.next rect { fill: var(--c-next); } .chip.now rect { fill: var(--c-now); stroke: var(--b-now); stroke-width: 2.5; } .chip.now text { font-weight: 600; }
     .chip.later rect { fill: var(--c-later); stroke: var(--b-later); stroke-width: 1; } .chip.head rect { fill: var(--c-now); stroke: var(--b-now); stroke-width: 2; } .chip.head text { font-weight: 600; } /* sticky and prefixes (16.11.): the colour of the take now; next and later paler; the edge tells the cluster */
+    .tag { pointer-events: none; } .tag rect { fill: var(--c-next); opacity: .9; stroke: var(--b-next); stroke-width: .8; } .tag text { font-family: Inter, system-ui, sans-serif; font-weight: 500; fill: #4A1B0C; } /* chips small on a Similar picture (16.11.) */
     .chip.wait rect { fill: none; stroke-dasharray: 5 4; } .wave-heard { fill: none; stroke: var(--c-head); stroke-width: 1; pointer-events: none; }
     .chip.typing, .chip.offer.name { animation: breathe 1.4s ease-in-out infinite; } /* the name at the start breathes: write another below (16.11.) */ /* being typed: there live, until Enter or the take */
     .cut-mark { stroke: var(--b-now); stroke-width: 4; stroke-linecap: round; stroke-dasharray: 6 5; pointer-events: none; } .join-mark { stroke: var(--b-now); stroke-width: 8; stroke-linecap: round; opacity: .6; pointer-events: none; } /* split / join a take (15.11.) */
