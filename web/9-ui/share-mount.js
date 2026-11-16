@@ -255,7 +255,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     draw();
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on) };
+  const ctx = { project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on), newPerson: () => onOwnHold() };
   // the admin's door and what Admin, Atlas, Groups do: their own files (15.11., share-door.js, share-accounts.js)
   const { refreshDoor, lookPile, pileList, adminStore } = doorPart(ctx, { panel, onLookAll });
   const { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, showGroups, groupTiles, addToGroup } = accountPart(ctx, { words, onLookAll, project });
@@ -459,7 +459,6 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (n) { s.flash = `sp:${n}`; draw(); setTimeout(() => { s.flash = null; draw(); }, 600); }
       return null;
     }
-    if (what === 'person' && a === 'new') return onOwnHold(); // the small + upper left: a new person on this device (16.11.)
     if (what === 'person' && a === globalThis.signPersons?.current()) return ctx.role === 'admin' ? lookPile('hello') : ctx.role === 'atlas' ? showIndex() : null; // my own account: what my role does
     if (what === 'person') { globalThis.signPersons?.switchTo(a); return location.reload(); } // another person on this device: in
     if (what === 'sp' && ctx.tileOf(Number(a))?.moved) return bringIn(ctx, ctx.tileOf(Number(a)).moved); // moved: a tap follows to the new sharing point
@@ -672,7 +671,26 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   const START = ['direct', 'record', 'choose']; // straight to the take as left · records at once · the persons to choose at start
   /** The project's own Nextcloud (its door's server), where the admin logs in. */
   const projectServer = () => { try { return new URL(project?.doors?.[0]?.read ?? project?.read).origin; } catch { return null; } };
+  /**
+   * 16.11. (user): a person shows upper left only once her hello went out whole – dashed while it waits, solid once she
+   * is taken in. Admin, Atlas, Groups: their login is the account, always solid. No door in project.json: always shown.
+   */
+  const personStates = new Map(); let statesAt = 0;
+  function refreshPersonStates() {
+    const P = globalThis.signPersons;
+    if (!P || !doorLabel || Date.now() - statesAt < 5000) return;
+    statesAt = Date.now();
+    Promise.all(P.persons().map(async (p) => [p.id, (await joins.getFor(doorLabel, p.id).catch(() => null))?.state ?? null]))
+      .then((list) => { let changed = false; for (const [id, st] of list) if (personStates.get(id) !== st) { personStates.set(id, st); changed = true; } if (changed) draw(); }, () => {});
+  }
+  const SHOWN = ['hello', 'ready', 'join', 'join-own', 'within'];
+  function withState(p) {
+    if (p.role || !doorLabel) return { ...p, joined: 'in' };
+    const st = p.id === globalThis.signPersons?.current() ? s.joinStates.get(doorLabel) ?? personStates.get(p.id) : personStates.get(p.id);
+    return SHOWN.includes(st) ? { ...p, joined: ['hello', 'ready'].includes(st) ? 'waiting' : 'in' } : null;
+  }
   function draw() {
+    refreshPersonStates();
     const { width: w, height: h } = panel.getBoundingClientRect();
     const browse = s.index ? indexTiles() : s.accounts ? accountTiles() : s.groupList ? groupTiles() : s.browse ? browseChips(ctx) : null;
     const incoming = s.incoming.map((x) => ({ label: x.groupFolder ? x.folder.split('/').pop() : x.share.name }));
@@ -683,7 +701,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       : s.hellos.length ? pilesOf({ hello: count('hello') }).slice(0, 1) : []; // a group's signer: its hellos
     s.piles = s.piles.map((p) => ({ ...p, n: s.adminN, label: p.count == null ? p.pile : `${p.pile} ${p.count}` }));
     const hellos = s.piles;
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, name: person.label, sent: s.sent ?? 0, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.index || s.accounts || s.groupList || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others(), self: (() => { const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current()); return me ? { ...me, label: me.label || person.label } : null; })(), accounts: logins(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates, leaving: s.leaving ?? new Set(), sending: s.sending ?? null }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, name: person.label, sent: s.sent ?? 0, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.index || s.accounts || s.groupList || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others().map(withState).filter(Boolean), self: (() => { const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current()); return me ? withState({ ...me, label: me.label || person.label }) : null; })(), accounts: logins(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates, leaving: s.leaving ?? new Set(), sending: s.sending ?? null }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();

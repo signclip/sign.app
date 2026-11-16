@@ -171,12 +171,11 @@ export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [],
       const f = (d + 1) / 14;
       add('circle', { cx: me.cx + (group.cx - me.cx) * f, cy: me.cy + (group.cy - me.cy) * f, r: 3.5 * k, cls: `file-dot${d === sent - 1 ? ' walking' : ''}` });
     }
-    const said = state === 'hello' || state === 'join' || state === 'join-own'; // after hello: hello stays, highlighted, with the name in the tile; the door's name (Sign) under it
+    const said = state === 'hello' || state === 'join' || state === 'join-own'; // after hello: hello stays, highlighted (16.11.: no name in the tile)
     const confirmed = state === 'join' || state === 'join-own'; // 16.11.: a solid edge only once the join came; before (hello sent, waiting) dashed
     const { cx: gx, cy: gy } = tile(i, `sp:${t.n}`, `sp join-group${going ? ' sending' : state === 'door' || state === 'ready' ? ' door breathe' : state === 'hello' ? ' said' : ''}${confirmed ? ' confirmed' : ''}${grow(3)}`, said || going ? null : state === 'door' ? 'hello' : state === 'ready' ? 'join' : t.label);
     if (said || going) { // inside the tile: my name, and hello (or join once it came)
-      if (name) add('label', { x: gx, y: gy - 4 * k, text: fitIn(name), cls: 'label tile-name' });
-      add('label', { x: gx, y: gy + 14 * k, text: confirmed ? 'join' : 'hello', cls: `label tile-word${said ? ' done' : ''}` });
+      add('label', { x: gx, y: gy + 5 * k, text: confirmed ? 'join' : 'hello', cls: `label tile-word${said ? ' done' : ''}` });
     }
     if (state === 'join' || state === 'join-own') {
       const mine = grid(i + 1, { w, k, y0 });
@@ -204,7 +203,7 @@ export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [],
   // 16.11.: the accounts kept on this device first (each login once, its initial inside), then the other persons
   const one = (role, p, i, extra = '') => {
     const c = { cx: 30 * k + i * 34 * k, cy: top + 20 * k, r: 13 * k }; // above the tiles, beside the handle
-    const cls = `sp person round${extra}${p.role ? ` role-${p.role}` : ''}${shake === role ? ' shake' : ''}`;
+    const cls = `sp person round${extra}${p.role ? ` role-${p.role}` : ''}${p.joined === 'waiting' ? ' waiting' : ''}${shake === role ? ' shake' : ''}`; // waiting: hello sent, dashed edge · in: solid (16.11.)
     if (p.role === 'admin') add('sheet', { x: c.cx - c.r, y: c.cy - c.r, w: 2 * c.r, h: 2 * c.r, r: 5 * k, cls, role });
     else add('circle', { ...c, cls, role });
     if (p.role === 'atlas') add('line', { x1: c.cx - c.r, y1: c.cy, x2: c.cx + c.r, y2: c.cy, cls: 'glyph account-equator' });
@@ -223,7 +222,7 @@ export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [],
   persons.forEach((p, j) => {
     const i = lead + accounts.length + j;
     const c = { cx: 30 * k + i * 34 * k, cy: top + 20 * k, r: 13 * k }; // above the tiles, beside the handle
-    const cls = `sp person round${p.role ? ` role-${p.role}` : ''}${choosing ? ' breathe' : ''}${shake === `person:${p.id}` ? ' shake' : ''}${fresh.has(`person:${p.id}`) ? ' appear a0' : ''}`;
+    const cls = `sp person round${p.role ? ` role-${p.role}` : ''}${p.joined === 'waiting' ? ' waiting' : ''}${choosing ? ' breathe' : ''}${shake === `person:${p.id}` ? ' shake' : ''}${fresh.has(`person:${p.id}`) ? ' appear a0' : ''}`;
     if (p.role === 'admin') add('sheet', { x: c.cx - c.r, y: c.cy - c.r, w: 2 * c.r, h: 2 * c.r, r: 5 * k, cls, role: `person:${p.id}` });
     else add('circle', { ...c, cls, role: `person:${p.id}` });
     if (p.role === 'atlas') add('line', { x1: c.cx - c.r, y1: c.cy, x2: c.cx + c.r, y2: c.cy, cls: 'glyph account-equator' });
@@ -234,12 +233,6 @@ export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [],
     if (p.start === 'record') add('circle', { cx: c.cx, cy: c.cy, r: 16 * k, cls: 'person-record' });
     at.set(`person:${p.id}`, c);
   });
-  { // + person (16.11.): a new account on this device – her name, name sign, password gestures, hello follow
-    const c = { cx: 30 * k + (lead + accounts.length + persons.length) * 34 * k, cy: top + 20 * k, r: 11 * k };
-    add('circle', { ...c, cls: `sp add-person round${shake === 'person:new' ? ' shake' : ''}`, role: 'person:new' });
-    glyphPlus(c, k * 0.5, add);
-    at.set('person:new', c);
-  }
   // + (14.11.): no tile any more, a small round button in the sheet's upper right corner; faint copy sign = copy a link first
   const ghost = clip !== 'ready' && !waitSecret;
   const plus = { cx: w - 30 * k, cy: top + 20 * k, r: 14 * k }; // above the tiles, beside the handle

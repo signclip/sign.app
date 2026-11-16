@@ -76,9 +76,7 @@ export async function addNew(ctx) {
   let text = '';
   try { text = (await clipboard()) ?? ''; } catch { /* no permission: then a folder */ }
   if (usable(ctx.s, text)) return bringIn(ctx);
-  ctx.s.clip = 'ghost'; ctx.s.shake = 'add:new'; ctx.draw(); // nothing usable: the copy sign shakes, no words
-  setTimeout(() => { ctx.s.shake = null; ctx.draw(); }, 400);
-  return null;
+  return ctx.newPerson?.() ?? null; // 16.11. (user): nothing fitting on the clipboard = a new account (person) on this device: name, name sign, password gestures, hello
 }
 
 /** ← paste. ctx: { s, keychain, edit, load, say, t } (share-mount.js). */

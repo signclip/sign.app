@@ -148,7 +148,7 @@
     .badge.sealed { fill: var(--sc-stroke); stroke: var(--sc-stroke); stroke-dasharray: none; } .badge.unsealed { fill: none; stroke: var(--rc-stroke); stroke-width: 2.5; stroke-dasharray: 2 2; }
     .view-only { fill: none; stroke: var(--sc-stroke); stroke-width: 1.2; stroke-dasharray: 3 3; pointer-events: none; }
     .chevron { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; } .chevron.own { stroke: var(--rc-stroke); opacity: .7; } .chevron.backup { stroke: var(--rc-stroke); opacity: .9; }
-    .join-line { fill: none; stroke: var(--sc-stroke); stroke-width: 3; } .join-line.hello { stroke-dasharray: 2 6; stroke-linecap: round; } .join-line.own { stroke: var(--rc-stroke); }
+    .join-line { fill: none; stroke: var(--sc-stroke); stroke-width: 3; } .join-line.hello { stroke-dasharray: 2 6; stroke-linecap: round; animation: sending 1.2s linear infinite; } /* 16.11.: waiting for join, the dots keep walking */ .join-line.own { stroke: var(--rc-stroke); }
     .join-me, .join-own { fill: var(--rc); stroke: var(--rc-stroke); stroke-width: 1.5; } .join-group { fill: var(--sc); stroke: var(--sc-stroke); stroke-width: 1.5; }
     .join-group.waiting, .join-own.waiting { fill: none; stroke-dasharray: 3 3; }
     .badge.ran { fill: var(--hold); stroke: var(--hold); stroke-dasharray: none; } .badge.failed { fill: none; stroke: var(--rc-stroke); stroke-dasharray: none; stroke-width: 2.5; }
@@ -162,7 +162,7 @@
     .sp.incoming { fill: none; stroke: var(--sc-stroke); stroke-width: 2.5; stroke-dasharray: 6 4; } .sp.incoming.there { fill: var(--sc); fill-opacity: .4; }
     .glyph { fill: none; stroke: var(--mut); stroke-width: 1.5; pointer-events: none; }
     .strand.mini { stroke-width: 5; stroke-linecap: round; }
-    .sp.add-person { fill: none; stroke: var(--b-next); stroke-width: 1.5; stroke-dasharray: 3 3; } .sp.self { stroke-width: 3; } .bridge.self { stroke: var(--b-now); stroke-width: 2; } /* 16.11.: the current person first, a line to her device tile; + = a new person */
+    .sp.person.waiting { stroke-dasharray: 3 3; } .sp.self { stroke-width: 3; } .bridge.self { stroke: var(--b-now); stroke-width: 2; } /* 16.11.: the current person first, a line to her device tile; + = a new person */
     .hit { fill: none; stroke: transparent; stroke-width: 22; } .hit.wide { stroke-width: 52; }
     .bridge { fill: none; stroke: var(--rc-stroke); stroke-width: 6; opacity: .35; } .bridge.give { stroke: var(--sc-stroke); stroke-width: 3; opacity: .8; stroke-dasharray: 1 7; stroke-linecap: round; } .chevron.give { stroke: var(--sc-stroke); } .bridge.new { stroke-dasharray: 10 7; } .bridge.all { opacity: .55; } .encrypted-edge { fill: none; stroke: var(--video); stroke-width: 2.5; pointer-events: none; } /* 16.11.: solid = everything over there · dashed = a part, new goes in · dark inner edge = encrypted */
     .label { font: 500 12px Inter, system-ui, sans-serif; fill: var(--fg); pointer-events: none; }
