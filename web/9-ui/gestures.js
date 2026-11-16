@@ -101,7 +101,7 @@ export const TABLE = [
   ['reference-next', 'left', 'reference', 'any', 'the next result comes from the right'],
   ['reference-before', 'right', 'reference', 'any', 'the result before comes from the left'],
   ['look-up', 'up', 'reference', 'any', 'admin, a pile in Doppel: on a pile (hello → join → within, quiet → within)'],
-  ['look-down', 'down', 'reference', 'any', 'admin, a pile in Doppel: back a pile (hello → quiet, join → hello anew, within → quiet)'],
+  ['look-down', 'down', 'reference', 'any', 'admin, a pile in Doppel: back a pile (hello → quiet, join → hello anew; within: the sharing menu opens, a tap on quiet = account off)'],
   // the line in its arc over the point, the chain under it (view/arc.js): opened and closed by the scale
   ['line-zoom', 'pinch', 'line-arc', 'any', 'two fingers on the line: the takes apart (bigger) / together (smaller), continuous'],
   ['line-zoom', 'pinch', 'item', 'any', 'the same, starting on a take of the line'],

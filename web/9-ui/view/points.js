@@ -191,7 +191,7 @@ export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [],
     at.set(`hello:${i}`, { cx, cy, r: 26 * k });
     if (x.n != null && slot.has(x.n)) shapes.splice(1 + shapes.findIndex((s) => s.role === 'sheet' && s.type === 'line'), 0,
       { type: 'path', d: `M ${centre(x.n).cx} ${centre(x.n).cy} L ${cx} ${cy}`, cls: 'join-line hello' }); // under the tiles
-    add('circle', { cx, cy, r: 26 * k, cls: `hello${x.faint ? ' faint' : ''}${shake === `hello:${i}` ? ' shake' : ''}`, role: `hello:${i}` }); // a pile: always there, 0 = faint, a tap on 0 shakes (15.11.)
+    add('circle', { cx, cy, r: 26 * k, cls: `hello${x.faint ? ' faint' : ''}${shake === `hello:${i}` ? ' shake' : ''}${pulse === `hello:${i}` ? ' breathe' : ''}`, role: `hello:${i}` }); // breathes: carrying a person there (16.11.) // a pile: always there, 0 = faint, a tap on 0 shakes (15.11.)
     if (!x.faint) add('circle', { cx: cx + 10 * k, cy: cy - 10 * k, r: 8 * k, cls: 'hello-dot' });
     add('label', { x: cx, y: cy + 44 * k, text: x.label, cls: 'label' });
   });

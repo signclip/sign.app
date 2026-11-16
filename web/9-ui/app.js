@@ -73,7 +73,8 @@ import { hintOf, progress, done, NAME_SIGN_STEP, GESTURE_STEPS, STEPS } from './
 import { drawWords } from '../1-model/words.js';
 import { installDavFetch } from '../2-storage/dav-fetch.js';
 installDavFetch(); // native app: PROPFIND, MKCOL, MOVE through the app's own plugin (Android refuses them otherwise)
-import { installDebug } from './debug.js';
+import { installDebug, note as debugNote } from './debug.js';
+import { firstFrame } from './frame.js';
 import { createWhere } from '../5-take/where.js';
 
 const here = createWhere(); // o_ of each take: H3 cell, resolution 5
@@ -600,19 +601,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   /** A small picture of a picture or video file (the first frame, 96 px), once per path. */
   async function picOf(at) {
     if (pics.has(at.path)) return pics.get(at.path);
-    const blob = new Blob([await at.store.read(at.path)], { type: at.path.endsWith('.png') ? 'image/png' : 'video/mp4' });
-    let url = URL.createObjectURL(blob);
-    if (!at.path.endsWith('.png')) { // a video: draw its first frame
-      const v = Object.assign(document.createElement('video'), { src: url, muted: true, playsInline: true, preload: 'auto' });
-      v.setAttribute('playsinline', ''); // 16.11.: Android's WebView and iOS give no frame before a seek – wait for the data, step to 0.1 s, draw when it is there
-      await new Promise((done) => { v.onloadeddata = done; v.onerror = done; setTimeout(done, 3000); });
-      await new Promise((done) => { v.onseeked = done; setTimeout(done, 1500); try { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); } catch { done(); } });
-      const c = Object.assign(document.createElement('canvas'), { width: 96, height: 96 });
-      const s = Math.min(v.videoWidth, v.videoHeight);
-      if (s) c.getContext('2d').drawImage(v, (v.videoWidth - s) / 2, (v.videoHeight - s) / 2, s, s, 0, 0, 96, 96);
-      URL.revokeObjectURL(url);
-      url = s ? c.toDataURL('image/jpeg', 0.8) : null;
-    }
+    let bytes;
+    try { bytes = await at.store.read(at.path); } catch (err) { debugNote({ method: 'frame', where: at.path, error: `read: ${err?.message ?? err}`, ms: 0 }); throw err; }
+    const png = at.path.endsWith('.png');
+    const blob = new Blob([bytes], { type: png ? 'image/png' : 'video/mp4' });
+    const url = png ? URL.createObjectURL(blob) : await firstFrame(blob, { path: at.path }); // a video: its first frame (frame.js)
     pics.set(at.path, url);
     return url;
   }
@@ -645,8 +638,13 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
   /** Admin, in Doppel: move the person this take belongs to one pile on (up) or back (down); her takes leave, the next one shows. */
   async function decide(how) {
-    const at = data.look?.[data.lookAt ?? data.doubleAt];
+    const at = data.look?.[data.lookAt ?? data.doubleAt ?? (data.look?.length === 1 ? 0 : -1)]; // one person only: no tap needed first
     if (!at?.[how]) return null;
+    if (at.pile === 'within' && how === 'down') { // 16.11. (user): ↓ in within = the sharing menu opens, quiet breathes, a tap on it = quiet (account off)
+      navigator.vibrate?.(12);
+      await closeSimilar();
+      return menu.carry('quiet', () => at.down());
+    }
     navigator.vibrate?.(how === 'up' ? 20 : [12, 50, 12]); // felt at once: on = one pulse, back = two
     let r;
     try { r = await at[how](how === 'down' ? data.deleteChoices ?? {} : undefined); } catch { navigator.vibrate?.([40, 40, 40]); return null; } // not reachable: it stays, three pulses
@@ -675,7 +673,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   };
   /** Similar · viele (16.11.): the cloud flies in from the upper right to where it last was (≈ 0.3 s); the take stays. */
   async function openMany() {
-    data.reveal = 0;
+    data.reveal = 0; data.cloud = null; // it opens full every time (16.11.)
     step('similar-in');
     showSimilar(true);
     await animate('reveal', 0, 1);
@@ -687,6 +685,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     step('similar-out');
     data.words = [];
     data.double = null; // Doppel ends with Similar
+    if (data.ownLine) { ({ line: data.line, lineThumbs: data.lineThumbs } = data.ownLine); delete data.ownLine; } // my line back
     if (data.look) { delete data.look; data.lookAt = null; data.compare = null; $('#template').removeAttribute('src'); pairOff(); const r = $('#replay'); r.onended = null; r.pause(); r.hidden = take.replayAt < 0; } // a hello looked at: done, the take window live again
     delete data.reveal;
     $('#template').removeAttribute('src');
@@ -734,6 +733,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     data.compare = known ? (await accountTakes(x.from, x.known).catch(() => [])).map((path) => ({ path, from: x.from })) : null;
     for (const k of [...thumbs.keys()]) if (k.startsWith('cmp:')) thumbs.delete(k);
     data.double = known && data.compare.length ? 'cmp:0' : null; // without an original Similar stays as the hellos
+    data.ownLine ??= { line: data.line, lineThumbs: data.lineThumbs }; // 16.11.: her pieces slide into the line; Similar closed = my line again
+    data.line = { count: x.pieces.length, at: 0 }; data.lineThumbs = {};
+    x.pieces.forEach((p, n) => picOf({ store: p.from, path: p.path }).then((url) => { if (data.look?.[i] === x) { data.lineThumbs = { ...data.lineThumbs, [n]: url }; paint(); } }, () => {}));
     showSimilar(true);
     let j = 0;
     const go = async () => {
@@ -745,7 +747,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         t.src = URL.createObjectURL(new Blob([await p.from.read(p.pair)], { type: 'video/mp4' })); t.loop = true; t.muted = true; delete t.dataset.picture; t.poster = ''; t.play().catch(() => {});
         data.double = `cmp:${at}`;
       }
-      data.pieceAt = j % x.pieces.length;
+      data.pieceAt = j % x.pieces.length; data.line = { ...data.line, at: data.pieceAt };
       paint();
     };
     v.onended = () => { j++; go(); };
@@ -1218,7 +1220,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (role === 'live') return zoomBy(camera, factor);
       if (st.similar && !data.double && (role === 'similar-band' || role?.startsWith('similar:'))) { // the cloud (16.11.): bigger / smaller, and along with the fingers
         const c = data.cloud ?? cloudHome(screen.size()), at = how.at ?? how.mid ?? { x: c.x, y: c.y }, last = cloudAt ?? at;
-        data.cloud = { x: c.x + at.x - last.x, y: c.y + at.y - last.y, s: Math.max(CLOUD[0], Math.min(CLOUD[1], c.s * factor)) };
+        data.cloud = { x: c.x + at.x - last.x, y: c.y + at.y - last.y, s: Math.max(CLOUD[0], Math.min(1, c.s * factor)) }; // full = it fills the part above the take (16.11.)
         cloudAt = at;
         return paint();
       }

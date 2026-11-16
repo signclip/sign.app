@@ -317,18 +317,18 @@ export const cloudHome = ({ w, h }) => ({ x: w * 0.68, y: h * 0.2, s: 1 });
  * moved while pinching, somewhere else. tap = Doppel · a result onto the point = into the line · the cloud onto the
  * point = all onto the chain.
  */
-function cloudTiles({ data, w, h, k, add }, box) {
+function cloudTiles({ data, k, add }, box) {
   const keys = data.similar ?? [];
-  const home = data.cloud ?? cloudHome({ w, h }), r = data.reveal ?? 1;
-  const s = Math.max(CLOUD[0], Math.min(CLOUD[1], home.s)) * (0.3 + 0.7 * r);
-  const n = Math.max(1, Math.min(keys.length, MANY, Math.round(12 * s * s)));
-  let base = 54 * k * Math.sqrt(s), step = (base + 4 * k) / 1.8; // neighbours in a sunflower lie ≈ 1.8 steps apart: 4 px between tiles
-  let R = step * Math.sqrt(n + 0.5) + base / 2 + 6 * k;
-  const fit = Math.min(1, Math.max(0, Math.min(box.x1 - box.x0, box.y1 - box.y0)) / 2 / R); // it stays in the free part (16.11.): above the take, or beside it
-  [base, step, R] = [base * fit, step * fit, R * fit];
-  const clamp = (v, a, b) => (a > b ? (a + b) / 2 : Math.max(a, Math.min(b, v)));
-  const hx = clamp(home.x, box.x0 + R, box.x1 - R), hy = clamp(home.y, box.y0 + R, box.y1 - R);
-  const cx = w + 80 * k + (hx - w - 80 * k) * r, cy = -80 * k + (hy + 80 * k) * r; // from beyond the upper right corner
+  const r = data.reveal ?? 1, s = Math.max(CLOUD[0], Math.min(1, data.cloud?.s ?? 1)); // 16.11. (user): it fills the free part from the top edge down to the take; a pinch makes it only smaller
+  const n = Math.max(1, Math.min(keys.length, MANY)), q = Math.sqrt(n + 0.5);
+  const bw = Math.max(0, box.x1 - box.x0), bh = Math.max(0, box.y1 - box.y0);
+  const fill = (Math.min(bw, bh) / 2) * s; // the radius that fills the part
+  let base = Math.max(8 * k, (fill - 6 * k - (4 * k * q) / 1.8) / (q / 1.8 + 0.5));
+  base = Math.min(base, 140 * k); // few results: big pictures, not giant ones
+  const step = (base + 4 * k) / 1.8; // neighbours in a sunflower lie ≈ 1.8 steps apart: 4 px between tiles
+  const R = step * q + base / 2 + 6 * k;
+  const hx = (box.x0 + box.x1) / 2, hy = (box.y0 + box.y1) / 2; // the middle of the free part
+  const cx = hx, cy = hy - (hy - box.y0 + R) * (1 - r); // it slides down from the top edge (reveal 0 → 1)
   add('sheet', { x: cx - R, y: cy - R, w: 2 * R, h: 2 * R, r: R, cls: 'similar-band cloud', role: 'similar-band' });
   keys.slice(0, n).forEach((key, i) => {
     const d = step * Math.sqrt(i + 0.5), a = i * 2.39996; // golden angle: no two in a line; + 0.5 keeps the first two apart

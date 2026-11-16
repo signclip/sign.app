@@ -527,6 +527,10 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (what === 'app') { const app = rowApps()[Number(a)]; if (!app) return null; if (!app.glyph) usedApp(app); return outside(app); } // one app of the row: straight there
     if (what === 'browse') { const x = (s.index ? indexTiles() : s.accounts ? accountTiles() : s.groupList ? groupTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.look ? x.look() : null; } // an account: tap = look at it
     if (what === 'incoming') { const x = s.incoming[Number(a)]; return x?.groupFolder ? takeGroupFolder(x) : acceptWaiting(ctx, x); } // a group folder: one tap = in my menu, like join
+    if (what === 'hello' && s.carry && s.piles?.[Number(a)]?.pile === s.carry.to) { // a person carried here (within ↓ → quiet, 16.11.): the tap moves her
+      const { go } = s.carry; s.carry = null; s.pulse = null; draw();
+      return go().then(() => { navigator.vibrate?.(20); return refreshDoor(); }, () => { navigator.vibrate?.([40, 40, 40]); say(t('notReachable')); });
+    }
     if (what === 'hello') return lookPile(s.piles?.[Number(a)]?.pile); // tap = this pile as Similar tiles (15.11.)
     if (what === 'accept-there') {
       const { url } = s.acceptThere;
@@ -837,7 +841,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   setTimeout(() => resumeLogin(ctx).catch(() => {}), 1500); // a login left open when Android closed the app: it goes on
   function show(on) {
     panel.hidden = !on;
-    if (!on) s.pending = null; // closed: nothing prepared waits
+    if (!on) { s.pending = null; if (s.carry) { s.carry = null; s.pulse = null; } } // closed: nothing prepared waits, nobody carried
     if (on) { s.appear = true; draw(); look(); loadApps().catch(() => {}); }
   }
   /** One step back (Android back, → in the accounts): an account → the accounts → closed. → true if it stepped */
@@ -853,6 +857,13 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   return {
     show,
     back,
+    /** Admin (16.11.): a person to move by hand – the sharing menu opens, the target pile breathes, a tap on it moves her. */
+    carry(to, go) {
+      s.carry = { to, go };
+      show(true);
+      s.pulse = `hello:${s.piles?.findIndex((p) => p.pile === to) ?? -1}`;
+      return draw();
+    },
     /** Start 'choose' (14.11.): the persons of this device breathe, tap = in. */
     choose: () => { s.choosing = true; show(true); },
     async afterTake(paths) {

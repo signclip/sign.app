@@ -52,7 +52,7 @@ export function doorPart(ctx, { panel, onLookAll }) {
         if (!from) continue;
         const sign = (await withHello(from, x.path).catch(() => [])).find((p) => p.endsWith('.v.mp4')); // its new name sign take
         if (!sign) continue;
-        items.push({ path: sign, pair: first ?? null, from, group: x.path, name: x.name ?? null,
+        items.push({ path: sign, pair: first ?? null, from, group: x.path, pile: 'hello', name: x.name ?? null,
           up: () => adoptRename(from, x).then(() => setDisplayName(ctx.admin, x.account, x.name).catch(() => {})).then(again),
           down: () => declineRename(from, x).then(again) });
         continue;
@@ -74,7 +74,7 @@ export function doorPart(ctx, { panel, onLookAll }) {
       const wrap = (f) => f && ((...a) => f(...a).then((r) => (r === 'wait' ? r : again().then(() => r))));
       const seen = x.helloPath ? await helloTakes(from, x).catch(() => ({ takes: [], folder: null })) : null; // known: by her person ID first, else by name
       const takes = seen ? seen.takes : [...(await firstPieces(from, x.folder).catch(() => new Map())).values()].map((path) => ({ path }));
-      for (const t of takes) items.push({ ...t, from, group, name: x.name ?? null, known: seen?.folder ?? null, up: wrap(steps.up), down: wrap(steps.down) }); // known: the account folder in within/ to compare with
+      for (const t of takes) items.push({ ...t, from, group, pile: name, name: x.name ?? null, known: seen?.folder ?? null, up: wrap(steps.up), down: wrap(steps.down) }); // known: the account folder in within/ to compare with
     }
     if (items.length) return onLookAll(items);
     s.shake = `hello:${s.piles?.findIndex((p) => p.pile === name)}`; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); // empty: it shakes, the count says 0
