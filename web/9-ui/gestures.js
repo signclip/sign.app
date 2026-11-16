@@ -86,9 +86,9 @@ export const TABLE = [
   ['share-in', 'edge-in', 'middle-right', 'any', 'pull the sharing points in'],
   ['share-out', 'edge-out', 'middle-right', 'any', 'push them off'],
   // the scale: Similar lies outside, like far planets
-  ['similar-nearer', 'spread', 'top-zone', 'any', 'spread over the free part above the take: Similar comes nearer (closed → half → full) – the only way it appears (16.11.: no edge, no pull)'],
+  ['similar-nearer', 'spread', 'top-zone', 'any', 'spread over the free part above the take: Similar slides down from the top edge and fills the part above the take, the take moves down – the only way it appears (16.11.)'],
   ['similar-nearer', 'spread', 'similar-band', 'any', 'spread over the cloud: bigger, more results; moved while pinching = it moves (16.11.)'],
-  ['similar-farther', 'squeeze', 'similar-band', 'any', 'squeeze the cloud: smaller; small enough = it flies away to the upper right (16.11.: the only way to close it, besides Back)'],
+  ['similar-farther', 'squeeze', 'similar-band', 'any', 'squeeze the cloud: smaller; small enough = it goes back up (16.11.: the only way to close it, besides Back); with a line of a hello open: first back to all hellos'],
   ['similar-farther', 'squeeze', 'top-zone', 'any', 'squeeze above the take: Similar goes'],
   ['similar-all', 'drag', 'similar-band>point', 'any', 'all of Similar onto the chain: the tiles fly into the line one after another'],
   ['take-over', 'tap', 'similar-item', 'any', 'Similar · Doppel: this result above in the same window, the live picture below'],
@@ -98,8 +98,8 @@ export const TABLE = [
   ['reference-out', 'squeeze', 'reference', 'any', 'farther: back to Similar · viele'],
   ['reference-next', 'left', 'reference', 'any', 'the next result comes from the right'],
   ['reference-before', 'right', 'reference', 'any', 'the result before comes from the left'],
-  ['look-up', 'up', 'reference', 'any', 'admin, a pile in Doppel: on a pile (hello → join → within, quiet → within)'],
-  ['look-down', 'down', 'reference', 'any', 'admin, a pile in Doppel: back a pile (hello → quiet, join → hello anew; within: the sharing menu opens, a tap on quiet = account off)'],
+  ['look-up', 'up', 'reference', 'any', 'admin, a person opened from a pile: on (hello → join → within, quiet → within); ↑ anywhere on her line works the same (16.11.)'],
+  ['look-down', 'down', 'reference', 'any', 'admin: back (hello → quiet, join → hello anew; within: the sharing menu opens, a tap on quiet = account off); ↓ anywhere on her line the same (16.11.)'],
   // the line in its arc over the point, the chain under it (view/arc.js): opened and closed by the scale
   ['line-choose', 'tap', 'line-arc', 'any', 'tap on the line (between its takes): chosen, outlined – now ↑ on the point = the context just recorded onto every take of the line, ↓ = that context out of all of them; then it is unchosen (16.11.)'],
   ['line-go', 'tap', 'item', 'any', 'tap on a take of the line: it slides into the point and plays (16.11.)'],
@@ -117,7 +117,7 @@ export const TABLE = [
   ['after', 'drag', 'item>line-arc', 'any', 'onto the line: one after another, a new line on top'],
   ['together', 'drag', 'item>point', 'any', 'onto the point: at the same time, a new line on top'],
   ['add-to', 'hold', 'item', 'any', 'record more strands to this element (missing picture, a new version …)'],
-  ['next', 'left', 'item', 'any', 'next (later); on hello: go on to join'],
+  ['next', 'left', 'item', 'any', 'next (later): anywhere on the line as on the point; an opened line (a hello) only through its own elements (16.11.)'],
   ['before', 'right', 'item', 'any', 'before'],
   // a chip
   ['chip-on-off', 'tap', 'chip', 'any', 'what is written in the take always searches in Similar (context first, sound and picture later); a tap takes this word out of the search / in again (16.11.)'],

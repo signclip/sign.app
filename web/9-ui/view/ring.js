@@ -265,7 +265,8 @@ function chipArea({ st, data, cx, win, k, cw, F, shapes, fieldY, deep }, point, 
   const theirs = ref ? offers.filter((o) => o.origin === 'similar') : [];
   const mine = [...(data.chips ?? []), ...offers.filter((o) => !theirs.includes(o))];
   const held = st.hold?.target === 'chip' ? st.hold.text : null;
-  const mark = (s) => (held && s.role && s.role.split(':').pop() === held ? { ...s, cls: `${s.cls} hold` } : s); // the held context, as property
+  const off = new Set(data.wordsOff ?? []); // 16.11.: tapped out of the search for Similar – pale
+  const mark = (s) => { const w = s.role?.startsWith('chip:') ? s.role.slice(5) : null; const x = off.has(w) ? { ...s, cls: `${s.cls} unsearched` } : s; return held && s.role && s.role.split(':').pop() === held ? { ...x, cls: `${x.cls} hold` } : x; }; // the held context, as property
   if (theirs.length) shapes.push(...chipShapes(theirs, { cx: ref.cx, y: onShape(ref.window, 180, 0)[1] - 10 * k - rowHeight(theirs, k) / 2, k, w: ref.d * 0.8 }));
   if (!open && look(st, 'x') === 'off') return; // context off: no chips; on: they show, empty = one dashed chip (15.11.)
   const heard = mine.filter((g) => g.heard);
