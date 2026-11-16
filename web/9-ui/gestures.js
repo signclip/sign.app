@@ -51,7 +51,7 @@ export const TABLE = [
   ['take', 'tap', 'point', 'any', 'all switched-on strands start; during a take pause / go on (saved by ← → ↑ on the point) · in the line: play / pause that take (16.11.)'],
   ['take-while-held', 'hold', 'point', 'any', 'all switched-on strands record while held; in the line: live at once, then it records (16.11.)'],
   ['ready', 'double-tap', 'point', 'any', 'always ready on / off: starts on motion or sound, stops after the wait'],
-  ['waits', 'pinch', 'point', 'any', 'two fingers on the point: across = in the line the button widens to the golden section (slide = search the moment, the middle is now; pulled on past it = cut there), else into the time · up-down = the waits longer / shorter (16.11.)'],
+  ['waits', 'pinch', 'point', 'any', 'two fingers on the point: across = into the take\'s time (wider / narrower) · up-down = the waits longer / shorter (rings show them) (15.11.)'],
   ['share-last', 'up-out', 'point', 'any', 'out over the upper edge: the sharing points as circles, tap = share there'],
   ['aside-last', 'down', 'point', 'any', 'set the last take aside (it stays, dashed)'],
   ['remove-last', 'down-out', 'point', 'any', 'out over the lower edge: delete, chips take · strand · part, then share-first · out of similar · out of training'],
@@ -103,8 +103,6 @@ export const TABLE = [
   ['look-up', 'up', 'reference', 'any', 'admin, a pile in Doppel: on a pile (hello → join → within, quiet → within)'],
   ['look-down', 'down', 'reference', 'any', 'admin, a pile in Doppel: back a pile (hello → quiet, join → hello anew; within: the sharing menu opens, a tap on quiet = account off)'],
   // the line in its arc over the point, the chain under it (view/arc.js): opened and closed by the scale
-  ['line-choose', 'tap', 'line-arc', 'any', 'tap on the line: chosen, outlined – now ↑ on the point = the context just recorded onto every take of the line, ↓ = that context out of all of them; then it is unchosen (16.11.)'],
-  ['line-choose', 'tap', 'item', 'any', 'the same, tapping a take of the line'],
   ['line-zoom', 'pinch', 'line-arc', 'any', 'two fingers on the line: the takes apart (bigger) / together (smaller), continuous'],
   ['line-zoom', 'pinch', 'item', 'any', 'the same, starting on a take of the line'],
   ['straighten', 'spread', 'line-arc', 'any', 'spread further when the takes are as far apart as they go: the take opens as its timeline; spread on there = cut at the point (16.11.)'],

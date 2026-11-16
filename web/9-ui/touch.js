@@ -125,7 +125,7 @@ export function bind(el, h) {
         }
       }
     }
-    const rowSlide = /^(app:|out:system|row-area|point-wide)/.test(String(t.role)) && (t.slid || Math.abs(e.clientX - t.x) > 10); // the share row slides
+    const rowSlide = /^(app:|out:system|row-area)/.test(String(t.role)) && (t.slid || Math.abs(e.clientX - t.x) > 10); // the share row slides
     if (rowSlide) {
       clearTimeout(t.timer);
       h.slide?.(t.role, e.clientX - (t.lx ?? t.x), e.clientY - (t.ly ?? t.y));

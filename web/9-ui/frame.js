@@ -43,3 +43,13 @@ async function grab(blob, size, path) {
     v.remove(); v.removeAttribute('src'); v.load(); URL.revokeObjectURL(url);
   }
 }
+
+/** The picture a <video> shows right now → JPEG bytes (square, middle) or null: the preview of a take as it starts. */
+export async function stillOf(video, size = 96) {
+  const s = Math.min(video?.videoWidth ?? 0, video?.videoHeight ?? 0);
+  if (!s) return null;
+  const c = Object.assign(document.createElement('canvas'), { width: size, height: size });
+  c.getContext('2d').drawImage(video, (video.videoWidth - s) / 2, (video.videoHeight - s) / 2, s, s, 0, 0, size, size);
+  const blob = await new Promise((done) => c.toBlob(done, 'image/jpeg', 0.8));
+  return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
+}

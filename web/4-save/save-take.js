@@ -12,6 +12,8 @@
 //            onto + keep: adding to an existing combination (SCHEMA G4b): the kept strands come from the
 //            chain below by reference, the new ones are recorded: {:x.1 _({:v.1})} and {:chain.1} at the bottom.
 // Heads (14.11.): every strand carries its own head with ID and y_ (media-head.js: wav chunk, png tEXt, mp4 uuid box).
+// Preview (16.11., user): a video take brings its small picture along as echo, in the same chain: .v.jpg 96 × 96 in
+//            echo/v/ and :v.2!(…)~(preview :v.1) (no head inside: the hash in the chain covers it; recomputable any time).
 // EXTEND(S5, landmarks): .l.parquet and .m.mp4 come as echo in a new chain on top of this one.
 
 import { newId, writeId, uOf } from '../1-model/ids.js';
@@ -30,10 +32,10 @@ const enc = new TextEncoder();
  * now: start in ms · lengthMs · context: text of the gestures · video: Uint8Array or null · picture: PNG bytes (lossless) or null
  * audio: { channels: [Float32Array], sampleRate } or null · store: storage adapter
  * deviceKey: from crypto.newDeviceKey(); if given, every text file gets its witness y_
- * onto: path of the chain it adds to · keep: kinds taken over from there by reference (state.toKeep)
+ * preview: JPEG bytes of the first picture (96 × 96) or null · onto: path of the chain it adds to · keep: kinds taken over from there by reference (state.toKeep)
  * Returns { chain: { path, id }, paths }.
  */
-export async function saveTake({ device, person, cell = null, where = null, now = Date.now(), lengthMs = 0, context = '', video = null, picture = null, audio = null, store, deviceKey = null, onto = null, keep = [] }) {
+export async function saveTake({ device, person, cell = null, where = null, now = Date.now(), lengthMs = 0, context = '', video = null, picture = null, audio = null, store, deviceKey = null, onto = null, keep = [], preview = null }) {
   const time = timeLabel(now, lengthMs);
   const words = context ? flatWords(context) : [];
   const base = { words, person: person.label, time };
@@ -43,12 +45,12 @@ export async function saveTake({ device, person, cell = null, where = null, now 
   const defs = [];
   const used = [];
 
-  const add = async (kind, id, bytes, { ext } = {}) => {
-    const path = pathOf({ ...base, kind, u: uOf(id), ...(ext ? { ext } : {}) });
+  const add = async (kind, id, bytes, { ext, echo } = {}) => {
+    const path = pathOf({ ...base, kind, u: uOf(id), ...(ext ? { ext } : {}), ...(echo ? { echo: echo.split(' ')[0] } : {}) });
     files.push({ path, bytes });
-    const n = used.filter((u) => u.startsWith(`${kind}.`)).length + 1;
-    defs.push(defLine(`${kind}.${n}`, { id: writeId(id, await hashBytes(bytes)) }));
-    used.push(`${kind}.${n}`);
+    const n = defs.filter((d) => d.startsWith(`:${kind}.`)).length + 1;
+    defs.push(defLine(`${kind}.${n}`, { id: writeId(id, await hashBytes(bytes)), ...(echo ? { echo } : {}) }));
+    if (!echo) used.push(`${kind}.${n}`); // an echo is defined, not recorded
   };
 
   // every strand carries its own head with ID and seal (media-head.js); the chain then holds the hash of the whole file
@@ -64,6 +66,7 @@ export async function saveTake({ device, person, cell = null, where = null, now 
     await add('x', id, enc.encode(text));
   }
   if (!used.length) throw new Error('a Take needs at least one strand');
+  if (preview && video) await add('v', make(), preview, { ext: 'jpg', echo: 'preview :v.1' }); // the small picture, as echo of the video
 
   const chainId = make();
   const chainHead = headLine('chain', { '!': writeId(chainId), '@': person.label, '°': where, "'t": time });

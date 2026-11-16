@@ -34,7 +34,7 @@
 
 import { look, KINDS } from '../state.js';
 import { chipShapes, rowHeight, splitNow, moveY, wordChips, chipW, H as CHIP_H } from './chips.js';
-import { timelineShapes, ZOOM } from './timeline.js';
+import { timelineShapes } from './timeline.js';
 import { withHint } from './hint.js';
 import { arcShapes } from './arc.js';
 import { startShapes } from './start.js';
@@ -81,8 +81,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const half = false, low = Boolean(st.similar); // Similar (16.11., user): the take window moves down, the cloud or the reference above it – nothing lies over the take
   const side = w >= 1.9 * cw && Boolean(st.similar); // wide (iPad across, 15.11.): the cloud or Doppel beside the take, not above
   const sideness = side ? 1 : 0;
-  const full = many ? Math.max(0, Math.min(1, data.cloudFull ?? 0)) : 0; // 16.11.: the cloud pulled past its biggest = Similar over the whole screen
-  const grow = full; // the arcs wander out to the screen's edges (an open U round the lower part)
+  const grow = 0; // (viele ganz with arcs bent to the edges: replaced by the cloud, 16.11.)
   const F0 = Math.min(cw - 16 * k, 2 * ((cw / 2 - 6 * k) / Math.sin(Math.PI / 3) - ring)) - 12 * k; // the line's ends stay on screen; 12 px more room at the sides for the sound (14.11.)
   const lowness = side ? 0 : low ? 1 : 0; // 0 = the take window in the middle, 1 = moved down (Doppel)
   const cx = w / 2 + (cw / 2 + 8 * k) * sideness; // beside: the take to the right of the middle, the other to the left
@@ -94,17 +93,15 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   const gapOpen = ((data.open ?? 0) > 0.5 ? 72 * k + deep : 40 * k), room = (data.viewH ?? h) - 34 * k; // the keyboard takes the lower part
   const bottom0 = onShape(windowOf(data.shape ?? 'circle', { cx, cy: cy0, F }), 180, 0)[1];
   const cy = cy0 - ((data.open ?? 0) > 0.5 ? Math.max(0, bottom0 + gapOpen - room) : 0); // the keyboard is up: the live picture moves up with the field (14.11.)
-  const top = h / PHI;
-  const Fs = Math.min(w - 28 * k, h - top) * 0.46, cys = top + (h - top) / 2 + ring / 2; // full: the take small in the middle of the U, its button above it
-  const FW = F + (Fs - F) * full, cyW = cy + (cys - cy) * full; // the take window glides there (no jump)
-  const win = windowOf(data.shape ?? 'circle', { cx, cy: cyW, F: FW }); // viele ganz (14.11.): the arcs frame the lower 38 %, the upper 62 % stays free (golden ratio): room for A–Z one under the other (26 × ≈ 18 px ≈ 470 px of 520 on a phone)
+  const win = windowOf(data.shape ?? 'circle', { cx, cy, F });
+  const top = h / PHI; // viele ganz (14.11.): the arcs frame the lower 38 %, the upper 62 % stays free (golden ratio): room for A–Z one under the other (26 × ≈ 18 px ≈ 470 px of 520 on a phone)
   const edge = { x0: 14 * k, x1: w - 14 * k, y0: top, y1: h - 14 * k, r: 28 * k }; // an open U: right edge down, along the bottom, left edge up
   const [, winBottom] = onShape(win, 180, 0);
   const fieldY = Math.min(winBottom + gapOpen, room); // the typing row right under the bottom arc (open: the chip row above it, the box starts under the arc); above the keyboard
-  const g = { st, data, w, h, k, cw, cx, cy: cyW, F: FW, win, ring, shapes: [], edge: grow ? edge : null, grow, fieldY, side, deep, full, top };
+  const g = { st, data, w, h, k, cw, cx, cy, F, win, ring, shapes: [], edge: grow ? edge : null, grow, fieldY, side, deep };
   g.add = (type, o) => g.shapes.push({ type, ...o });
 
-  const video = { cx: g.cx, cy: cyW, d: FW, radius: 18 * k, window: win };
+  const video = { cx: g.cx, cy, d: F, radius: 18 * k, window: win };
   const [px, py] = onShape(win, 0, ring);
   const point = { cx: px, cy: py, d }; // its outer ring touches the window
   const stretched = Boolean(data.items?.length) && ['line', 'record', 'stream'].includes(st.screen);
@@ -122,42 +119,30 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
   }
   g.add('video', { ...video, cls: st.screen === 'delete' ? 'video faded' : 'video' });
   const template = double ? referenceWindow(g, point) : templateVideo(g);
-  if (!stretched && full < 0.5) chipArea(g, point, double ? template : null);
+  if (!stretched) chipArea(g, point, double ? template : null);
   if (stretched) g.shapes.push(...timelineShapes(data.items, { timeMs: data.timeMs ?? 0, sub: st.sub ?? 'play', zoom: data.timeZoom ?? 1, cx: g.cx, y: point.cy, k, w, shape: data.shape }));
-  const H = 2 * ring, wideMax = Math.max(H, w * 0.618), pw = st.screen === 'line' && !stretched ? Math.max(0, Math.min(1, data.pointWide ?? 0)) : 0; // 16.11.: the button across, up to the golden section of the width
-  const wideW = H + (wideMax - H) * pw;
-  if (!stretched && !double) g.shapes.push(...arcShapes(win, ring, { ...data, wide: (wideW - H) / 2, bend: data.bend ?? (st.sub === 'spread' ? 0 : 1) }, { k, w }));
+  else if (!double) g.shapes.push(...arcShapes(win, ring, { ...data, bend: data.bend ?? (st.sub === 'spread' ? 0 : 1) }, { k, w }));
   if (st.screen === 'delete') deleteChips(g);
   if (data.waits) { // pinching the waits: inner ring = start, outer = stop (1 s ≈ 8 px)
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (4 + data.waits.startMs / 125) * k, cls: 'wait-ring start' });
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (4 + data.waits.stopMs / 125) * k, cls: 'wait-ring stop' });
   }
-  if (many) cloudTiles(g, side ? { x0: 8 * k, y0: 24 * k, x1: w / 2 - 8 * k, y1: h - 24 * k } : { x0: 8 * k, y0: 24 * k, x1: w - 8 * k, y1: pointTop - 6 * k }); // Similar · viele: a cloud above the take (16.11.); pulled past its biggest: the whole screen
+  if (many) cloudTiles(g, side ? { x0: 8 * k, y0: 24 * k, x1: w / 2 - 8 * k, y1: h - 24 * k } : { x0: 8 * k, y0: 24 * k, x1: w - 8 * k, y1: pointTop - 6 * k }); // Similar · viele: a cloud over the take, flies in from the upper right (16.11.)
   if (data.start && !many) g.shapes.push(...startShapes(data.start, { win, point, k, ring })); // the start: whose state, how it starts (15.11.)
   if (data.focus) g.add('circle', { cx: data.focus.x, cy: data.focus.y, r: (34 - 12 * (data.focusT ?? 0)) * k, fade: 1 - (data.focusT ?? 0) * 0.8, cls: 'focus-mark' }); // where it focuses
   if (data.feedback && !many) { // saved: a green ring going out · gone: a red dashed ring going in (R7); p 0 → 1 over 0.9 s
     const p = data.feedbackP ?? 0;
     g.add('circle', { cx: point.cx, cy: point.cy, r: ring + (data.feedback === 'saved' ? 4 + 26 * p : 30 - 26 * p) * k, fade: 1 - p, cls: `feedback ${data.feedback}` });
   }
-  if (pw > 0.04) { // the button pulled across (16.11.): a window into the take – the moment now in its middle, slide = search; pulled on past its widest = cut there
-    const x0 = point.cx - wideW / 2, y0 = point.cy - H / 2, d = `M${x0 + H / 2} ${y0}H${x0 + wideW - H / 2}A${H / 2} ${H / 2} 0 0 1 ${x0 + wideW - H / 2} ${y0 + H}H${x0 + H / 2}A${H / 2} ${H / 2} 0 0 1 ${x0 + H / 2} ${y0}Z`;
-    g.add('path', { d, cls: 'point-wide', role: 'point-wide' });
-    g.shapes.push({ type: 'clip-in', id: 'wideclip', d }, ...timelineShapes(data.items?.length ? data.items : [{ ms: data.lengthMs ?? 0, own: true }], { timeMs: data.timeMs ?? 0, sub: 'spread', zoom: 1, cx: point.cx, y: point.cy, k, w }).map((s) => ({ ...s, role: undefined })), { type: 'clip-out' });
-    const px = ZOOM.spread * k, len = data.lengthMs ?? 0, now = data.timeMs ?? 0; // ticks: sliding moves them, the middle stays now
-    const ticks = [];
-    for (let t = Math.ceil((now - wideW / 2 / px) / 100); t * 100 <= Math.min(len || Infinity, now + wideW / 2 / px); t++) if (t >= 0) ticks.push({ type: 'line', x1: point.cx + (t * 100 - now) * px, y1: point.cy + H * 0.2, x2: point.cx + (t * 100 - now) * px, y2: point.cy + H * (t % 10 ? 0.28 : 0.4), cls: 'tick' }); // every 0.1 s (30 px), longer each second
-    const pic = data.lineThumbs?.[data.line?.at ?? 0];
-    g.shapes.push({ type: 'clip-in', id: 'wideclip2', d }, ...(pic ? [{ type: 'picture', x: x0, y: y0, w: wideW, h: H, href: pic, cls: 'wide-pic' }] : []), ...ticks, { type: 'clip-out' });
-    g.add('line', { x1: point.cx, y1: y0 + 6 * k, x2: point.cx, y2: y0 + H - 6 * k, cls: (data.wideOver ?? 1) > 1.15 ? 'cut-mark' : 'playhead' }); // past the mark: the cut shows
-  } else g.add('point', { ...point, cls: `${pointClass(st)}${data.photo && st.screen !== 'line' ? ' photo' : ''}${data.paused && st.screen === 'record' ? ' paused' : ''}${st.screen === 'line' && data.replayPaused ? ' stopped' : ''}`, role: 'point',
-    href: st.screen === 'line' ? data.lineThumbs?.[data.line?.at ?? 0] ?? null : null }); // in the line: that take's picture inside, play / pause over it (16.11.)
+  g.add('point', { ...point, cls: `${pointClass(st)}${data.photo && st.screen !== 'line' ? ' photo' : ''}${data.paused && st.screen === 'record' ? ' paused' : ''}${st.screen === 'line' && data.replayPaused ? ' stopped' : ''}`, role: 'point',
+    href: st.screen === 'line' ? data.lineThumbs?.[data.line?.at ?? 0] ?? null : null, form: data.shape }); // in the line: that take's picture inside, play / pause over it (16.11.)
 
   const centre = (role) => { const s = g.shapes.find((x) => x.role === role && x.cls !== 'hit'); return !s ? null : s.s ? [s.x + s.s / 2, s.y + s.s / 2, s.s] : s.x1 != null ? [(s.x1 + s.x2) / 2, s.y1, 24 * k] : null; };
   if (data.cutMark) { const c = centre(data.cutMark); if (c) g.add('line', { x1: c[0], y1: c[1] - c[2] * 0.75, x2: c[0], y2: c[1] + c[2] * 0.75, cls: 'cut-mark' }); } // split (15.11.): past the mark a line across the take
   if (data.joinMark) { const [a, b] = data.joinMark.map(centre); if (a && b) g.add('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], cls: 'join-mark' }); } // join: a band between the two
-  const noPicture = (look(st, 'v') === 'off' && st.screen !== 'line') || (full > 0.5 && (data.fullTakeT ?? 0) < 0.5); // full Similar: the take shows only once the visual arc is tapped // visual off: no picture, the window in the background colour (15.11.)
+  const noPicture = look(st, 'v') === 'off' && st.screen !== 'line'; // visual off: no picture, the window in the background colour (15.11.)
   const field = { x: cx - cw / 2 + 12 * k, w: cw - 24 * k }; // the typing row lies in the box (one column, centred), on phone, tablet, portrait and landscape
-  return { video, template, point, window: win, fieldY, field, wide: { H, max: wideMax, px: ZOOM.spread * k }, hideLive: noPicture, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
+  return { video, template, point, window: win, fieldY, field, hideLive: noPicture, shapes: withHint(g.shapes, data.hint, { w, h, k }) };
 }
 
 /** Height for point, window and open field above the keyboard at scale k: 8 px margin + point + window + 72 px to the typing row + 34 px under it. */
@@ -332,7 +317,7 @@ export const cloudHome = ({ w, h }) => ({ x: w * 0.68, y: h * 0.2, s: 1 });
  * moved while pinching, somewhere else. tap = Doppel · a result onto the point = into the line · the cloud onto the
  * point = all onto the chain.
  */
-function cloudTiles({ data, w, h, k, add, full = 0, top = h * 0.62 }, box) {
+function cloudTiles({ data, k, add }, box) {
   const keys = data.similar ?? [];
   const r = data.reveal ?? 1, s = Math.max(CLOUD[0], Math.min(1, data.cloud?.s ?? 1)); // 16.11. (user): it fills the free part from the top edge down to the take; a pinch makes it only smaller
   const n = Math.max(1, Math.min(keys.length, MANY)), q = Math.sqrt(n + 0.5);
@@ -344,17 +329,11 @@ function cloudTiles({ data, w, h, k, add, full = 0, top = h * 0.62 }, box) {
   const R = step * q + base / 2 + 6 * k;
   const hx = (box.x0 + box.x1) / 2, hy = (box.y0 + box.y1) / 2; // the middle of the free part
   const cx = hx, cy = hy - (hy - box.y0 + R) * (1 - r); // it slides down from the top edge (reveal 0 → 1)
-  // pulled past its biggest (16.11.): the whole screen – a grid over the upper 62 % (phone 5 × 6), the cloud spreads into it
-  const cols = Math.max(4, Math.floor((w - 28 * k) / (72 * k))), cell = (w - 28 * k) / cols, rows = Math.max(1, Math.floor((top - 34 * k) / cell));
-  const shown = full > 0 ? Math.min(keys.length, MANY, cols * rows) : n;
-  if (full < 1) add('sheet', { x: cx - R, y: cy - R, w: 2 * R, h: 2 * R, r: R, cls: 'similar-band cloud', role: 'similar-band' });
-  if (full > 0) add('sheet', { x: 0, y: 0, w, h: top, r: 0, cls: 'similar-band full', role: 'similar-band' }); // pinch anywhere up there: smaller again
-  keys.slice(0, shown).forEach((key, i) => {
+  add('sheet', { x: cx - R, y: cy - R, w: 2 * R, h: 2 * R, r: R, cls: 'similar-band cloud', role: 'similar-band' });
+  keys.slice(0, n).forEach((key, i) => {
     const d = step * Math.sqrt(i + 0.5), a = i * 2.39996; // golden angle: no two in a line; + 0.5 keeps the first two apart
-    const s0 = base * (1 - 0.18 * Math.sqrt(Math.min(i, n) / n)); // the outer ones a little smaller
-    const gx = 14 * k + (i % cols) * cell + 3 * k, gy = 24 * k + Math.floor(i / cols) * cell + 3 * k, gs = cell - 6 * k;
-    const size = s0 + (gs - s0) * full;
-    const x = (cx + d * Math.cos(a) - s0 / 2) * (1 - full) + gx * full, y = (cy + d * Math.sin(a) - s0 / 2) * (1 - full) + gy * full;
+    const size = base * (1 - 0.18 * Math.sqrt(i / n)); // the outer ones a little smaller
+    const x = cx + d * Math.cos(a) - size / 2, y = cy + d * Math.sin(a) - size / 2;
     const path = formPath(data.shape, x, y, size); // the form of my window (14.11.)
     add('thumb', { x, y, s: size, path, id: `st${i}`, href: data.thumbs?.[key], cls: 'thumb other', role: `similar:${i}` });
     tags(data.tileWords?.[key], { x, y, s: size, k, add }); // the take's chips, small on its picture (16.11.)
@@ -427,7 +406,6 @@ const SVG = {
   line: (s) => `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" class="${s.cls}"${roleOf(s)}/>`,
   path: (s) => `<path d="${s.d}" class="${s.cls}"${roleOf(s)}/>`,
   sheet: (s) => `<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" rx="${s.r}" class="${s.cls}"${roleOf(s)}/>`,
-  picture: (s) => `<image href="${esc(s.href)}" x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" preserveAspectRatio="xMidYMid slice" class="${s.cls}"/>`, // the take's picture behind the wide button (16.11.)
   image: (s) => `<image href="data:image/png;base64,${s.png}" x="${s.x}" y="${s.y}" width="${s.s}" height="${s.s}" class="${s.cls}"${roleOf(s)}/>`, // an app's icon (share row)
   label: (s) => `<text x="${s.x}" y="${s.y}" text-anchor="middle" class="${s.cls}">${esc(s.text)}</text>`,
   video: (s) => (s.window ? `<path d="${outlinePath(s.window)}" class="${s.cls}"${roleOf(s)}/>` : `<circle cx="${s.cx}" cy="${s.cy}" r="${s.d / 2}" class="${s.cls}"${roleOf(s)}/>`),
