@@ -153,7 +153,7 @@ export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
     href: st.screen === 'line' ? data.lineThumbs?.[data.line?.at ?? 0] ?? null : null }); // in the line: that take's picture inside, play / pause over it (16.11.)
 
   const centre = (role) => { const s = g.shapes.find((x) => x.role === role && x.cls !== 'hit'); return !s ? null : s.s ? [s.x + s.s / 2, s.y + s.s / 2, s.s] : s.x1 != null ? [(s.x1 + s.x2) / 2, s.y1, 24 * k] : null; };
-  if (data.cutMark) { const c = centre(data.cutMark); if (c) g.add('line', { x1: c[0], y1: c[1] - c[2] * 0.75, x2: c[0], y2: c[1] + c[2] * 0.75, cls: 'cut-mark' }); } // split (15.11.): past the mark a line across the take
+  if (data.cutMark) { const c = centre(data.cutMark), x = c && c[0] + ((data.cutAt ?? 0.5) - 0.5) * c[2]; if (c) g.add('line', { x1: x, x2: x, y1: c[1] - c[2] * 0.75, y2: c[1] + c[2] * 0.75, cls: 'cut-mark' }); } // split (15.11.): past the mark a line across the take, where the cut will be (16.11.)
   if (data.joinMark) { const [a, b] = data.joinMark.map(centre); if (a && b) g.add('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], cls: 'join-mark' }); } // join: a band between the two
   const noPicture = (look(st, 'v') === 'off' && st.screen !== 'line') || (full > 0.5 && (data.fullTakeT ?? 0) < 0.5); // full Similar: the take shows only once the visual arc is tapped // visual off: no picture, the window in the background colour (15.11.)
   const field = { x: cx - cw / 2 + 12 * k, w: cw - 24 * k }; // the typing row lies in the box (one column, centred), on phone, tablet, portrait and landscape

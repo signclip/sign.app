@@ -533,13 +533,13 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     navigator.vibrate?.(on ? 20 : [10, 30, 10]);
     return feedback(on ? 'saved' : 'gone');
   }
-  /** Split a take of the line in its middle (15.11.): a new line with its two parts ('( ) in ms), nothing copied. */
-  async function splitTake(i, atMs = null) {
+  /** Split a take of the line (15.11.): at atMs (timeline), else at the fraction frac (between the fingers, 16.11.), else in its middle; a new line with its two parts ('( ) in ms), nothing copied. */
+  async function splitTake(i, atMs = null, frac = 0.5) {
     const key = await keyOfItem(i), el = key && await chainBytes(key);
     if (!el) return null;
     const length = Number(/ 0_(\d+)/.exec(readFile(dec.decode(el.bytes)).head["'t"] ?? '')?.[1] ?? 0);
     if (!length) return null; // a picture has no time to cut
-    const half = Math.round(atMs != null && atMs > 100 && atMs < length - 100 ? atMs : length / 2); // at the point (timeline), else the middle
+    const half = Math.round(atMs != null && atMs > 100 && atMs < length - 100 ? atMs : length * frac);
     const r = await addLine({ own: store, chainPath: take.lastChain, elements: [{ ...el, part: [0, half] }, { ...el, part: [half, length] }], device, person, deviceKey: await sealKey() });
     take.lastChain = r.chain;
     index = await reindex();
@@ -1302,6 +1302,13 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   let pendingHold = null, usedHold = null, cutting = null; // a take of the line held: split or join by a second finger (15.11.)
   const SPLIT_AT = 1.6, JOIN_AT = 0.6; // the marks: pulled to 1.6 × the start distance = split · pushed to 0.6 × = join
   /** The window's edges on the screen: [top, bottom] in client px, or null. */
+  /** Where across a take of the line the cut lies (16.11.): between the two fingers, left edge 0 … right edge 1, held to 0.1–0.9; beside the take = its middle. */
+  const cutSpot = (role, where) => {
+    const s = screen.last?.shapes?.find((x) => x.role === role && x.s), r = $('#screen').getBoundingClientRect();
+    if (!s || !where) return 0.5;
+    const mx = (where.held.x + where.at.x) / 2 - r.left, f = (mx - s.x) / s.s;
+    return f < -0.25 || f > 1.25 ? 0.5 : Math.min(0.9, Math.max(0.1, f));
+  };
   const windowEdges = () => {
     const win = screen.last?.window;
     if (!win) return null;
@@ -1325,9 +1332,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       return act('tap', role, { x, y });
     },
     hold: (role) => { if (targetOf(role).target === 'item') { pendingHold = role; return null; } return act('hold', role); }, // a take of the line: its hold acts on lifting, so it can still be split or joined (15.11.)
-    parallel: async (heldRole, role) => { // a second finger came while one is held: the held thing is (or becomes) the property
+    parallel: async (heldRole, role, where) => { // a second finger came while one is held: the held thing is (or becomes) the property
       paired = true;
-      if (targetOf(heldRole).target === 'item') { cutting = { held: heldRole, other: role, total: 1 }; return; } // split or join: decided by the pull
+      if (targetOf(heldRole).target === 'item') { cutting = { held: heldRole, other: role, total: 1, at: cutSpot(heldRole, where) }; return; } // split or join: decided by the pull; the cut lies between the two fingers (16.11.)
       const hold = propertyOf(heldRole);
       if (!hold || propertyRole === heldRole) return; // already gripped: the other finger just acts
       propertyRole = heldRole;
@@ -1425,6 +1432,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         cutting.total *= factor;
         const join = cutting.other?.startsWith('line:') && cutting.other !== cutting.held;
         data.cutMark = !join && cutting.total > SPLIT_AT ? cutting.held : null; // past the mark: a line across the take
+        data.cutAt = cutting.at;
         data.joinMark = join && cutting.total < JOIN_AT ? [cutting.held, cutting.other] : null;
         paint();
         return true;
@@ -1436,9 +1444,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     },
     stretchEnd: () => {
       if (cutting) { // the pull ends: split or join if it went past its mark, else nothing
-        const { held, other } = cutting, split = data.cutMark, join = data.joinMark;
-        cutting = null; usedHold = held; data.cutMark = null; data.joinMark = null; paint();
-        if (split) return splitTake(Number(held.slice(5)));
+        const { held, other, at } = cutting, split = data.cutMark, join = data.joinMark;
+        cutting = null; usedHold = held; data.cutMark = null; data.joinMark = null; delete data.cutAt; paint();
+        if (split) return splitTake(Number(held.slice(5)), null, at);
         if (join) return joinTakes(Number(held.slice(5)), Number(other.slice(5)));
         return null;
       }

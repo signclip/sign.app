@@ -52,7 +52,7 @@ export function edgeZone(x, y, w, h) {
  *   stretch(heldRole, factor, how) the second finger moves while the first is held → true if it changed the held thing
  *                            (then that finger makes no tap or swipe) · stretchEnd(heldRole)
  *   slide(role, dx, dy) · slideEnd(role): one finger on a row that slides (share rows), moved
- *   parallel(heldRole, role) a second finger went down while the first one is held: from now on the first
+ *   parallel(heldRole, role, where) a second finger went down while the first one is held: from now on the first
  *                            finger is a property (DESIGN principle 4), the second does the action
  * Without a held finger, a second finger is a pinch (as before). A third finger is ignored.
  */
@@ -87,7 +87,7 @@ export function bind(el, h) {
     const role = h.down?.(e) ?? null;
     const t = { x: e.clientX, y: e.clientY, at: performance.now(), role, held: false, pinch: false };
     touches.set(e.pointerId, t);
-    if (heldOne) { t.anchor = heldOne; h.parallel?.(heldOne.role, role); }
+    if (heldOne) { t.anchor = heldOne; h.parallel?.(heldOne.role, role, { held: { x: heldOne.x, y: heldOne.y }, at: { x: t.x, y: t.y } }); } // where both fingers are (client px)
     t.timer = setTimeout(() => {
       t.held = true;
       h.hold?.(role);
