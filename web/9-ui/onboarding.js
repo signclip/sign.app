@@ -6,7 +6,7 @@
 //            from that table, so a changed gesture changes the onboarding too.
 //            Nothing is blocked: every other gesture works as always, the hint just stays until its step
 //            is done. The first take is the name sign; it goes along with every hello (share-group.js).
-//            It switches off at its end; holding your own tile in the sharing menu starts it again (no settings area).
+//            It switches off at its end; the small + upper left in the sharing menu starts it for a new person (16.11.).
 // Depends:   gestures.js, screen.js (targetOf)
 // Test:      tests/ui.test.mjs
 //            14.11.: it starts with the name (the context field is open, Enter = name, it becomes the context

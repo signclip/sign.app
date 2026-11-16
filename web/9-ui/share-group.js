@@ -315,3 +315,27 @@ async function follow(ctx, tile, sharingPoints) {
   for (const x of [Math.max(tile.n, tile.drop), Math.min(tile.n, tile.drop)]) await ctx.edit({ remove: x });
   for (const [i, sp] of sharingPoints.entries()) await ctx.edit({ add: { label: tile.label, path: sp.path, id: newSource() }, marks: i === 0 ? ['show'] : [] });
 }
+
+/**
+ * A person taken off this device (16.11., ↓ on her small circle): her hello at the project's door goes back – a remove
+ * request for the hello and every file of the takes that went with it, sealed by this device (the signer's app honours
+ * it by itself: groupUpkeep → honorRemove). → true if a request went out. The person's files on the device stay.
+ */
+export async function withdrawHello(ctx, who, { own, takeFiles, askRemove }) {
+  const label = ctx.project?.label || 'Sign';
+  const mine = await joins.getFor(label, who.id).catch(() => null);
+  if (!mine?.helloPath || mine.state === 'within') return false; // nothing waiting at the door (in within/ she is an account: the admin decides)
+  const keyOf = (k) => globalThis.signPersons?.keyOf?.(k, who.id) ?? k;
+  let visuals = [];
+  try { visuals = [localStorage.getItem(keyOf('sign.nameSign')), ...JSON.parse(localStorage.getItem(keyOf('sign.passwords')) || '[]')].filter(Boolean); } catch { /* none */ }
+  const us = new Set([readName(mine.helloPath.slice(mine.helloPath.lastIndexOf('/') + 1))?.u]);
+  for (const v of visuals) for (const p of await takeFiles(own, v).catch(() => [v])) us.add(readName(p.slice(p.lastIndexOf('/') + 1))?.u);
+  const strands = [...us].filter(Boolean).map((u, i) => ({ name: `chain.${i + 1}`, id: { q: ctx.device, n: who.id, u } }));
+  const d = (ctx.project?.doors ?? [ctx.project]).find((x) => x?.drop);
+  if (!d || !strands.length) return false;
+  const drop = connect({ ...readPaste(d.drop), write: true, drop: true }, {}).store;
+  const keys = await deviceKeys();
+  await askRemove({ store: doorLinks(drop, drop), strands, device: ctx.device, person: { id: who.id, label: who.label }, deviceKey: keys.device });
+  await joins.setFor(label, who.id, null);
+  return true;
+}

@@ -61,7 +61,7 @@ function edgeBar(kind, { cx, cy, tw, th }) {
  * incoming: [{ label }] shares waiting for me · acceptThere: { label } the other side's page to accept.
  * → { shapes, at: Map(role → { cx, cy, r }) }
  */
-export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [], admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, clip = 'ready', shake = null, zoom = null, apps = null, outOnly = false, persons = [], choosing = false, selfStart = 'direct', browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map(), leaving = new Set(), sending = null }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
+export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [], admin = null, pulse = null, flash = null, appear = false, fresh = new Set(), focus = null, waitSecret = false, clip = 'ready', shake = null, zoom = null, apps = null, outOnly = false, persons = [], self = null, choosing = false, selfStart = 'direct', browse = null, incoming = [], acceptThere = null, hellos = [], joinStates = new Map(), leaving = new Set(), sending = null }, { w = 390, h = 844, k = w / 390, top = h * 0.4 } = {}) {
   const tw = 86 * k; // a tile: a rounded rectangle, two layers behind it = much lies inside
   const th = 64 * k;
   const y0 = top + 72 * k; // first row, under the handle
@@ -213,9 +213,15 @@ export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [],
     at.set(role, c);
     return c;
   };
-  accounts.forEach((a, i) => one(`account:${i}`, a, i, ' account'));
+  const lead = self ? 1 : 0; // 16.11. (user): the current person first, ringed, a line down to her first tile (this device)
+  if (self) {
+    const c = one(`person:${self.id}`, { ...self, current: true }, 0, ' self');
+    const dev = at.get('sp:0');
+    if (dev) add('line', { x1: c.cx, y1: c.cy + c.r + 4 * k, x2: dev.cx, y2: dev.cy - th / 2, cls: 'bridge self' });
+  }
+  accounts.forEach((a, i) => one(`account:${i}`, { ...a, current: false }, lead + i, ' account'));
   persons.forEach((p, j) => {
-    const i = accounts.length + j;
+    const i = lead + accounts.length + j;
     const c = { cx: 30 * k + i * 34 * k, cy: top + 20 * k, r: 13 * k }; // above the tiles, beside the handle
     const cls = `sp person round${p.role ? ` role-${p.role}` : ''}${choosing ? ' breathe' : ''}${shake === `person:${p.id}` ? ' shake' : ''}${fresh.has(`person:${p.id}`) ? ' appear a0' : ''}`;
     if (p.role === 'admin') add('sheet', { x: c.cx - c.r, y: c.cy - c.r, w: 2 * c.r, h: 2 * c.r, r: 5 * k, cls, role: `person:${p.id}` });
@@ -228,6 +234,12 @@ export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [],
     if (p.start === 'record') add('circle', { cx: c.cx, cy: c.cy, r: 16 * k, cls: 'person-record' });
     at.set(`person:${p.id}`, c);
   });
+  { // + person (16.11.): a new account on this device – her name, name sign, password gestures, hello follow
+    const c = { cx: 30 * k + (lead + accounts.length + persons.length) * 34 * k, cy: top + 20 * k, r: 11 * k };
+    add('circle', { ...c, cls: `sp add-person round${shake === 'person:new' ? ' shake' : ''}`, role: 'person:new' });
+    glyphPlus(c, k * 0.5, add);
+    at.set('person:new', c);
+  }
   // + (14.11.): no tile any more, a small round button in the sheet's upper right corner; faint copy sign = copy a link first
   const ghost = clip !== 'ready' && !waitSecret;
   const plus = { cx: w - 30 * k, cy: top + 20 * k, r: 14 * k }; // above the tiles, beside the handle

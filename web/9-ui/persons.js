@@ -16,13 +16,13 @@ import { newPerson } from '../1-model/ids.js';
 
 export const PERSONAL = new Set(['sign.person', 'sign.name', 'sign.settings', 'sign.onboard', 'sign.sticky', 'sign.nameSign', 'sign.removeLater',
   'sign.upkeep', 'sign.confirmed', 'sign.atlasAt', 'sign.apps', 'sign.photo', 'sign.passwords']);
-const REG = 'sign.persons', CUR = 'sign.current', MAX = 12;
+const REG = 'sign.persons', CUR = 'sign.current', BASE = 'sign.base', MAX = 12;
 
 /** The storage seen by the app for the current person. raw: a Storage (localStorage) → a Storage-like object. */
 export function personStorage(raw) {
   const reg = () => { try { return JSON.parse(raw.getItem(REG) || '[]'); } catch { return []; } };
   const cur = () => raw.getItem(CUR);
-  const first = () => reg()[0]?.id ?? null;
+  const first = () => raw.getItem(BASE) || reg()[0]?.id || null; // the person who keeps the old keys (16.11.: fixed, so she can leave too)
   const key = (k) => (PERSONAL.has(k) && cur() && cur() !== first() ? `${k}@${cur()}` : k);
   return {
     getItem: (k) => raw.getItem(key(k)), setItem: (k, v) => raw.setItem(key(k), v), removeItem: (k) => raw.removeItem(key(k)),
@@ -34,6 +34,7 @@ export function personStorage(raw) {
       raw.setItem('sign.person', id);
       raw.setItem(REG, JSON.stringify([{ id, label: raw.getItem('sign.name') || '', start: 'direct' }]));
       raw.setItem(CUR, id);
+      raw.setItem(BASE, id);
     },
     /** A new person (hold the own tile): current from now on, its first steps follow. → id */
     add() {
@@ -58,13 +59,17 @@ export function personStorage(raw) {
       raw.setItem(`sign.onboard@${id}`, '0');
       return id;
     },
-    /** ↓ on a person: off this device (its keys here); its files stay. The current one cannot remove itself. */
+    /** ↓ on a person: off this device (its keys here); its files stay. The current one cannot remove itself (switch first). */
     remove(id) {
-      if (id === cur() || id === first()) return false;
+      if (id === cur() || !reg().some((p) => p.id === id)) return false;
+      if (!raw.getItem(BASE)) raw.setItem(BASE, first()); // fixed before the registry changes
+      const base = id === first();
       raw.setItem(REG, JSON.stringify(reg().filter((p) => p.id !== id)));
-      for (const k of PERSONAL) raw.removeItem(`${k}@${id}`);
+      for (const k of PERSONAL) raw.removeItem(base ? k : `${k}@${id}`); // the first person's are the old keys
       return true;
     },
+    /** A key of this person's as kept (16.11.): to read what another person on the device has (her hello). */
+    keyOf(k, id) { return id === first() ? k : `${k}@${id}`; },
     /** The current person's name went into the take field: the registry shows it. */
     named(label) { raw.setItem(REG, JSON.stringify(reg().map((p) => (p.id === cur() ? { ...p, label } : p)))); },
     /** This person's role (15.11.): 'admin' · 'atlas' · 'groups' · null; she is named after it (8-join/flow.js roleOf). */
@@ -77,7 +82,7 @@ export function personStorage(raw) {
 /** A key of something kept elsewhere (IndexedDB) per person: the first person keeps the old one. */
 export function personal(key, g = globalThis) {
   const p = g.signPersons;
-  return p && p.current() && p.current() !== p.persons()[0]?.id ? `${key}@${p.current()}` : key;
+  return p?.keyOf && p.current() ? p.keyOf(key, p.current()) : p && p.current() && p.current() !== p.persons()[0]?.id ? `${key}@${p.current()}` : key;
 }
 
 /** In the browser: every localStorage use goes through the current person (installed once, before the app reads it). */

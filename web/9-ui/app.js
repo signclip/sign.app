@@ -406,6 +406,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       take.gesture = false;
       if (onboard.at === GESTURE_STEPS[2]) menu.joinProject().catch(() => {}); // all three there: hello to the project's door
       if (onboard.at === GESTURE_STEPS[2]) { data.gestureWord = null; data.gestureChoices = null; } // the words stay for the next steps
+      if (onboard.at === GESTURE_STEPS[2] && (data.open ?? 0) > 0) openContext(false); // 16.11.: the field goes; ↑ on the point breathes (share-last), in the menu the door's hello tile
     }
     learned(take.began);
     if (settings.flows.includes('a>x') && recorded.audio && kinds.includes('a')) flowAudio(saved.chain.path, recorded.audio).catch((err) => console.warn('whisper', err));

@@ -54,4 +54,7 @@ export function deviceKeys() {
 export const joins = {
   get: (label) => run('readonly', (s) => s.get(personal(`hello:${label}`))), // each person on the device says its own hello
   set: (label, value) => run('readwrite', (s) => s.put(value, personal(`hello:${label}`))),
+  /** Another person's hello on this device (16.11.: she is taken off, her request goes back). */
+  getFor: (label, id) => run('readonly', (s) => s.get(globalThis.signPersons?.keyOf?.(`hello:${label}`, id) ?? `hello:${label}`)),
+  setFor: (label, id, value) => run('readwrite', (s) => s.put(value, globalThis.signPersons?.keyOf?.(`hello:${label}`, id) ?? `hello:${label}`)),
 };

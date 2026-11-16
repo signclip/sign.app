@@ -41,10 +41,11 @@ import { shown } from '../1-model/time.js'; // the surface shows local time
 import { tiles, gestureOn, targetFor, KINDS } from './share-menu.js';
 import { writeMove, readMove } from '../2-storage/move-note.js';
 import { addNew, bringIn, peek, pickFolder, loginAt, resumeLogin, giveOut, giveToAccount, cloudIdOf, browseChips, waitingShares, acceptWaiting, openPage, askAccount, expectedOf } from './share-add.js';
-import { readHello, devicesOf, quietDevice } from '../8-join/join.js';
+import { readHello, devicesOf, quietDevice, takeFiles } from '../8-join/join.js';
 import { helloTakes, accountTakes, firstPieces, knownFolder } from '../8-join/known.js';
 import { doorView, toWithin, backToHello, moveAccount, deleteFolder } from '../8-join/door.js';
-import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey } from './share-group.js';
+import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey, withdrawHello } from './share-group.js';
+import { askRemove } from '../8-join/remove-request.js';
 import { folders, canPick } from './folders.js';
 import { bind } from './touch.js';
 import { revokeAppPassword, setDisplayName } from '../8-join/provision.js';
@@ -458,6 +459,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (n) { s.flash = `sp:${n}`; draw(); setTimeout(() => { s.flash = null; draw(); }, 600); }
       return null;
     }
+    if (what === 'person' && a === 'new') return onOwnHold(); // the small + upper left: a new person on this device (16.11.)
     if (what === 'person' && a === globalThis.signPersons?.current()) return ctx.role === 'admin' ? lookPile('hello') : ctx.role === 'atlas' ? showIndex() : null; // my own account: what my role does
     if (what === 'person') { globalThis.signPersons?.switchTo(a); return location.reload(); } // another person on this device: in
     if (what === 'sp' && ctx.tileOf(Number(a))?.moved) return bringIn(ctx, ctx.tileOf(Number(a)).moved); // moved: a tap follows to the new sharing point
@@ -681,7 +683,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       : s.hellos.length ? pilesOf({ hello: count('hello') }).slice(0, 1) : []; // a group's signer: its hellos
     s.piles = s.piles.map((p) => ({ ...p, n: s.adminN, label: p.count == null ? p.pile : `${p.pile} ${p.count}` }));
     const hellos = s.piles;
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, name: person.label, sent: s.sent ?? 0, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.index || s.accounts || s.groupList || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others(), accounts: logins(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates, leaving: s.leaving ?? new Set(), sending: s.sending ?? null }, { w, h });
+    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, name: person.label, sent: s.sent ?? 0, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.index || s.accounts || s.groupList || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others(), self: (() => { const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current()); return me ? { ...me, label: me.label || person.label } : null; })(), accounts: logins(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates, leaving: s.leaving ?? new Set(), sending: s.sending ?? null }, { w, h });
     svg.innerHTML = toSvg(view, { w, h });
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();
@@ -726,9 +728,11 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       }
       if (role?.startsWith('browse:') && s.group && ['down', 'down-out', 'up'].includes(dir)) { const x = groupTiles()[Number(role.split(':')[1])]; return dir === 'up' ? x?.up?.() : x?.down?.(); } // a member ↓ = out of this group · ↑ on the group = new member links
       if (role?.startsWith('browse:') && s.accounts && ['down', 'down-out', 'up'].includes(dir)) { const x = accountTiles()[Number(role.split(':')[1])]; return dir === 'up' ? x?.up?.() : x?.down?.(); } // account: ↓ rests ↑ wakes · device: ↓ quiet · group: ↓ out (14.11.)
-      if (role?.startsWith('person:') && (dir === 'down' || dir === 'down-out')) { // off this device; its files stay
-        if (!globalThis.signPersons?.remove(role.slice(7))) { s.shake = role; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; }
-        return draw();
+      if (role?.startsWith('person:') && (dir === 'down' || dir === 'down-out')) { // off this device; its files stay, its hello at the door goes back (16.11.)
+        const P = globalThis.signPersons, who = P?.persons().find((x) => x.id === role.slice(7));
+        if (!who || who.id === P.current()) { s.shake = role; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; }
+        return withdrawHello(ctx, who, { own, takeFiles, askRemove }).catch((err) => { debugNote({ method: 'withdraw', where: who.label, error: String(err?.message ?? err) }); return false; })
+          .then((sent) => { P.remove(who.id); navigator.vibrate?.(sent ? [15, 60, 15] : 15); return draw(); });
       }
       if ((role?.startsWith('app:') || role === 'out:system' || role === 'row-area') && dir === 'up') return outside(); // ↑ on the row: the system share sheet // ↑ on the row: the classic Android / iOS share sheet
       if (role?.startsWith('hello:') && dir === 'right' && s.piles?.[Number(role.split(':')[1])]?.pile === 'index') { say(t('menu.wait')); return atlasCount(ctx.atlas, { now: true }).then(showIndex, () => say(t('notReachable'))); } // → on index: atlas counts now
@@ -790,7 +794,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (role === 'add:new' && !moved) return addNew(ctx); // + held: like a tap — only what is on the clipboard counts, no address is kept in the app (15.11.)
       if (role?.startsWith('person:') && moved) { globalThis.signPersons?.switchTo(role.slice(7)); return location.reload(); } // a small person dragged out = pulled big: that person (15.11.)
       const from = circleOf(role);
-      if (!moved && from === 0) return onOwnHold(); // my own tile held still: the onboarding again
+      if (!moved && from === 0) return null; // my own tile held still: nothing (16.11.: a new person only by the small + upper left)
       if (!moved && ctx.tileOf(from)?.service) return null; // nothing goes into Admin or Atlas
       if (!moved) return from ? apply(gestureOn(targetFor(ctx.tileOf(from), 'hold'), 'hold', s.rules, { selection: selection(), private: ctx.tileOf(from)?.private })) : null; // held still: new goes there
       const onto = circleOf(roleOf(el));
