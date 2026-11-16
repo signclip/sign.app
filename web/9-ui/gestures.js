@@ -78,7 +78,7 @@ export const TABLE = [
   ['zoom', 'pinch', 'live', 'any', 'two fingers on the picture: the camera nearer / farther'],
   ['split', 'stretch', 'item', 'any', 'a take of the line held, the other finger pulls away from it: past the mark (a line across it shows) it is two parts, cut in its middle (15.11.)', 'item'],
   ['join', 'stretch', 'item>item', 'any', 'two takes held, pushed together: one after the other in a new line (15.11.)', 'item'],
-  ['form', 'stretch', 'live', 'any', 'picture held, the other finger pulls: across = narrower / wider · up-down = lower / higher · slanted = squarer / rounder', 'live'],
+  ['form', 'stretch', 'live', 'any', 'picture held, the other finger pulls (or one finger still, the other moves): apart = circle → ellipse → rectangle → square, together = back (16.11.)', 'live'],
   ['switch-camera', 'left', 'live', 'any', 'the other camera slides in (front / back), also during a take: the picture changes, the sound goes on'],
   ['switch-camera', 'right', 'live', 'any', 'the same, the other way'],
   // edges: bring in, push away

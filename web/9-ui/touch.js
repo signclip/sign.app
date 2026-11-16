@@ -52,6 +52,7 @@ export function edgeZone(x, y, w, h) {
  *   out(x0, y0, x1, y1, dir) → did a swipe up / down end beyond the window's edge? (the edge rule)
  *   stretch(heldRole, factor, how) the second finger moves while the first is held → true if it changed the held thing
  *                            (then that finger makes no tap or swipe) · stretchEnd(heldRole)
+ *   anchored(role)           → true: two fingers there, one still and the other moving, count as a stretch (no hold needed)
  *   slide(role, dx, dy) · slideEnd(role): one finger on a row that slides (share rows), moved
  *   parallel(heldRole, role, where) a second finger went down while the first one is held: from now on the first
  *                            finger is a property (DESIGN principle 4), the second does the action
@@ -62,6 +63,7 @@ export function bind(el, h) {
   let lastTap = 0, lastTapRole = null; // a double-tap only on the same thing (16.11.: a tap on a chip and then on the point were one double-tap)
   let spread = null; // distance between two fingers while pinching
   let total = 1, pinchRole = null; // the whole pinch: product of its steps · where its first finger went down
+  let kind = null; // a pinch on something that can be held (h.anchored): 'stretch' once one finger stays still and the other moves, else 'pinch' (16.11.)
   let across = [0, 0], mid = null; // the two fingers' distance across and up-down · where they started, between them
 
   const pinchers = () => [...touches.values()].filter((t) => t.pinch);
@@ -80,6 +82,8 @@ export function bind(el, h) {
       others[0].pinch = true;
       pinchRole = others[0].role ?? null;
       touches.set(e.pointerId, { x: e.clientX, y: e.clientY, pinch: true });
+      for (const p of pinchers()) Object.assign(p, { sx: p.x, sy: p.y });
+      kind = h.anchored?.(pinchRole) ? null : 'pinch'; // undecided until a finger moves
       spread = distance();
       total = 1;
       const [p, q] = pinchers();
@@ -104,6 +108,12 @@ export function bind(el, h) {
       Object.assign(t, { x: e.clientX, y: e.clientY });
       if (spread && pinchers().length === 2) {
         const d = distance();
+        if (!kind) { // one finger still (< 6 px), the other moved (≥ 12 px) = held and pulled, without waiting for the hold
+          const gone = pinchers().map((p) => Math.hypot(p.x - p.sx, p.y - p.sy));
+          if (Math.max(...gone) < 12) return;
+          kind = Math.min(...gone) < 6 ? 'stretch' : 'pinch';
+        }
+        if (kind === 'stretch') { h.stretch?.(pinchRole, d / spread, {}); spread = d; return; }
         const [p, q] = pinchers();
         const now = [Math.abs(p.x - q.x), Math.abs(p.y - q.y)];
         const ratio = (i) => (across[i] > 8 && now[i] > 8 ? now[i] / across[i] : 1); // a component near zero says nothing
@@ -148,7 +158,7 @@ export function bind(el, h) {
     const e = ev.type === 'pointercancel' ? { clientX: t.cx ?? t.x, clientY: t.cy ?? t.y, pointerId: ev.pointerId } : ev;
     touches.delete(e.pointerId);
     clearTimeout(t.timer);
-    if (t.pinch) { if (!pinchers().length) { spread = null; h.pinchEnd?.(total, pinchRole, mid); } return; } // both fingers up: the pinch ends
+    if (t.pinch) { if (!pinchers().length) { spread = null; if (kind === 'stretch') h.stretchEnd?.(pinchRole); else if (kind) h.pinchEnd?.(total, pinchRole, mid); kind = null; } return; } // both fingers up: the pinch ends
     if (t.stretch) return h.stretchEnd?.(t.anchor?.role);
     if (t.slid) return h.slideEnd?.(t.role);
     if (t.held) {

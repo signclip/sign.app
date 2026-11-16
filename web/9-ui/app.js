@@ -59,7 +59,7 @@ import { write as writeNotation, parse as parseNotation } from '../1-model/notat
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse, look } from './state.js';
 import { MANY, CLOUD, CLOUD_GONE, cloudHome } from './view/ring.js';
-import { formOf, formBy, snapForm, extentOf, inside as insideWindow } from './view/shape.js';
+import { formOf, stepOf, formAt, formAlong, extentOf, inside as insideWindow } from './view/shape.js';
 import { mountScreen, targetOf } from './screen.js';
 import { normalize, readyStep, choose, CHOICES } from './settings.js';
 import { watch } from './ready.js';
@@ -442,11 +442,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
 
   // ---------- the window's form by hand (14.11.): corners rounder or squarer, narrower or lower ----------
-  let rawShape = null; // the form as the fingers have it; what shows rests at the circle when near (snapForm)
-  function reshape(change) {
-    rawShape = formOf({ ...(rawShape ?? data.shape), ...change });
-    const was = data.shape, now = snapForm(rawShape, was);
-    if ((now.round === 1 && now.aspect === 1) && !(was.round === 1 && was.aspect === 1)) navigator.vibrate?.(12); // arrived at the circle: a short tick
+  let rawShape = null; // where on the path circle → ellipse → rectangle → square the fingers are (0…3); what shows rests at each step (formAt)
+  function reshape(factor) {
+    rawShape = formAlong(rawShape ?? stepOf(data.shape), factor);
+    const was = stepOf(data.shape), now = formAt(rawShape), at = stepOf(now);
+    if (Number.isInteger(at) && at !== was) navigator.vibrate?.(12); // arrived at a step: a short tick
     data.shape = now;
     settings = normalize({ ...settings, shape: data.shape });
     paint();
@@ -1464,6 +1464,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       }
       return act(g, role ?? 'top-zone');
     },
+    anchored: (role) => role === 'live', // the picture: one finger still + one moving = its form, both moving = the camera's zoom (16.11.)
     stretch: (heldRole, factor, how) => { // one finger holds the picture, the other pulls: the window's form changes
       if (cutting && heldRole === cutting.held) { // a take held: apart = split, onto another take = join (15.11.)
         cutting.total *= factor;
@@ -1475,8 +1476,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         return true;
       }
       if (heldRole !== 'live') return false;
-      if (!rawShape) debugNote({ method: 'form', where: 'live', error: `stretch ${factor.toFixed(2)} fx ${how.fx?.toFixed(2)} fy ${how.fy?.toFixed(2)}`, ms: 0 }); // in sign-debug.txt: the pull arrived
-      reshape(formBy(rawShape ?? data.shape, factor, how));
+      if (rawShape == null) debugNote({ method: 'form', where: 'live', error: `stretch ${factor.toFixed(2)}`, ms: 0 }); // in sign-debug.txt: the pull arrived
+      reshape(factor);
       return true;
     },
     stretchEnd: () => {

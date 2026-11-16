@@ -114,28 +114,22 @@ export function inside(win, x, y) {
   return Math.hypot(x - win.cx, y - win.cy) <= Math.hypot(bx - win.cx, by - win.cy) + 1e-6 && ex > 0;
 }
 
-/**
- * Two fingers on the picture change the form (14.11.), in proportion to how they lie: side by side = width,
- * one above the other = height, slanted = corners (apart = squarer, together = rounder; already round and still
- * together = narrower, an upright ellipse). A slant between shares both by cos² / sin² of its angle and by how
- * diagonal it is. factor = change of the fingers' distance · fx, fy = change across and up-down. → new form
- */
-export function formBy(form, factor, { fx = 1, fy = 1, angle = 45 } = {}) {
-  const a = (angle * Math.PI) / 180, wx = Math.cos(a) ** 2, wy = Math.sin(a) ** 2;
-  const diag = 1 - Math.abs(Math.cos(2 * a)); // 1 at 45°, 0 side by side or one above the other
-  const f = formOf(form);
-  let aspect = f.aspect * fx ** (wx * (1 - diag)) / fy ** (wy * (1 - diag));
-  let round = f.round - Math.log(factor) * 1.8 * diag;
-  if (round > 1 && factor < 1) aspect *= factor ** diag; // past round: on towards an upright ellipse
-  return formOf({ round, aspect });
+/** The forms in their order (16.11., user): circle → upright ellipse → rectangle → square; a pull walks along them. */
+export const FORM_STEPS = Object.freeze([{ round: 1, aspect: 1 }, { round: 1, aspect: 0.8 }, { round: 0, aspect: 0.8 }, { round: 0, aspect: 1 }]);
+/** Where a form lies on that path: 0 = circle … 3 = square (between two steps: in between). */
+export function stepOf(form) {
+  const f = formOf(form), clamp = (x) => Math.max(0, Math.min(1, x));
+  if (f.round >= 1) return clamp((1 - f.aspect) / 0.2);
+  if (f.round > 0) return 1 + (1 - f.round);
+  return 2 + clamp((f.aspect - 0.8) / 0.2);
 }
-
-/** Near the circle the form rests there (14.11.): aspect within ±8 %, corners above 92 % round = exactly a circle; once there, it holds (shown = the form on screen). */
-export function snapForm(form, shown) {
-  const f = formOf(form), s = shown && formOf(shown);
-  const atCircle = s && s.round === 1 && s.aspect === 1, atRect = s && s.round === 0;
-  // a circle holds: to arrive within 8 % / 92 %, to leave only beyond 20 % / 75 % (the fingers must clearly mean it)
-  const aspect = Math.abs(f.aspect - 1) < (atCircle ? 0.2 : 0.08) ? 1 : f.aspect;
-  const round = f.round > (atCircle ? 0.75 : 0.92) ? 1 : f.round < (atRect ? 0.15 : 0.06) ? 0 : f.round; // a rectangle holds the same way
-  return { round, aspect };
+/** A spot on the path → its form; within 0.1 of a step it rests there exactly. */
+export function formAt(at) {
+  const x = Math.max(0, Math.min(3, at)), near = Math.round(x), t = Math.abs(x - near) < 0.1 ? near : x;
+  const i = Math.min(2, Math.floor(t)), u = t - i, a = FORM_STEPS[i], b = FORM_STEPS[i + 1];
+  return { round: a.round + (b.round - a.round) * u, aspect: a.aspect + (b.aspect - a.aspect) * u };
+}
+/** One finger holds the picture, the other pulls (16.11.): apart = on along the path, together = back; 1.6 × the distance ≈ one step. */
+export function formAlong(at, factor) {
+  return Math.max(0, Math.min(3, at + Math.log(factor) * 2.1));
 }
