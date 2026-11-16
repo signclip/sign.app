@@ -125,7 +125,8 @@ export const TABLE = [
   ['chips-later', 'left', 'chip', 'any', 'a long chip row: the later ones come in from the right (15.11.)'],
   ['chips-earlier', 'right', 'chip', 'any', 'a long chip row: the earlier ones come back from the left (15.11.)'],
   ['sticky', 'double-tap', 'chip', 'any', 'sticky on / off: in front for the series, a prefix for every take'],
-  ['context-out', 'down', 'chip', 'any', 'take this context away: a new line on top'],
+  ['context-out', 'down', 'chip', 'any', 'take this context away: from what is being written, or from the saved take as a new line on top (16.11.)'],
+  ['context-out', 'down-out', 'chip', 'any', 'the same, the finger ending below the window (the chips lie at its lower edge)'],
   ['grip', 'hold', 'chip', 'any', 'grip this context: the other finger records or finds with it'],
 
   // parallel: the other finger holds a strand (its arc turns green)

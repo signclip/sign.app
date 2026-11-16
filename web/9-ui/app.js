@@ -534,6 +534,22 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     navigator.vibrate?.(on ? 20 : [10, 30, 10]);
     return feedback(on ? 'saved' : 'gone');
   }
+  /**
+   * ↓ on a chip of a saved take (16.11.): the take keeps its files; a new line on top says this context is out of it
+   * (add-line.js without: -(context)). The take = the one on the button in the line, else the last one.
+   */
+  async function chipOutOfTake(text) {
+    const key = st.screen === 'line' && take.replayAt >= 0 ? chainOfVisual((await takeVisuals())[take.replayAt]) : null;
+    const el = key ? await chainBytes(key) : take.lastChain ? { bytes: await store.read(take.lastChain) } : null;
+    if (!el || !take.lastChain) return null;
+    const r = await addLine({ own: store, chainPath: take.lastChain, elements: [el], context: `(${text})`, without: true, device, person, deviceKey: await sealKey() });
+    take.lastChain = r.chain;
+    data.chips = data.chips.filter((c) => c.text !== text);
+    index = await reindex();
+    navigator.vibrate?.([10, 30, 10]);
+    feedback('gone');
+    return paint();
+  }
   /** Split a take of the line (15.11.): at atMs (timeline), else at the fraction frac (between the fingers, 16.11.), else in its middle; a new line with its two parts ('( ) in ms), nothing copied. */
   async function splitTake(i, atMs = null, frac = 0.5) {
     const key = await keyOfItem(i), el = key && await chainBytes(key);
@@ -1152,7 +1168,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
           try { localStorage.setItem('sign.sticky', JSON.stringify(sticky)); } catch { /* private mode */ }
         } else {
           const keep = parseNotation(series).filter((n) => n.t === 'sym' || !readContext(writeNotation([n])).gestures.some((g) => g.chips.some((c) => c.text === text)));
-          if (writeNotation(keep) === series) return null; // a chip of a saved take: EXTEND(S2, context) a new line on top without it
+          if (writeNotation(keep) === series) return chipOutOfTake(text); // a chip of a saved take: a new line on top without it (16.11.)
           series = writeNotation(keep);
         }
         return showSeries();
