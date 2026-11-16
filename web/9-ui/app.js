@@ -415,6 +415,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
 
   // ---------- replay: the line of my takes, newest first ----------
   async function replay(by) {
+    if (data.top) return data.top.goTo((data.line?.at ?? 0) + by); // an opened line on top: only its elements (16.11.)
     const videos = await takeVisuals(); // videos and pictures, newest first
     take.replayAt = Math.max(-1, Math.min(videos.length - 1, take.replayAt + by));
     $('#replay').hidden = take.replayAt < 0;
@@ -728,6 +729,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
   /** A tile key → { store, path } of its picture or video: an index key, or look:i. */
   const atOf = (key) => {
+    if (key?.startsWith('piece:')) return data.top?.items[Number(key.slice(6))] ?? null; // an element of the line on top
     if (key?.startsWith('cmp:')) { const c = data.compare?.[Number(key.slice(4))]; return c ? { store: c.from, path: c.path } : null; } // a result of the search in within/
     if (!key?.startsWith('look:')) return takeOf(key) && visualOf(takeOf(key));
     const x = data.look?.[Number(key.slice(5))];
@@ -748,7 +750,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     step('similar-out');
     data.words = [];
     data.double = null; // Doppel ends with Similar
-    if (data.ownLine) { ({ line: data.line, lineThumbs: data.lineThumbs, versions: data.versions } = data.ownLine); delete data.ownLine; } // my line back on top
+    if (data.ownLine) { if (data.ownLine.mine) ({ line: data.line, lineThumbs: data.lineThumbs } = data.ownLine); data.versions = data.ownLine.versions; delete data.ownLine; } // my line back on top
+    delete data.top; if (take.replayAt < 0 && st.screen === 'line') step('live');
     if (data.look) { delete data.look; data.lookAt = null; data.compare = null; $('#template').removeAttribute('src'); pairOff(); const r = $('#replay'); r.onended = null; r.pause(); r.hidden = take.replayAt < 0; } // a hello looked at: done, the take window live again
     delete data.reveal;
     $('#template').removeAttribute('src');
@@ -768,6 +771,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
 
   /** Similar · Doppel: result i of the tiles plays above in the same window as the live picture (loop, muted). */
   async function reference(i) {
+    if (data.similar[i]?.startsWith('piece:')) return data.top?.goTo(Number(data.similar[i].slice(6))); // an element of this line: the button goes there
     if (data.compare && data.similar[i]?.startsWith('cmp:')) { // a result of the search in within/ tapped: it plays in the Doppel
       const c = data.compare[Number(data.similar[i].slice(4))], t = $('#template');
       t.poster = posterOf(c.path); t.src = URL.createObjectURL(new Blob([await c.from.read(c.path)], { type: 'video/mp4' })); t.loop = true; t.muted = true; t.play().catch(() => {});
@@ -805,9 +809,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     data.compare = known ? (await accountTakes(x.from, x.known).catch(() => [])).map((path) => ({ path, from: x.from })) : null;
     for (const k of [...thumbs.keys()]) if (k.startsWith('cmp:')) thumbs.delete(k);
     data.double = known && data.compare.length ? 'cmp:0' : null; // without an original Similar stays as the hellos
-    lineOnTop(x.pieces.map((p) => ({ store: p.from, path: p.path })), () => data.look?.[i] === x); // her pieces: a new line on top of mine (chain)
-    showSimilar(true);
+    const items = x.pieces.map((p) => ({ store: p.from, path: p.path }));
+    lineOnTop(items, () => data.look?.[i] === x); // her pieces: a new line on top of mine (chain)
     let j = 0;
+    data.top = { items, goTo: (n) => { j = Math.max(0, Math.min(items.length - 1, n)); v.onended = next; return go(); } }; // ← → and the tiles move in this line only (16.11.)
+    if (st.screen !== 'line') step('replay-back'); // the button on its first element, with its picture
+    showSimilar(true); // Similar now searches only in the elements of this line
     const go = async () => {
       if (data.lookAt !== i || data.look?.[i] !== x) { v.onended = null; return; } // another tile, or Similar closed
       const p = x.pieces[j % x.pieces.length];
@@ -820,7 +827,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       data.pieceAt = j % x.pieces.length; data.line = { ...data.line, at: data.pieceAt };
       paint();
     };
-    v.onended = () => { j++; go(); };
+    const next = () => { j = j < x.pieces.length - 1 ? j + 1 : 0; go(); }; // through her line, then from the front again
+    v.onended = next;
     return go();
   }
   /** What a <video> shows while loading (16.11.): the take's small picture if there is one, else nothing (transparent) –
@@ -833,7 +841,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
    * items: [{ store, path }] of the visual strands · still(): false once something else is open.
    */
   function lineOnTop(items, still = () => true) {
-    if (!data.ownLine) { data.ownLine = { line: data.line, lineThumbs: data.lineThumbs, versions: data.versions ?? 1 }; data.versions = Math.min(4, data.ownLine.versions + 1); arrive(); }
+    if (!data.ownLine) { data.ownLine = { line: data.line, lineThumbs: data.lineThumbs, versions: data.versions ?? 1, mine: true }; data.versions = Math.min(4, data.ownLine.versions + 1); arrive(); }
     data.line = { count: items.length, at: 0 }; data.lineThumbs = {};
     items.forEach((at, n) => picOf(at).then((url) => { if (still()) { data.lineThumbs = { ...data.lineThumbs, [n]: url }; paint(); } }, () => {}));
   }
@@ -912,6 +920,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (on) draw($(id), chips, onChip);
   };
   const showSimilar = (on) => { // at the top: metadata and strand choice as chips, the hits as tiles (view)
+    if (data.look && data.top && !data.compare) { data.similar = data.top.items.map((_, n) => `piece:${n}`); data.similar.forEach(thumbOf); return panel('#similar', on, [], () => {}); } // searched only in this line's elements (16.11.)
     if (data.look && data.compare) { data.similar = data.compare.map((_, i) => `cmp:${i}`); data.similar.forEach(thumbOf); return panel('#similar', on, [], () => {}); } // the search in within/ (16.11.)
     if (data.look) { data.similar = data.look.map((_, i) => `look:${i}`); data.similar.forEach(thumbOf); return panel('#similar', on, [], () => {}); }
     const hits = similar(index, { words: data.words, filters: filtersOf(index, filter) });
@@ -1046,7 +1055,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (hit.target === 'delete') return gesture === 'tap' ? removeLast(hit.what) : null;
     if ((gesture === 'left' || gesture === 'right') && (hit.target === 'line-arc' || hit.target === 'item')) hit = { ...hit, target: 'point' }; // 16.11. (user): ← → anywhere on the line = as on the point
     if (data.lineSel && hit.target === 'point' && ['up', 'up-out', 'down', 'down-out'].includes(gesture)) return lineContext(gesture.startsWith('up')); // 16.11.: the line chosen: ↑ = this context onto all of it, ↓ = out of all of it
-    if (data.look && data.lookAt != null && hit.target === 'point') { // 16.11.: a hello in the window: ↑ on the point = on (hello → join → within), ↓ = back
+    if (data.look && data.lookAt != null && data.top && ['point', 'line-arc', 'item'].includes(hit.target)) { // anywhere on her line (16.11.) // 16.11.: a hello in the window: ↑ on the point = on (hello → join → within), ↓ = back
       if (gesture === 'up' || gesture === 'up-out') return decide('up');
       if (gesture === 'down' || gesture === 'down-out') return decide('down');
     }
@@ -1184,6 +1193,16 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'levels-open': data.levelsOpen = true; return paint();
       case 'levels-close': data.levelsOpen = false; return paint();
       case 'level-open': // choose an earlier line of the chain (tap again = back to the current one)
+        if (data.ownLine && hit.index === 1) { // 16.11.: an opened line on top – the line beneath comes up, the opened one goes under (tap again = back)
+          const under = data.ownLine;
+          data.ownLine = { line: data.line, lineThumbs: data.lineThumbs, versions: under.versions, mine: !under.mine, top: data.top };
+          ({ line: data.line, lineThumbs: data.lineThumbs } = under); data.top = under.top ?? null;
+          navigator.vibrate?.(10);
+          if (data.top) return data.top.goTo(data.line?.at ?? 0);
+          const r = $('#replay'); r.onended = null; r.pause();
+          if (take.replayAt >= 0) { const videos = await takeVisuals(); await show(videos[take.replayAt]); } else r.hidden = true;
+          return paint();
+        }
         data.levelAt = data.levelAt === hit.index ? null : hit.index;
         paint();
         return data.levelAt == null ? null : playVersion(data.levelAt); // that version plays (index.versions)
@@ -1200,7 +1219,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         return arrive();
       }
       case 'similar-nearer': return st.similar ? null : openMany(); // spread above the take: the cloud comes; on it the pinch already sized it
-      case 'similar-farther': return st.similar && !data.double && (data.cloud?.s ?? 1) < CLOUD_GONE ? closeSimilar() : null; // squeezed small enough: away
+      case 'similar-farther': if (st.similar && data.look && data.top && (data.cloud?.s ?? 1) < CLOUD_GONE) { delete data.top; data.lookAt = null; data.cloud = null; showSimilar(true); return paint(); } // her line: squeezed = all hellos again (the line stays)
+        return st.similar && !data.double && (data.cloud?.s ?? 1) < CLOUD_GONE ? closeSimilar() : null; // squeezed small enough: away
       case 'share-in': take.shareOnce = null; take.shareChain = null; return menu.show(true); // pulled in from the middle right
       case 'share-out': return menu.show(false);
       case 'context-open': data.insertAt = null; paint(); return (data.open ?? 0) > 0.5 ? null : openContext(true); // under the take: open, write at the end
