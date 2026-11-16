@@ -36,7 +36,9 @@ import { gesturesOf } from './gestures-take.js';
 import { mountSharing } from './sharing-engine.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
 import { hintSvg } from './hint.js';
+import { installDavFetch } from '../2-storage/dav-fetch.js';
 
+installDavFetch(); // native app: PROPFIND, MKCOL, MOVE through the app's own plugin (17.11.: lost in the rewrite, so the door never answered in the APK)
 installDebug();
 const $ = (sel) => document.querySelector(sel);
 const kept = (key, make) => { try { if (localStorage.getItem(key) == null) localStorage.setItem(key, make()); return localStorage.getItem(key); } catch { return make(); } };
@@ -211,6 +213,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   globalThis.visualViewport?.addEventListener('scroll', keyboardNow);
   say.addEventListener('focus', () => setTimeout(keyboardNow, 300));
   addEventListener('resize', () => { keyboardNow(); paintSharing(); });
+  // Android's back button (native app; also lost in the rewrite): one step back — typing, the sharing menu's lists, the menu, Similar — then the app goes to the background
+  globalThis.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
+    if (A.st.typing) return say.blur();
+    if (A.st.share) return A.engine?.back?.() ? null : A.engine?.show(false);
+    if (A.st.similar !== 'closed') return A.dispatch({ type: 'similar', level: A.st.similar === 'double' ? 'many' : 'closed' });
+    if (A.st.wide > 0.02) return A.dispatch({ type: 'wide', spread: 0 });
+    return globalThis.Capacitor.Plugins.App.minimizeApp?.();
+  });
   addEventListener('hashchange', () => { if (location.hash) return; if (A.st.share) A.engine?.show(false); else if (A.st.similar !== 'closed') A.dispatch({ type: 'similar', level: 'closed' }); });
 
   // thumbs of the kept line, then the camera after the first paint (15.11.)
