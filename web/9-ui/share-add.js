@@ -72,10 +72,11 @@ export async function peek(s) {
   return usable(s, text) ? 'ready' : 'ghost';
 }
 
-export async function addNew(ctx) {
+export async function addNew(ctx, { person = true } = {}) {
   let text = '';
   try { text = (await clipboard()) ?? ''; } catch { /* no permission: then a folder */ }
   if (usable(ctx.s, text)) return bringIn(ctx);
+  if (!person) { ctx.s.clip = 'ghost'; ctx.s.shake = 'add:new'; ctx.draw(); setTimeout(() => { ctx.s.shake = null; ctx.draw(); }, 400); return null; } // held: only the clipboard counts, it shakes
   return ctx.newPerson?.() ?? null; // 16.11. (user): nothing fitting on the clipboard = a new account (person) on this device: name, name sign, password gestures, hello
 }
 

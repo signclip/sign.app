@@ -117,8 +117,10 @@ export const TABLE = [
   ['after', 'drag', 'item>line-arc', 'any', 'onto the line: one after another, a new line on top'],
   ['together', 'drag', 'item>point', 'any', 'onto the point: at the same time, a new line on top'],
   ['add-to', 'hold', 'item', 'any', 'record more strands to this element (missing picture, a new version …)'],
-  ['next', 'left', 'item', 'any', 'next (later): anywhere on the line as on the point; an opened line (a hello) only through its own elements (16.11.)'],
-  ['before', 'right', 'item', 'any', 'before'],
+  ['replay-on', 'left', 'item', 'any', 'anywhere on the line as on the point: the next (later) one; an opened line (a hello) only through its own elements (16.11.)'],
+  ['replay-back', 'right', 'item', 'any', 'the one before (16.11.: as on the point)'],
+  ['replay-on', 'left', 'line-arc', 'any', 'along the line, between its takes: the same (16.11.)'],
+  ['replay-back', 'right', 'line-arc', 'any', 'the same, back'],
   // a chip
   ['chip-on-off', 'tap', 'chip', 'any', 'what is written in the take always searches in Similar (context first, sound and picture later); a tap takes this word out of the search / in again (16.11.)'],
   ['write-here', 'tap', 'queue', 'any', 'a chip or bubble in the row below the take: the field opens, what is written goes behind it (into a bubble: as its last element); tap under the row = at the end (15.11.)'],

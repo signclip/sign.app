@@ -1098,7 +1098,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (hit.queue && gesture === 'tap' && !st.hold) hit = { ...hit, target: 'queue' }; // the row below: a tap writes there (15.11.)
     if ((data.cloudFull ?? 0) > 0.5 && hit.target === 'strand' && hit.kind === 'v' && gesture === 'tap') { const on = (data.fullTakeT ?? 0) < 0.5; return animate('fullTakeT', on ? 0 : 1, on ? 1 : 0); } // full Similar: the visual arc shows / hides the take (16.11.)
     if (hit.target === 'delete') return gesture === 'tap' ? removeLast(hit.what) : null;
-    if ((gesture === 'left' || gesture === 'right') && (hit.target === 'line-arc' || hit.target === 'item')) hit = { ...hit, target: 'point' }; // 16.11. (user): ← → anywhere on the line = as on the point
     if (data.lineSel && hit.target === 'point' && ['up', 'up-out', 'down', 'down-out'].includes(gesture)) return lineContext(gesture.startsWith('up')); // 16.11.: the line chosen: ↑ = this context onto all of it, ↓ = out of all of it
     if (data.look && data.lookAt != null && data.top && ['point', 'line-arc', 'item'].includes(hit.target)) { // anywhere on her line (16.11.) // 16.11.: a hello in the window: ↑ on the point = on (hello → join → within), ↓ = back
       if (gesture === 'up' || gesture === 'up-out') return decide('up');

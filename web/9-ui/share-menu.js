@@ -1,7 +1,8 @@
 // share-menu.js — the sharing menu after ↑ on the point: what each gesture on a sharing point means. No chips.
 //
 // Purpose:   one gesture, one meaning, on every tile (16.11., with the user). The target decides what a line means.
-//              EINBINDEN     + (upper right): link, cloud id or server from the clipboard → a tile · hold + = log in ·
+//              EINBINDEN     + (upper right): link, cloud id or server from the clipboard → a tile; nothing fitting = a new person
+//                            on this device (16.11.) · hold + = only the clipboard ·
 //                            tap this device = a folder or disk on it · a waiting share (dashed blue): tap = in
 //              tap           share the last take there, now (the first time: the first circle asks what and how much)
 //              hold          from now on every new take goes there (the strands on in the ring); hold again = off

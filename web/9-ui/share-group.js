@@ -14,6 +14,7 @@
 // Name sign:  the first take of the onboarding goes with the hello as a take of its own (join.js sayHello, 15.11.).
 // Limits:    one hello per device and group; a renew reaches members on their next start.
 
+import { note as debugNote } from './debug.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
 import { readFile } from '../1-model/file.js';
@@ -176,19 +177,19 @@ export async function bringInvitation(ctx, text, secret = null) {
  * comes into the list and the hello goes out; the sharing icon grows; with hello back the own Nextcloud folder
  * appears. → true when it was started now.
  */
-export async function joinProject(ctx, project, { reachable = doorAnswers, memory = joins } = {}) {
+export async function joinProject(ctx, project, { reachable = doorAnswers, memory = joins, report = () => {} } = {}) {
   const doors = (project?.doors ?? [project]).filter((d) => d?.read && d?.drop);
   if (!doors.length) return false; // no door configured: group texts as before
   const label = project.label || 'Sign';
   if (await memory.get(label)) return false; // the hello went out already
-  if (!(await ctx.nameSign?.())) return false; // the hello carries the name sign: it comes first
+  if (!(await ctx.nameSign?.())) { report('join: no name sign yet'); return false; } // the hello carries the name sign: it comes first
   if (ctx.s.entries.some((e) => e.label === label)) return false; // the door is there: it waits as a hello bubble (helloToDoor)
   let door = null, locked = false;
   for (const d of doors) {
     const answer = await reachable(d); // true · 'password' · false (a door may be gone: revoked, moved)
     if (answer) { door = d; locked = answer === 'password'; break; }
   }
-  if (!door) return false;
+  if (!door) { report(`join: door does not answer (${doors.length})`); return false; } // 16.11.: said, no longer silent
   const path = (url) => readPaste(url)?.path ?? url; // /s/<token> → its WebDAV path
   const readId = newSource(), dropId = newSource();
   await ctx.edit({ add: { label, path: path(door.read), id: readId }, marks: ['show'] });
@@ -214,7 +215,11 @@ async function doorAnswers(door) {
     const { store } = connect(readPaste(door.read), {});
     await store.list('');
     return true;
-  } catch (err) { return /: 401\b/.test(String(err.message)) ? 'password' : false; }
+  } catch (err) {
+    if (/: 401\b/.test(String(err.message))) return 'password';
+    debugNote({ method: 'door', where: 'read link', error: String(err?.message ?? err).slice(0, 300), ms: 0 }); // 16.11.: why, in sign-debug.txt (CORS in the browser shows here)
+    return false;
+  }
 }
 
 /** A group's drop link, opened for writing: it only takes files in and may refuse to be looked at (403), so it is not probed (14.11.). */

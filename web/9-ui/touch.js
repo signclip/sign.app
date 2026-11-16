@@ -3,6 +3,7 @@
 // finger held, the other pulls), and edge zones. Pure parts (classify, edgeZone) are tested; bind() needs a browser.
 //
 // Depends:   nothing · Test: tests/ui.test.mjs, tests/parallel.test.mjs
+// Each finger is held by the bound element (setPointerCapture, 16.11.), so a redrawn shape never swallows its lift.
 // Limits:    hold after 350 ms · double-tap within 300 ms · swipe ≥ 50 px · spread / squeeze when the fingers'
 //            distance changed by ≥ 25 % · stretch after 10 px · edges start 12–72 px inside the screen edge
 //            (Android uses the outermost strip for "back") and only in the upper 2/3 · at most two fingers:
@@ -58,7 +59,7 @@ export function edgeZone(x, y, w, h) {
  */
 export function bind(el, h) {
   const touches = new Map(); // pointerId → { x, y, at, role, held, timer, pinch }
-  let lastTap = 0;
+  let lastTap = 0, lastTapRole = null; // a double-tap only on the same thing (16.11.: a tap on a chip and then on the point were one double-tap)
   let spread = null; // distance between two fingers while pinching
   let total = 1, pinchRole = null; // the whole pinch: product of its steps · where its first finger went down
   let across = [0, 0], mid = null; // the two fingers' distance across and up-down · where they started, between them
@@ -69,6 +70,8 @@ export function bind(el, h) {
     return Math.hypot(p.x - q.x, p.y - q.y);
   };
   const down = (e) => {
+    if (e.isPrimary && touches.size) { for (const t of touches.values()) clearTimeout(t.timer); touches.clear(); spread = null; } // 16.11.: a first finger means no other is down – a lost lift (the shape under it was redrawn) must not turn every next touch into a pinch
+    try { el.setPointerCapture?.(e.pointerId); } catch { /* tests, old browsers */ } // the lift comes here even when the touched shape is redrawn meanwhile
     const others = [...touches.values()];
     if (others.length >= 2) return; // a third finger: ignored
     const heldOne = others.find((t) => t.held && !t.pinch);
@@ -165,12 +168,12 @@ export function bind(el, h) {
   // a tap waits DOUBLE_MS when a double-tap is possible
   const tapped = (e, role) => {
     const now = performance.now();
-    if (h.doubleTap && now - lastTap < DOUBLE_MS) {
+    if (h.doubleTap && now - lastTap < DOUBLE_MS && lastTapRole === role) {
       lastTap = 0;
       h.doubleTap(role);
       return;
     }
-    lastTap = now;
+    lastTap = now; lastTapRole = role;
     const r = el.getBoundingClientRect();
     const x = (e.clientX - r.left) / r.width;
     const y = (e.clientY - r.top) / r.height;
@@ -178,7 +181,7 @@ export function bind(el, h) {
     setTimeout(() => { if (lastTap === now || !waits) h.tap?.(x, y, role); }, waits ? DOUBLE_MS : 0);
   };
 
-  const events = [['pointerdown', down], ['pointermove', move], ['pointerup', up], ['pointercancel', up]];
+  const events = [['pointerdown', down], ['pointermove', move], ['pointerup', up], ['pointercancel', up], ['lostpointercapture', (e) => { if (touches.has(e.pointerId)) up(e); }]];
   events.push(...['contextmenu', 'selectstart'].map((n) => [n, (e) => e.preventDefault()])); // no long-press menu: holding is a gesture
   for (const [name, fn] of events) el.addEventListener(name, fn);
   return () => { for (const [name, fn] of events) el.removeEventListener(name, fn); };

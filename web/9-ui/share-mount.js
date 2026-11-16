@@ -164,6 +164,25 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     if (line) say(t(`run.${line.state}`, { label, n: line.copied }));
   }
 
+  /** Why a join stopped (16.11.): into sign-debug.txt and as a short note in the menu, never silent. */
+  const joinNote = (why) => { debugNote({ method: 'join', where: project?.label ?? 'Sign', error: String(why).slice(0, 300), ms: 0 }); s.note = String(why).slice(0, 60); if (!panel.hidden) draw(); return null; };
+  /**
+   * The project's door, then the hello at once (16.11., user: first start = automatic). The door comes into the list
+   * (joinProject); if no hello went out yet and the door is open, the hello goes with name sign and password gestures.
+   * Tapping or dragging onto the hello bubble stays a second way (a door with a password waits for it first).
+   */
+  async function joinDoor() {
+    const label = project?.label || 'Sign';
+    if (await joinProject(ctx, project, { report: joinNote })) await load();
+    if (!project?.doors?.length || (await joins.get(label).catch(() => null))) return draw();
+    if (!ctx.s.entries.some((e) => e.label === label) || ctx.s.waitSecret) return draw(); // not in the list, or waiting for its password
+    const ready = await helloTakes({ door: true }).catch(() => []);
+    if (ready.length < 4) return draw(); // name sign + 3 password gestures first (flow.js); until then the bubble waits
+    const m = await helloToDoor(ctx, label).catch((err) => joinNote(`hello: ${err?.message ?? err}`));
+    if (!m) return joinNote('hello: nothing went out');
+    (s.joinStates ??= new Map()).set(label, m.state); s.fresh.add(label); onHello();
+    return draw();
+  }
   async function load() {
     const at = await findList(own, person.label); // my list: several persons may share this device
     const text = at ? dec.decode(await own.read(at)) : '';
@@ -191,7 +210,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (!panel.hidden) draw();
     });
     await roleByName(); // Admin, Atlas, Groups (15.11.): known by the login's name, before the door is asked
-    if (!ctx.role) joinProject(ctx, project).catch(() => {}); // the first group: the project's door (also after its password came); a role says no hello
+    if (!ctx.role) joinDoor().catch((err) => joinNote(`join: ${err?.message ?? err}`)); // the first group: the project's door (also after its password came); a role says no hello
     checkMoves().catch(() => {});
   }
   /** Sealed moves (15.11.): a sharing point that says its content went elsewhere breathes "→ host"; a tap follows it. ≤ 1 look per tile per 10 min. */
@@ -809,10 +828,10 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     },
     dragEnd: (el, moved, _r, { long = false } = {}) => {
       svg.querySelector('#carry')?.remove(); if (s.flash === role) s.flash = null;
-      if (role === 'add:new' && !moved) return addNew(ctx); // + held: like a tap — only what is on the clipboard counts, no address is kept in the app (15.11.)
+      if (role === 'add:new' && !moved) return addNew(ctx, { person: false }); // + held: only what is on the clipboard (no new person by holding, 16.11.)
       if (role?.startsWith('person:') && moved) { globalThis.signPersons?.switchTo(role.slice(7)); return location.reload(); } // a small person dragged out = pulled big: that person (15.11.)
       const from = circleOf(role);
-      if (!moved && from === 0) return null; // my own tile held still: nothing (16.11.: a new person only by the small + upper left)
+      if (!moved && from === 0) return null; // my own tile held still: nothing (16.11.: a new person only by tapping + with nothing fitting on the clipboard)
       if (!moved && ctx.tileOf(from)?.service) return null; // nothing goes into Admin or Atlas
       if (!moved) return from ? apply(gestureOn(targetFor(ctx.tileOf(from), 'hold'), 'hold', s.rules, { selection: selection(), private: ctx.tileOf(from)?.private })) : null; // held still: new goes there
       const onto = circleOf(roleOf(el));
@@ -901,7 +920,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     /** The open store of the sharing point with this path (a share target named in a chain), or null. */
     storeOf: (path) => [...s.open.values()].find((sp) => sp.entry.path === path)?.store ?? null,
     /** The name sign was just taken: the hello to the project's door goes out now. */
-    joinProject: () => (ctx.role ? Promise.resolve(null) : joinProject(ctx, project).then((started) => (started ? load().then(draw) : null))),
+    joinProject: () => (ctx.role ? Promise.resolve(null) : joinDoor().catch((err) => joinNote(`join: ${err?.message ?? err}`))),
     /** A ring arc dropped on tile n (app.js): that strand always goes there. */
     dropKind: (n, kind) => apply(gestureOn(targetFor(ctx.tileOf(n), 'drop-kind'), 'drop-kind', s.rules, { kind })),
   };
