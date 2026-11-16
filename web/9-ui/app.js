@@ -39,7 +39,7 @@ import { buildIndex } from '../3-index/index.js';
 import { saveTake } from '../4-save/save-take.js';
 import { removeStrands } from '../4-save/remove.js';
 import { saveSimilar } from '../4-save/save-similar.js';
-import { addLine } from '../4-save/add-line.js';
+import { addLine, MAX_ELEMENTS } from '../4-save/add-line.js';
 import { askRemove } from '../8-join/remove-request.js';
 import { deviceKeys, joins } from './device-keys.js';
 const sealKey = async () => (await deviceKeys().catch(() => null))?.device ?? null; // every .sign this device writes gets its y_ (SCHEMA B2)
@@ -366,7 +366,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     let saved;
     try {
       saved = await saveTake({
-        device, person, store, cell: here.now(), now: Date.now(), lengthMs: recorded.lengthMs, context: withSticky(sticky.map((w) => `(${w})`).join(' '), take.context),
+        device, person, store, cell: here.now(), now: Date.now(), lengthMs: recorded.lengthMs, context: (take.lastContext = withSticky(sticky.map((w) => `(${w})`).join(' '), take.context)),
         video: kinds.includes('v') ? recorded.video : null,
         picture: kinds.includes('v') ? recorded.picture ?? null : null,
         audio: kinds.includes('a') ? recorded.audio : null,
@@ -495,6 +495,26 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     data.versions = Math.max(1, index.versions(writeId(head.id)).length);
     return r.chain;
   }
+  /**
+   * The line chosen, then ↑ / ↓ on the point (16.11.): the context just written (not yet taken) or else that of the last take
+   * goes onto every take of the line – or out of all of them where it is. A new line on top, nothing copied:
+   * (context)({:chain.2} {:chain.3} …) or -(context)(…). Felt and seen (a green ring out / a red one in), then unchosen.
+   */
+  async function lineContext(on) {
+    const now = say.value.trim() ? fromField(say.value) : series.trim();
+    const context = (now || take.lastContext || '').trim();
+    data.lineSel = false;
+    if (!context) { data.shake = 'line'; paint(); return null; }
+    const all = (await takeVisuals()).slice(0, MAX_ELEMENTS);
+    const elements = (await Promise.all(all.map(async (p) => chainBytes(await chainOfVisual(p))))).filter(Boolean);
+    if (!elements.length) return paint();
+    const wrapped = /^\(.*\)$/.test(context) ? context : `(${context})`;
+    const r = await addLine({ own: store, chainPath: take.lastChain, elements, context: wrapped, without: !on, device, person, deviceKey: await sealKey() });
+    take.lastChain = r.chain;
+    index = await reindex();
+    navigator.vibrate?.(on ? 20 : [10, 30, 10]);
+    return feedback(on ? 'saved' : 'gone');
+  }
   /** Split a take of the line in its middle (15.11.): a new line with its two parts ('( ) in ms), nothing copied. */
   async function splitTake(i, atMs = null) {
     const key = await keyOfItem(i), el = key && await chainBytes(key);
@@ -512,6 +532,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   async function joinTakes(a, b) {
     const keys = (await Promise.all([Math.max(a, b), Math.min(a, b)].map(keyOfItem))).filter(Boolean); // a larger i is further back in time: the older one first
     if (keys.length < 2) return null;
+    data.merge = [a, b]; await animate('mergeT', 0, 1); // 16.11.: the two melt into one, then the new line comes
+    delete data.merge; delete data.mergeT;
     await layOn(keys, false);
     navigator.vibrate?.(20);
     return arrive();
@@ -680,6 +702,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
   /** Similar closes (squeezed small, or Back): the cloud flies out to the upper right; Doppel ends with it. */
   async function closeSimilar() {
+    if ((data.cloudFull ?? 0) > 0) await fullSimilar(false); // from the whole screen: first the cloud again
     if (st.similar && !data.double && (data.reveal ?? 1) > 0) await animate('reveal', data.reveal ?? 1, 0);
     if (!data.look) await keepSimilar();
     step('similar-out');
@@ -690,6 +713,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     delete data.reveal;
     $('#template').removeAttribute('src');
     return showSimilar(false);
+  }
+  /** Similar over the whole screen (16.11.): the cloud spreads into a grid, the arcs wander to the screen's edges, the take
+   *  glides small into the middle of their U and hides (its button stays) – tap the visual arc and it shows. Back: the reverse. */
+  async function fullSimilar(on) {
+    if (on) data.fullTakeT = 0;
+    await animate('cloudFull', on ? 0 : 1, on ? 1 : 0);
+    if (!on) { delete data.cloudFull; delete data.fullTakeT; }
+    return paint();
   }
   /** Where the cloud is and how big (16.11.): kept on this device; a pinch on it moves and sizes it. */
   data.cloud = JSON.parse(kept('sign.cloud', () => 'null'));
@@ -958,7 +989,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   async function act(gesture, role, extra = {}) {
     let hit = { ...targetOf(role), ...extra };
     if (hit.queue && gesture === 'tap' && !st.hold) hit = { ...hit, target: 'queue' }; // the row below: a tap writes there (15.11.)
+    if ((data.cloudFull ?? 0) > 0.5 && hit.target === 'strand' && hit.kind === 'v' && gesture === 'tap') { const on = (data.fullTakeT ?? 0) < 0.5; return animate('fullTakeT', on ? 0 : 1, on ? 1 : 0); } // full Similar: the visual arc shows / hides the take (16.11.)
     if (hit.target === 'delete') return gesture === 'tap' ? removeLast(hit.what) : null;
+    if (data.lineSel && hit.target === 'point' && ['up', 'up-out', 'down', 'down-out'].includes(gesture)) return lineContext(gesture.startsWith('up')); // 16.11.: the line chosen: ↑ = this context onto all of it, ↓ = out of all of it
     if (data.look && data.lookAt != null && hit.target === 'point') { // 16.11.: a hello in the window: ↑ on the point = on (hello → join → within), ↓ = back
       if (gesture === 'up' || gesture === 'up-out') return decide('up');
       if (gesture === 'down' || gesture === 'down-out') return decide('down');
@@ -1120,6 +1153,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'write-here': data.insertAt = hit.queue; paint(); return (data.open ?? 0) > 0.5 ? say.focus() : openContext(true); // a spot in the row: write there (the keyboard stays)
       case 'chips-later': case 'chips-earlier': data.chipScroll = (data.chipScroll ?? 0) + (row.action === 'chips-later' ? -1 : 1) * 160; return paint(); // a long row scrolls sideways
       case 'context-close': return openContext(false);
+      case 'line-choose': data.lineSel = !data.lineSel; navigator.vibrate?.(8); return paint(); // chosen: outlined
       case 'line-zoom': return null; // continuous: handlers.pinch
       // ---------- in the table, not wired yet: each says where it docks ----------
       case 'take-over': return reference(hit.index); // Similar · Doppel: the result above, the live picture below
@@ -1216,24 +1250,55 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     swipe: (dir, role) => { if (naming() && role === 'point' && dir.startsWith('left')) return nameIs(person.label); // the name as it is: on (16.11.)
       if (role?.startsWith('offer:') && role !== 'offer:' && dir.startsWith('down') && data.gestureChoices) { suggestGesture(role.slice(6)); return paint(); } // only this word, drawn anew
       if (role?.startsWith('offer:') && dir.startsWith('down')) { data.offers = data.offers.filter((o) => offerText(o) !== role.slice(6)); return paint(); } return act(dir, role); }, // ↓ on an offer: away
+    slide: (role, dx) => { // the wide button (16.11.): one finger along it = the moment in the take, the middle stays "now"
+      if (role !== 'point-wide') return null;
+      const px = screen.last?.wide?.px ?? 0.3, r = $('#replay');
+      const ms = Math.max(0, Math.min((r.duration || 0) * 1000 || Infinity, (data.timeMs ?? 0) - dx / px));
+      data.timeMs = ms;
+      if (Number.isFinite(r.duration)) { r.pause(); r.currentTime = ms / 1000; data.replayPaused = true; }
+      return paint();
+    },
+    slideEnd: () => null,
     pinch: (factor, role, how = {}) => { // continuous, view only: on the picture = camera zoom · on the point = time (line zoom, or the waits)
       if (role === 'live') return zoomBy(camera, factor);
       if (st.similar && !data.double && (role === 'similar-band' || role?.startsWith('similar:'))) { // the cloud (16.11.): bigger / smaller, and along with the fingers
+        if ((data.cloudFull ?? 0) > 0.5) return null; // full screen: the pinch decides at its end (smaller = the cloud again)
         const c = data.cloud ?? cloudHome(screen.size()), at = how.at ?? how.mid ?? { x: c.x, y: c.y }, last = cloudAt ?? at;
+        if (c.s >= 0.99 && factor > 1) data.cloudOver = (data.cloudOver ?? 1) * factor; // past its biggest (it fills the part above the take): on to the whole screen
         data.cloud = { x: c.x + at.x - last.x, y: c.y + at.y - last.y, s: Math.max(CLOUD[0], Math.min(1, c.s * factor)) }; // full = it fills the part above the take (16.11.)
         cloudAt = at;
         return paint();
       }
       if (role === 'line-arc' || role?.startsWith('line:')) { data.lineZoom = Math.max(LINE_ZOOM[0], Math.min(LINE_ZOOM[1], (data.lineZoom ?? 1) * factor)); return paint(); } // the takes apart / together
-      if (role !== 'point') return null; // elsewhere the pinch ends as a step (pinchEnd)
+      if (role !== 'point' && role !== 'point-wide') return null; // elsewhere the pinch ends as a step (pinchEnd)
       const fx = how.fx ?? factor, fy = how.fy ?? 1;
       if (Math.abs(Math.log(fy)) > Math.abs(Math.log(fx))) return waitsBy(fy); // up-down (15.11.): the waits longer / shorter (rings show them)
-      if (data.items?.length && ['line', 'record', 'stream'].includes(st.screen)) { data.timeZoom = Math.max(0.25, Math.min(8, (data.timeZoom ?? 1) * fx)); return paint(); } // across: into the take's time
+      if (st.screen === 'line') { // across (16.11.): the button widens to the golden section; past that = the mark to cut
+        const { H, max } = screen.last?.wide ?? { H: 84, max: 240 }, width = H + (max - H) * (data.pointWide ?? 0);
+        const next = width * fx;
+        data.wideOver = next > max ? (data.wideOver ?? 1) * (width >= max - 0.5 ? fx : next / max) : 1;
+        data.pointWide = Math.max(0, Math.min(1, (next - H) / (max - H)));
+        return paint();
+      }
+      if (data.items?.length && ['record', 'stream'].includes(st.screen)) { data.timeZoom = Math.max(0.25, Math.min(8, (data.timeZoom ?? 1) * fx)); return paint(); } // across: into the take's time
       return null;
     },
     pinchEnd: (factor, role) => { // spread = nearer / more, squeeze = farther / less, where the first finger lay
       if (cloudAt) { cloudAt = null; keepCloud(); } // the cloud stays where it was put
       const g = pinchStep(factor);
+      if (st.similar && !data.double && (role === 'similar-band' || role?.startsWith('similar:'))) { // 16.11.: cloud ⇄ the whole screen
+        const over = data.cloudOver ?? 1; data.cloudOver = 1;
+        if ((data.cloudFull ?? 0) > 0.5) return g === 'squeeze' ? fullSimilar(false) : null; // smaller: the cloud again (the take glides back)
+        if (over > 1.2) return fullSimilar(true);
+      }
+      if ((role === 'point' || role === 'point-wide') && st.screen === 'line') { // the wide button: cut past the mark, nearly shut = round again
+        const cut = (data.wideOver ?? 1) > 1.15;
+        data.wideOver = 1;
+        if ((data.pointWide ?? 0) < 0.08) data.pointWide = 0;
+        paint();
+        if (cut) { data.pointWide = 0; return splitTake(0, data.timeMs ?? 0); } // in two at the moment in its middle
+        return null;
+      }
       if (!g || role === 'live' || role === 'point') return null; // those zoomed continuously
       if (st.screen === 'line' && st.sub === 'spread') { // 16.11.: in a take's timeline
         const z = data.timeZoom ?? 1;
@@ -1302,6 +1367,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   globalThis.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
     if (!$('#share').hidden) return menu.back() || menu.show(false); // an account → the accounts → closed
     if (data.double) { data.double = null; data.offers = []; $('#template').removeAttribute('src'); pairOff(); return paint(); } // Doppel → viele
+    if ((data.cloudFull ?? 0) > 0.5) return fullSimilar(false); // Back: the whole screen → the cloud
     if (st.similar) return closeSimilar();
     if ((data.open ?? 0) > 0) return openContext(false);
     return globalThis.Capacitor.Plugins.App.minimizeApp?.();
@@ -1322,6 +1388,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }, true);
   $('#share').addEventListener('pointerup', (e) => { if (innerWidth - e.clientX < 24) act('edge-out', 'middle-right'); });
   $('#replay').addEventListener('timeupdate', (e) => { data.timeMs = e.target.currentTime * 1000; });
+  $('#replay').addEventListener('loadedmetadata', (e) => { data.lengthMs = Number.isFinite(e.target.duration) ? e.target.duration * 1000 : 0; data.pointWide = 0; }); // the take's length: the wide button's window (16.11.)
   await showStart().catch(() => {}); // whose state, how it starts: 2.5 s in the window (15.11.)
   paint();
   $('#screen').classList.add('ready'); // the window and its arcs at once, centred
