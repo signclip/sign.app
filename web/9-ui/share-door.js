@@ -13,7 +13,7 @@ import { helloTakes, firstPieces, knownFolder } from '../8-join/known.js';
 import { doorView, toWithin, backToHello, moveAccount, deleteFolder } from '../8-join/door.js';
 import { renames, adoptRename, declineRename } from '../8-join/rename.js';
 import { setDisplayName, setEnabled, deleteAccount, sharedWithMe, makeFolder } from '../8-join/provision.js';
-import { hellosToWelcome, welcome } from './share-group.js';
+import { hellosToWelcome, welcome, choices } from './share-group.js';
 import { copyRoute } from '../2-storage/routes.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
@@ -60,8 +60,8 @@ export function doorPart(ctx, { panel, onLookAll }) {
       const from = store ?? x.store ?? s.open.get(x.n)?.store;
       if (!from) continue;
       const group = x.helloPath ?? x.folder;
-      const steps = name === 'hello' ? { up: () => welcome(ctx, x), down: () => backToHello(from, x.helloPath) } // ↓ = quiet, the device says hello anew
-        : name === 'join' ? { up: () => toWithin(from, x.helloPath), down: () => takeBack(from, x) }
+      const steps = name === 'hello' ? { up: (pick = {}) => welcome(ctx, x, pick), down: () => backToHello(from, x.helloPath) } // ↑ with the Doppel's choice (16.11.) · ↓ = quiet, the device says hello anew
+        : name === 'join' ? { up: () => toWithin(from, x.helloPath, { into: choices.get(x.helloPath) }), down: () => takeBack(from, x) }
         : name === 'within' ? { down: () => moveAccount(from, x.folder, 'within', 'quiet').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), false).catch(() => {})) }
         : { up: () => moveAccount(from, x.folder, 'quiet', 'within').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), true).catch(() => {})),
           down: async (choices = {}) => { // ↓ = it asks (Backup · Modell as chips); ↓ again within 15 s = deleted for good: account and files (GDPR, 15.11.)
@@ -74,7 +74,7 @@ export function doorPart(ctx, { panel, onLookAll }) {
       const wrap = (f) => f && ((...a) => f(...a).then((r) => (r === 'wait' ? r : again().then(() => r))));
       const seen = x.helloPath ? await helloTakes(from, x).catch(() => ({ takes: [], folder: null })) : null; // known: by her person ID first, else by name
       const takes = seen ? seen.takes : [...(await firstPieces(from, x.folder).catch(() => new Map())).values()].map((path) => ({ path }));
-      for (const t of takes) items.push({ ...t, from, group, pile: name, name: x.name ?? null, known: seen?.folder ?? null, up: wrap(steps.up), down: wrap(steps.down) }); // known: the account folder in within/ to compare with
+      for (const t of takes) items.push({ ...t, from, group, pile: name, name: x.name ?? null, known: seen?.folder ?? null, candidates: seen?.candidates ?? [], up: wrap(steps.up), down: wrap(steps.down) }); // known: the account folder in within/ to compare with; candidates: ← → in the Doppel
     }
     if (items.length) return onLookAll(items);
     s.shake = `hello:${s.piles?.findIndex((p) => p.pile === name)}`; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); // empty: it shakes, the count says 0
@@ -83,7 +83,7 @@ export function doorPart(ctx, { panel, onLookAll }) {
   /** join ↓ (15.11.): not taken yet → the account made for this hello goes (a known person's account stays), quiet/, hello anew. */
   async function takeBack(store, x) {
     const { person } = readHello(dec.decode(await store.read(x.helloPath)));
-    if (ctx.admin && !(await knownFolder(store, person.label))) await deleteAccount(ctx.admin, person.id.toLowerCase()).catch(() => {}); // gone already = fine
+    if (ctx.admin && !(await knownFolder(store, person.label, person.id))) await deleteAccount(ctx.admin, person.id.toLowerCase()).catch(() => {}); // gone already = fine
     return backToHello(store, x.helloPath);
   }
   /**

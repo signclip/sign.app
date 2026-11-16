@@ -3,8 +3,8 @@
 //
 // Depends:   1-model/filename, join.js
 // Test:      tests/join.test.mjs
-// Limits:    matches by the name label: two persons with one label look alike, the first folder wins (the admin
-//            decides by eye); one list of within/ per look.
+// Limits:    an ID matches only by the ID; the name only offers candidates for the Doppel (16.11.: the admin decides by
+//            eye: ↑ = same person as the one above, Doppel squeezed away + ↑ = a new account); one list of within/ per look.
 
 import { readName } from '../1-model/filename.js';
 import { withHello, readHello } from './join.js';
@@ -17,11 +17,23 @@ const timeOf = (p) => readName(nameOf(p))?.time ?? '';
 const under = async (store, base) => (await store.list(`${base}/`).catch(() => [])).map((f) => f.path);
 const within = (store) => under(store, 'within');
 
-/** The account folder in within/ ('@(Lena)!(n_…)'): by the person's ID first (back from her paper, 15.11.), else by name; or null. */
+const folders = async (store) => [...new Set((await within(store)).map((x) => x.split('/')[1]).filter(Boolean))];
+const hasId = (folder, id) => folder.toLowerCase().endsWith(`!(${id.toLowerCase()})`);
+
+/**
+ * The account folder in within/ ('@(Lena)!(n_…)') or null. With an ID only by the ID (back from her paper, 15.11.;
+ * 16.11.: two persons with one name stay two accounts). Without an ID by name (older hellos).
+ */
 export async function knownFolder(store, label, id = null) {
-  const all = await within(store);
-  const p = (id && all.find((x) => x.split('/')[1]?.toLowerCase().endsWith(`!(${id.toLowerCase()})`))) || all.find((x) => x.startsWith(`within/@(${label})!(`));
-  return p ? p.slice(7, p.indexOf('/', 7)) : null;
+  const all = await folders(store);
+  return (id ? all.find((f) => hasId(f, id)) : all.find((f) => f.startsWith(`@(${label})!(`))) ?? null;
+}
+
+/** Every account a hello may belong to, for the Doppel (16.11.): her ID first, then each folder of the same name. */
+export async function candidates(store, label, id = null) {
+  const all = await folders(store);
+  const byId = id ? all.filter((f) => hasId(f, id)) : [];
+  return [...byId, ...all.filter((f) => f.startsWith(`@(${label})!(`) && !byId.includes(f))];
 }
 /** The account (Nextcloud user) behind a folder: its n_, small. */
 export const userOf = (folder) => /!\(([^()]*)\)$/.exec(folder)?.[1]?.toLowerCase() ?? null;
@@ -47,13 +59,13 @@ export async function firstPieces(store, folder) {
 }
 
 /**
- * A hello's takes for the admin's eye: name sign first, then its password gestures; if an account of that name is
- * known, each one carries the original of the same piece (pair) → [{ path, pair }], and the folder (or null).
+ * A hello's takes for the admin's eye: name sign first, then its password gestures; if an account of that ID or name is
+ * known, each one carries the original of the same piece (pair) → { takes: [{ path, pair }], folder, candidates }.
  */
 export async function helloTakes(store, hello) {
   const id = await store.read(hello.helloPath).then((b) => readHello(dec.decode(b)).person.id).catch(() => null);
-  const folder = await knownFolder(store, hello.name, id);
+  const all = await candidates(store, hello.name, id), folder = all[0] ?? null; // the Doppel starts with the first; ← → the others
   const first = folder ? await firstPieces(store, folder) : new Map();
   const takes = (await withHello(store, hello.helloPath)).filter(visual).map((path) => ({ path, pair: first.get(pieceOf(path)) ?? null }));
-  return { takes, folder };
+  return { takes, folder, candidates: all };
 }

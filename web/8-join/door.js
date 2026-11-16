@@ -6,7 +6,7 @@
 //
 // Depends:   1-model/filename, state.js, join.js, known.js
 // Test:      tests/join.test.mjs
-// Limits:    one list of the door per look; piles by name label (two persons with one label: one folder).
+// Limits:    one list of the door per look; an account folder by ID or by the admin's choice in the Doppel (16.11.).
 
 import { buildName, readName, timeLabel } from '../1-model/filename.js';
 import { withState, nameOf, accountFolder } from './state.js';
@@ -41,10 +41,11 @@ const groupOf = async (store, helloPath) => {
  * join ↑: hello and its takes into the account folder (a known one for a new device). The answer stays in join/:
  * the device reads it there through the door; once its ((join)) is in hello/, groupUpkeep moves both after (15.11.).
  */
-export async function toWithin(store, helloPath) {
+export async function toWithin(store, helloPath, { into } = {}) { // into: the account the admin confirmed in the Doppel (16.11.), null = her own new one
   const { person, files } = await groupOf(store, helloPath);
   const answer = files.find((p) => p.startsWith('join/'));
-  return moveAll(store, files.filter((p) => p !== answer), 'within', (await knownFolder(store, person.label, person.id)) ?? accountFolder(person), 'within');
+  const folder = into !== undefined ? into : await knownFolder(store, person.label, person.id);
+  return moveAll(store, files.filter((p) => p !== answer), 'within', folder ?? accountFolder(person), 'within');
 }
 
 /** join ↓: answer and hello to quiet/; the again-note in join/ tells the device to say hello anew (new takes). */

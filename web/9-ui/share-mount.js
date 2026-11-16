@@ -83,6 +83,10 @@ async function clipboardText() {
  * project: { label, read, drop } the project's door (project.json): the first join, without a group text.
  * → { show(on), afterTake(paths), runRules(), dropKind(n, kind) }
  */
+/** Where a person looked at may go by a tap on a pile (16.11.): on and back. within ↓ quiet goes by carry (it asks first), quiet ↓ never by tap. */
+const HELD_UP = { hello: 'join', join: 'within', quiet: 'within' };
+const HELD_DOWN = { hello: 'quiet', join: 'hello' };
+
 export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, helloTakes = async () => [], project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {}, onLookAll = () => {}, words = () => [], index = () => null }) {
   const s = {
     entries: [], // the sharing points of the list in force
@@ -551,6 +555,18 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       const { go } = s.carry; s.carry = null; s.pulse = null; draw();
       return go().then(() => { navigator.vibrate?.(20); return refreshDoor(); }, () => { navigator.vibrate?.([40, 40, 40]); say(t('notReachable')); });
     }
+    if (what === 'hello' && s.held) { // a person looked at, then the menu (16.11., user: hello angesehen → tap on join = account + answer)
+      const h = s.held, pile = s.piles?.[Number(a)]?.pile, go = pile === HELD_UP[h.pile] ? h.up : pile === HELD_DOWN[h.pile] ? h.down : null;
+      if (go) {
+        s.held = null; s.pulse = null; draw();
+        return go().then(() => { navigator.vibrate?.(20); return refreshDoor(); }, (err) => {
+          navigator.vibrate?.([40, 40, 40]);
+          const why = String(err?.message ?? err).slice(0, 60);
+          debugNote({ method: 'door', where: `${h.pile} → ${pile}`, error: why, ms: 0 });
+          say(why);
+        });
+      }
+    }
     if (what === 'hello') return lookPile(s.piles?.[Number(a)]?.pile); // tap = this pile as Similar tiles (15.11.)
     if (what === 'accept-there') {
       const { url } = s.acceptThere;
@@ -882,7 +898,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   setTimeout(() => resumeLogin(ctx).catch(() => {}), 1500); // a login left open when Android closed the app: it goes on
   function show(on) {
     panel.hidden = !on;
-    if (!on) { s.pending = null; if (s.carry) { s.carry = null; s.pulse = null; } } // closed: nothing prepared waits, nobody carried
+    if (!on) { s.pending = null; s.held = null; if (s.carry) { s.carry = null; s.pulse = null; } } // closed: nothing prepared waits, nobody carried
     if (on) { s.appear = true; draw(); look(); loadApps().catch(() => {}); }
   }
   /** One step back (Android back, → in the accounts): an account → the accounts → closed. → true if it stepped */
@@ -898,6 +914,16 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   return {
     show,
     back,
+    /**
+     * Admin (16.11.): the person just looked at, when the menu opens: the pile she may go on to breathes, a tap moves her
+     * (hello → join = account + answer in join/, join → within, quiet → within; back: hello → quiet, join → hello).
+     */
+    hold(held) {
+      s.held = held?.pile ? held : null;
+      const to = s.held && HELD_UP[s.held.pile];
+      if (to) s.pulse = `hello:${s.piles?.findIndex((p) => p.pile === to) ?? -1}`;
+      return draw();
+    },
     /** Admin (16.11.): a person to move by hand – the sharing menu opens, the target pile breathes, a tap on it moves her. */
     carry(to, go) {
       s.carry = { to, go };

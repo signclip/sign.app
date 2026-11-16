@@ -126,7 +126,8 @@ export async function groupUpkeep(store) {
     try {
       const text = new TextDecoder().decode(await store.read(h)), head = readFile(text).head;
       const person = markers.includes(h) ? { id: head.id.n, label: head['@'] } : readHello(text).person;
-      await advance({ store, person, folder: (await knownFolder(store, label, person.id)) ?? undefined }); // a known name: into her account folder
+      const chosen = hellos.includes(h) ? choices.get(h) : undefined; // the admin's choice in the Doppel (16.11.)
+      await advance({ store, person, folder: (chosen !== undefined ? chosen : await knownFolder(store, label, person.id)) ?? undefined }); // her account folder: chosen, else by ID
     } catch { /* wait */ }
   }
   for (const p of paths.filter((x) => first(x) === 'quiet').slice(0, 20)) {
@@ -134,15 +135,32 @@ export async function groupUpkeep(store) {
   }
 }
 
-/** Signer: tap on a hello circle = welcome: both links sealed for that device. */
-export async function welcome(ctx, { n, helloPath, store = null }) {
+/**
+ * The admin's choice in the Doppel (16.11.), kept on the admin device by the u_ of the hello: the account folder above
+ * that ↑ confirmed (same person), or '' = Doppel squeezed away, a new account. join ↑ and the upkeep follow it later.
+ * Limits: ≤ 500 choices kept, the oldest go first; another admin device does not know them (it falls back to the ID).
+ */
+const uOfHello = (helloPath) => readName(helloPath.slice(helloPath.lastIndexOf('/') + 1))?.u ?? helloPath;
+export const choices = {
+  read() { try { return JSON.parse(globalThis.localStorage?.getItem('sign.into') || '{}'); } catch { return {}; } },
+  get(helloPath) { const v = this.read()[uOfHello(helloPath)]; return v === undefined ? undefined : v || null; },
+  set(helloPath, into) {
+    if (into === undefined) return;
+    const all = Object.entries({ ...this.read(), [uOfHello(helloPath)]: into ?? '' }).slice(-500);
+    try { globalThis.localStorage?.setItem('sign.into', JSON.stringify(Object.fromEntries(all))); } catch { /* private mode */ }
+  },
+};
+
+/** Signer: tap on a hello circle = welcome: both links sealed for that device. into (admin, 16.11.): the account confirmed in the Doppel, null = new. */
+export async function welcome(ctx, { n, helloPath, store = null }, { into } = {}) {
   const sp = { ...ctx.s.open.get(n), ...(store ? { store } : {}) }; // the door's folder when the admin welcomes (15.11.)
   const g = groupOf(ctx, sp.entry.label);
   const sharingPoints = g ? [g.read, g.drop].map((x) => ({ label: x.label, path: ctx.s.entries[x.n - 1].path, id: null })) : [];
   if (ctx.admin) { // the admin app (14.11.): an own account for the person (QUOTA), its app password sealed into the answer
     await describeJoin(sp.store); // the signer's keys readable through the door
     const asker = readHello(new TextDecoder().decode(await sp.store.read(helloPath))).person;
-    const known = await knownFolder(sp.store, asker.label, asker.id); // a known person on a new device (15.11.): by her ID (paper), else her name; her account, a new app password
+    const known = into !== undefined ? into : await knownFolder(sp.store, asker.label, asker.id); // the admin's choice in the Doppel (16.11.), else her ID (paper); her account, a new app password
+    choices.set(helloPath, into); // join ↑ and the upkeep follow the same choice
     if (known) await welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: userOf(known) });
     else await welcomeWithAccount({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, quota: ctx.quota ?? QUOTA, atlas: ctx.atlasUser, group: ctx.group })
       .catch(async (e) => { // the account is there already (welcomed once, sent back from join): only a new device password

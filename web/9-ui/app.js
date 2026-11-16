@@ -30,7 +30,7 @@
 // Limits:    Whisper only after a take (live and keywords: EXTEND(S2, live)); one take records at a time; one property
 //            held at a time. Every row of the gesture table has a case below, wired or EXTEND (tests/ui).
 
-import { accountTakes } from '../8-join/known.js'; // the search in within/ for one person (16.11.)
+import { accountTakes, pieceOf } from '../8-join/known.js'; // the search in within/ for one person (16.11.)
 import { PASSWORD_PARTS } from '../8-join/flow.js'; // the pieces of a hello's password gestures
 import './persons-boot.js'; // first: several persons on this device (persons.js)
 import { translator } from '../0-i18n/t.js';
@@ -724,6 +724,23 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     v.pause(); v.removeAttribute('src'); v.hidden = true;
   }
   /** Admin, in Doppel: move the person this take belongs to one pile on (up) or back (down); her takes leave, the next one shows. */
+  /**
+   * Admin, ↑ on a hello (16.11., user): the Doppel decides. The account above still shown = same person, the hello joins
+   * it; the Doppel squeezed away (or none) = a new account. Other piles: nothing to choose (undefined).
+   */
+  function intoOf(at) {
+    if (at.pile !== 'hello' || !at.candidates?.length) return undefined;
+    const shown = data.double?.startsWith('cmp:') ? data.compare?.[Number(data.double.slice(4))] : null;
+    return { into: shown?.folder ?? null };
+  }
+  /** The menu opens while a person is looked at (16.11.): she is held there, a tap on the next pile moves her (share-mount hold). */
+  function holdLooked() {
+    const tile = data.look?.[data.lookAt ?? data.doubleAt ?? (data.look?.length === 1 ? 0 : -1)];
+    const at = tile?.pieces?.[data.pieceAt ?? 0] ?? tile;
+    if (!at?.up && !at?.down) return;
+    const into = intoOf(at); // the Doppel as it is now: the menu may close Similar
+    menu.hold({ pile: at.pile, up: at.up && (() => at.up(into)), down: at.down && (() => at.down({})) });
+  }
   async function decide(how) {
     const tile = data.look?.[data.lookAt ?? data.doubleAt ?? (data.look?.length === 1 ? 0 : -1)]; // one person only: no tap needed first
     const at = tile?.pieces?.[data.pieceAt ?? 0] ?? tile; // the hello of the piece on the button (a name may have several)
@@ -735,7 +752,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     }
     navigator.vibrate?.(how === 'up' ? 20 : [12, 50, 12]); // felt at once: on = one pulse, back = two
     let r;
-    try { r = await at[how](how === 'down' ? data.deleteChoices ?? {} : undefined); } catch (err) { // it stays, three pulses, and why as a chip (16.11.)
+    try { r = await at[how](how === 'down' ? data.deleteChoices ?? {} : intoOf(at)); } catch (err) { // it stays, three pulses, and why as a chip (16.11.)
       navigator.vibrate?.([40, 40, 40]);
       const why = String(err?.message ?? err).slice(0, 60);
       debugNote({ method: 'door', where: `${at.pile ?? ''} ${how}`, error: why, ms: 0 });
@@ -839,7 +856,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const v = $('#replay'), t = $('#template');
     // 16.11.: comparing = a second search, only in the sharing point within/, for this person (her ID, else her name):
     // its results are the Similar tiles now; the one of the same piece plays in the Doppel. Squeezed back = the hellos again.
-    data.compare = known ? (await accountTakes(x.from, x.known).catch(() => [])).map((path) => ({ path, from: x.from })) : null;
+    const accounts = known ? (x.candidates?.length ? x.candidates : [x.known]) : []; // 16.11.: every account of her ID or name, ← → goes through them
+    data.compare = known ? (await Promise.all(accounts.map(async (folder) => (await accountTakes(x.from, folder).catch(() => [])).map((path) => ({ path, from: x.from, folder, piece: pieceOf(path) }))))).flat() : null;
     for (const k of [...thumbs.keys()]) if (k.startsWith('cmp:')) thumbs.delete(k);
     data.double = known && data.compare.length ? 'cmp:0' : null; // without an original Similar stays as the hellos
     const items = x.pieces.map((p) => ({ store: p.from, path: p.path }));
@@ -852,9 +870,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (data.lookAt !== i || data.look?.[i] !== x) { v.onended = null; return; } // another tile, or Similar closed
       const p = x.pieces[j % x.pieces.length];
       await show(p.path, p.from); v.loop = false; v.muted = false;
-      const at = data.compare?.findIndex((c) => c.path === p.pair) ?? -1; // the result of the same piece
+      const shown = data.double?.startsWith('cmp:') ? data.compare?.[Number(data.double.slice(4))]?.folder : null; // the account above stays as chosen (← →)
+      const piece = pieceOf(p.path), at = shown ? data.compare.findIndex((c) => c.folder === shown && c.piece === piece) : -1; // its take of the same piece
       if (known && at >= 0) {
-        t.src = URL.createObjectURL(new Blob([await p.from.read(p.pair)], { type: 'video/mp4' })); t.loop = true; t.muted = true; delete t.dataset.picture; t.poster = posterOf(p.pair); t.play().catch(() => {});
+        const pair = data.compare[at].path;
+        t.src = URL.createObjectURL(new Blob([await p.from.read(pair)], { type: 'video/mp4' })); t.loop = true; t.muted = true; delete t.dataset.picture; t.poster = posterOf(pair); t.play().catch(() => {});
         data.double = `cmp:${at}`;
       }
       data.pieceAt = j % x.pieces.length; data.line = { ...data.line, at: data.pieceAt };
@@ -1216,7 +1236,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         return null;
       case 'similar-in': return openMany(); // the cloud flies in
       case 'similar-out': return closeSimilar();
-      case 'share-last': if (take.recorder || take.starting) await end(); take.shareOnce = null; take.shareChain = null; step('share-last'); return menu.show(true); // ↑ on the point: the sharing points as circles
+      case 'share-last': if (data.look) holdLooked(); if (take.recorder || take.starting) await end(); take.shareOnce = null; take.shareChain = null; step('share-last'); return menu.show(true); // ↑ on the point: the sharing points as circles
       case 'always-there': return menu.dropKind(hit.n, hit.kind);
       // 16.11.: no full screen by ↑ / ↓ any more
       // ---------- the line in its arc, the chain under it ----------
@@ -1257,7 +1277,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'similar-nearer': return st.similar ? null : openMany(); // spread above the take: the cloud comes; on it the pinch already sized it
       case 'similar-farther': if (st.similar && data.look && data.top && (data.cloud?.s ?? 1) < CLOUD_GONE) { delete data.top; data.lookAt = null; data.cloud = null; showSimilar(true); return paint(); } // her line: squeezed = all hellos again (the line stays)
         return st.similar && !data.double && (data.cloud?.s ?? 1) < CLOUD_GONE ? closeSimilar() : null; // squeezed small enough: away
-      case 'share-in': take.shareOnce = null; take.shareChain = null; return menu.show(true); // pulled in from the middle right
+      case 'share-in': if (data.look) holdLooked(); take.shareOnce = null; take.shareChain = null; return menu.show(true); // pulled in from the middle right
       case 'share-out': return menu.show(false);
       case 'context-open': data.insertAt = null; paint(); return (data.open ?? 0) > 0.5 ? null : openContext(true); // under the take: open, write at the end
       case 'write-here': data.insertAt = hit.queue; paint(); return (data.open ?? 0) > 0.5 ? say.focus() : openContext(true); // a spot in the row: write there (the keyboard stays)
@@ -1280,7 +1300,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'look-down': return decide('down'); // admin: ↓ = back a pile (join → hello anew, within → quiet)
       case 'reference-next': case 'reference-before': { // ← next · → before, in the order of the tiles
         const n = data.similar.length;
-        return n ? reference((data.doubleAt + (row.action === 'reference-next' ? 1 : -1) + n) % n) : null;
+        const from = data.compare && data.double?.startsWith('cmp:') ? data.similar.indexOf(data.double) : data.doubleAt; // in the Doppel: from the account shown above (16.11.; doubleAt stays the hello)
+        return n ? reference((from + (row.action === 'reference-next' ? 1 : -1) + n) % n) : null;
       }
       // 16.11.: no full screen of a Similar tile any more (one could not get out of it with gestures)
       case 'share': { // ↑ on an element of the line: that take goes to the sharing points (the menu, as for the last take)
