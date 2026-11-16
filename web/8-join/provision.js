@@ -24,6 +24,9 @@ export const QUOTAS = ['10 GB', '25 GB', '50 GB', '100 GB', '250 GB', '500 GB', 
 
 export const GROUP = 'Sign'; // the Nextcloud group of every Sign account (14.11.: Admin, Atlas and the group Sign exist)
 
+/** OCS answers HTTP 200 also when it refused (16.11.): v1 says yes only with 100, v2 with 200; 101–107 = no (102 = exists, 104 = no such group). */
+export const okCode = (c) => c == null || c === 100 || c === 200;
+
 export async function createAccount(admin, person, { groups = [GROUP], quota = QUOTA, fetch = globalThis.fetch } = {}) {
   const user = person.id.toLowerCase();
   const password = newPassword() + newPassword(); // 52 chars, never shown, never stored
@@ -32,8 +35,8 @@ export async function createAccount(admin, person, { groups = [GROUP], quota = Q
   const res = await fetch(`${admin.server.replace(/\/$/, '')}/ocs/v1.php/cloud/users?format=json`, {
     method: 'POST', headers: { ...ocsHeaders(basic(admin.user, admin.password)), 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(),
   });
-  const d = await res.json();
-  if (!res.ok || d.ocs?.meta?.statuscode >= 300) throw new Error(`account: ${d.ocs?.meta?.message ?? res.status}`);
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok || !okCode(d.ocs?.meta?.statuscode)) throw new Error(`account: ${d.ocs?.meta?.message || `statuscode ${d.ocs?.meta?.statuscode ?? res.status}`}`);
   if (quota) {
     await fetch(`${admin.server.replace(/\/$/, '')}/ocs/v1.php/cloud/users/${encodeURIComponent(user)}?format=json`, {
       method: 'PUT', headers: { ...ocsHeaders(basic(admin.user, admin.password)), 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ key: 'quota', value: quota }).toString(),
@@ -55,7 +58,7 @@ const ocs = async (admin, path, { method = 'GET', body = null, fetch = globalThi
     method, headers: { ...ocsHeaders(basic(admin.user, admin.password)), ...(body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) }, body,
   });
   const d = await res.json().catch(() => ({}));
-  if (!res.ok || d.ocs?.meta?.statuscode >= 300) throw new Error(`${path}: ${d.ocs?.meta?.message ?? res.status}`);
+  if (!res.ok || !okCode(d.ocs?.meta?.statuscode)) throw new Error(`${path}: ${d.ocs?.meta?.message || `statuscode ${d.ocs?.meta?.statuscode ?? res.status}`}`);
   return d.ocs.data;
 };
 

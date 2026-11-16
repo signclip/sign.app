@@ -591,6 +591,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const offerText = (o) => (o.items ? o.items.map((c) => c.text).join(' ') : o.text);
   /** An offer taken (14.11.): it joins my context for this take, as written there (one gesture, in front of the series). */
   function adopt(text) {
+    if ((data.offers ?? []).some((o) => o.origin === 'error' && o.text === text)) { data.offers = data.offers.filter((o) => o.text !== text); return paint(); } // a message: tapped = gone
     data.offers = (data.offers ?? []).filter((o) => offerText(o) !== text);
     data.adopted = [...(data.adopted ?? []), text]; // goes into the next take's context
     setChips([...data.chips.filter((c) => !c.stable), { text }]);
@@ -701,7 +702,13 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     }
     navigator.vibrate?.(how === 'up' ? 20 : [12, 50, 12]); // felt at once: on = one pulse, back = two
     let r;
-    try { r = await at[how](how === 'down' ? data.deleteChoices ?? {} : undefined); } catch { navigator.vibrate?.([40, 40, 40]); return null; } // not reachable: it stays, three pulses
+    try { r = await at[how](how === 'down' ? data.deleteChoices ?? {} : undefined); } catch (err) { // it stays, three pulses, and why as a chip (16.11.)
+      navigator.vibrate?.([40, 40, 40]);
+      const why = String(err?.message ?? err).slice(0, 60);
+      debugNote({ method: 'door', where: `${at.pile ?? ''} ${how}`, error: why, ms: 0 });
+      data.offers = [...(data.offers ?? []).filter((o) => o.origin !== 'error'), { text: why, offer: true, origin: 'error' }];
+      return paint();
+    }
     if (r === 'wait') { // asks first (15.11.): Backup · Modell as chips (tap = yes), the same gesture again within 15 s = delete for good
       navigator.vibrate?.(250);
       data.deleteChoices = { backup: false, model: false };
@@ -709,6 +716,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       return paint();
     }
     data.deleteChoices = null; if (data.offers?.some((o) => o.origin === 'delete')) data.offers = [];
+    feedback('saved'); // moved: the green ring goes out from the point (16.11.)
     const rest = data.look.filter((x) => x.group !== at.group);
     data.compare = null;
     if (!rest.length) { pairOff(); return closeSimilar(); }
