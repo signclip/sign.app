@@ -18,9 +18,10 @@ import { passes, ordered, byPerson, MANY } from './similar-view.js';
 import { nowWords } from './chips.js';
 import { readContext } from '../1-model/context.js';
 import { msOf } from '../1-model/time.js';
+import { accountTakes } from '../8-join/known.js';
 
 export function similarFlow(A) {
-  const s = { look: null, entries: [], loading: new Set(), playing: null };
+  const s = { look: null, entries: [], loading: new Set(), playing: null, cmp: null };
 
   /** The take chain that holds a strand (x) key, from the index. */
   const chainOf = (key) => {
@@ -34,7 +35,7 @@ export function similarFlow(A) {
   /** Results now, as view entries (pictures and chips fill in later). */
   function compute() {
     const f = A.st.filters;
-    if (s.look) return ordered(s.look.filter((e) => passes(e, f)), f);
+    if (s.look) { choices(s.look); return ordered(s.look.filter((e) => passes(e, f)), f); }
     const hits = similar(A.index, { words: f.on.x ? words() : [], limit: MANY });
     const list = hits.map((h) => {
       const head = h.entry.head ?? {};
@@ -42,7 +43,20 @@ export function similarFlow(A) {
       return old ?? { key: h.key, words: [], t: (() => { try { return msOf(String(head["'t"] ?? '')) || 0; } catch { return 0; } })(), person: head['@'] ?? '', sharing: [h.entry.from?.store].filter(Boolean), spot: head.o ?? null, thumb: null, chain: chainOf(h.key) };
     });
     const seen = new Set(), one = list.filter((e) => { const k = e.chain?.key ?? e.key; if (seen.has(k)) return false; seen.add(k); return true; }); // a take once, however many of its strands matched
-    return ordered(one.filter((e) => passes(e, f)), f);
+    const own = (c) => !c || [...c.defs.values()].some((d) => ['v', 'a', 'x', 'l'].includes(d.kind)); // a line (only references to takes) is no result of its own (17.11.: every take showed twice)
+    const takes = one.filter((e) => own(e.chain));
+    choices(takes);
+    return ordered(takes.filter((e) => passes(e, f)), f);
+  }
+
+  /**
+   * What the selection views offer to choose (17.11., they were empty): every name, sharing point and spot among the
+   * results before the selection narrows them, so a choice can always be taken back. ≤ 12 each (the strip).
+   */
+  function choices(all) {
+    const uniq = (xs) => [...new Set(xs.filter(Boolean))].slice(0, 12).map((x) => ({ id: x, label: x }));
+    const stores = (A.sources ?? []).map((x) => x.name);
+    A.data.similarLists = { ...(A.data.similarLists ?? {}), names: uniq(all.map((e) => e.person)), sharing: uniq([...stores, ...all.flatMap((e) => e.sharing ?? [])]), spots: uniq(all.map((e) => e.spot)) };
   }
 
   async function fill(list) {
@@ -76,24 +90,79 @@ export function similarFlow(A) {
     s.look = byPerson(items.map((x) => ({ ...x, person: x.name ?? '' }))).map((g, i) => ({ key: `look:${i}`, person: g.person, words: [g.person].filter(Boolean), t: 0, sharing: [], pieces: g.entries, thumb: null }));
     A.dispatch({ type: 'similar', level: 'many' });
     refresh();
+    s.entries = compute(); A.data.entries = s.entries; // the tiles are there before one is picked
     const known = s.look.findIndex((e) => e.pieces.some((p) => p.pair || p.candidates?.length));
     if (known >= 0) pick(s.look[known].key);
   }
 
-  /** A tile tapped: the double view, it plays (a person's pieces one after another, from the first). */
+  /**
+   * A tile tapped: the double view, it plays (a person's pieces one after another, from the first).
+   * A hello whose person may be known already (her ID, or her name: known.js candidates), 16.11./17.11.: the account that
+   * exists plays above (its first name sign and password gestures), the new device's takes play below in the take window.
+   * ← → above = the next account of that name · ↑ on the button = the same person (her account, a new app password) ·
+   * the double view squeezed away, then ↑ = a new account.
+   */
   async function pick(key) {
     A.dispatch({ type: 'pick', key });
     const e = s.entries.find((x) => x.key === key);
-    const queue = e?.pieces ? e.pieces.map((p) => ({ store: p.from, path: p.path })) : e?.at ? [e.at] : [];
-    s.playing = { key, queue, i: 0 };
+    const mine = e?.pieces ? e.pieces.map((p) => ({ store: p.from, path: p.path })) : e?.at ? [e.at] : [];
+    const folders = e?.pieces?.[0]?.pile === 'hello' ? e.pieces[0].candidates ?? [] : [];
+    s.cmp = folders.length ? { key, folders, i: 0, from: e.pieces[0].from, mine } : null;
+    if (s.cmp) { playBelow(mine); return showCandidate(); }
+    stopBelow();
+    tell();
+    s.playing = { key, queue: mine, i: 0 };
     A.paint();
     await play();
+  }
+  /** The account above: its takes from within/, oldest first. */
+  async function showCandidate() {
+    const c = s.cmp;
+    if (!c) return;
+    const folder = c.folders[c.i];
+    const takes = await accountTakes(c.from, folder).catch(() => []);
+    if (s.cmp !== c || c.folders[c.i] !== folder) return; // moved on meanwhile
+    s.playing = { key: c.key, queue: takes.map((path) => ({ store: c.from, path })), i: 0 };
+    tell();
+    A.paint();
+    await play();
+  }
+  /** ← → on the double view: the next / the one before of the accounts that may be hers. → true if there is another */
+  function step(dir) {
+    const c = s.cmp;
+    if (!c || c.folders.length < 2) return false;
+    c.i = (c.i + (dir === 'left' ? 1 : -1) + c.folders.length) % c.folders.length;
+    navigator.vibrate?.(8);
+    showCandidate();
+    return true;
+  }
+  /** What the view shows about the comparison: the account's name, which of how many. */
+  function tell() {
+    const c = s.cmp;
+    A.data.similarLists = { ...(A.data.similarLists ?? {}), compare: c ? { label: /^@\(([^)]*)\)/.exec(c.folders[c.i])?.[1] ?? '', id: /!\(([^()]*)\)$/.exec(c.folders[c.i])?.[1]?.slice(2, 6) ?? '', i: c.i, n: c.folders.length } : null };
+  }
+  const below = () => document.querySelector('#replay');
+  /** The new takes in the take window, one after another, round and round (muted: two videos at once). */
+  async function playBelow(queue, i = 0) {
+    const v = below();
+    if (!v || !queue.length) return;
+    const { url, picture } = await A.media.playable(queue[i % queue.length]).catch(() => ({}));
+    if (!s.cmp || s.cmp.mine !== queue) return;
+    if (!url || picture) { if (queue.length > 1) setTimeout(() => playBelow(queue, i + 1), 1200); return; }
+    v.src = url; v.muted = true; v.hidden = false; v.dataset.take = 'compare'; v.loop = queue.length === 1;
+    v.onended = () => playBelow(queue, i + 1);
+    v.play().catch(() => {});
+  }
+  function stopBelow() {
+    const v = below();
+    if (v?.dataset.take === 'compare') { v.onended = null; v.pause(); v.hidden = true; delete v.dataset.take; }
   }
   async function play() {
     const v = document.querySelector('#pickvideo'), p = s.playing;
     if (!v || !p?.queue.length) return;
     const one = p.queue[p.i % p.queue.length];
     const { url, picture } = await A.media.playable(one).catch(() => ({}));
+    if (s.playing !== p) return;
     if (!url || picture) return;
     v.src = url; v.loop = p.queue.length === 1;
     v.onended = () => { p.i += 1; play(); };
@@ -106,16 +175,19 @@ export function similarFlow(A) {
     const at = e?.pieces?.[0];
     if (!at) return false;
     const pile = at.pile;
-    if (dir === 'up' && pile === 'hello') { A.engine.show(true); A.engine.hold({ pile, up: () => at.up(), down: () => at.down({}) }); A.dispatch({ type: 'share', open: true }); return true; }
+    // whose account (16.11.): the one above confirmed by ↑ · the double view squeezed away = a new one · nobody known = by her ID
+    const into = s.cmp?.key === e.key ? (A.st.similar === 'double' ? { into: s.cmp.folders[s.cmp.i] } : { into: null }) : {};
+    if (dir === 'up' && pile === 'hello') { A.engine.show(true); A.engine.hold({ pile, up: () => at.up(into), down: () => at.down({}) }); A.dispatch({ type: 'share', open: true }); return true; }
     const go = dir === 'up' ? at.up : at.down;
     if (!go) return false;
     try { await go(dir === 'down' ? {} : undefined); navigator.vibrate?.(dir === 'up' ? 20 : [12, 50, 12]); } catch (err) { navigator.vibrate?.([40, 40, 40]); A.say(String(err?.message ?? err).slice(0, 60)); }
     s.look = s.look.filter((x) => x !== e);
+    s.cmp = null; stopBelow(); tell();
     A.dispatch({ type: 'pick', key: null });
     refresh();
     return true;
   }
 
-  const close = () => { s.look = null; s.playing = null; };
-  return { refresh, lookAt, pick, decide, close, get looking() { return Boolean(s.look); } };
+  const close = () => { s.look = null; s.playing = null; s.cmp = null; stopBelow(); tell(); };
+  return { refresh, lookAt, pick, decide, close, step, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
 }

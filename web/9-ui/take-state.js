@@ -48,7 +48,7 @@ export function next(s, e) {
     case 'took': {
       const lines = addTake(s.lines, e.take, s.sticky);
       const n = lines.at(-1).takes.length;
-      return { ...s, lines, at: n, rec: 'idle', context: afterOne(s.context), wide: 0, caret: null };
+      return { ...s, lines, at: s.rec === 'idle' || s.at >= n - 1 ? n : s.at, context: afterOne(s.context), wide: 0, caret: null }; // rec stays: the next take may run already (17.11.)
     }
     case 'discard': return { ...s, rec: 'idle', wide: 0 };
     case 'clear-context': return { ...s, context: '', caret: null };

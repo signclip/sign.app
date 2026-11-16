@@ -8,9 +8,14 @@
 //            (4-save/add-line.js), this model only says which elements and where.
 //              take = { id, ms (length), thumb, context, kinds: ['v', 'a', 'x'], t (start, ms since 1970), parts? }
 //              parts = [{ id, from, to }] – what a joined or cut take is made of (references, ms inside each take)
-// Depends:   nothing
+//            A cut divides every strand at the same moment (17.11.): picture and sound by the reference '(from_to),
+//            the context by time — a word with its own time 't(from_to) (Whisper, ms inside the take) goes to the
+//            side its beginning lies on; a word without a time belongs to the whole take and stays on both sides.
+// Depends:   1-model/notation.js (the context's words and their times)
 // Test:      tests/ui.test.mjs
 // Limits:    64 elements per line (as add-line.js MAX_ELEMENTS); a cut needs ≥ MIN_PART_MS on both sides.
+
+import { parse, write } from '../1-model/notation.js';
 
 export const SERIES_GAP_MS = 10 * 60 * 1000;
 export const MAX_IN_LINE = 64;
@@ -34,7 +39,43 @@ export function addTake(lines, take, sticky = '') {
 }
 
 /** The parts a take stands for: itself whole, or what it was joined or cut from. */
-export const partsOf = (take) => take.parts ?? [{ id: take.id, from: 0, to: take.ms ?? 0 }];
+export const partsOf = (take) => take.parts ?? [{ id: take.id, from: 0, to: take.ms ?? 0, len: take.ms ?? 0 }]; // len: the whole file's length (a part that covers it needs no '( ))
+
+/** Where a moment of a take lies: which part, and the ms inside that part's file. ms is held inside the take. → { i, id, at, start } */
+export function locate(take, ms) {
+  const parts = partsOf(take);
+  let start = 0;
+  for (let i = 0; i < parts.length; i++) {
+    const len = parts[i].to - parts[i].from;
+    if (ms < start + len || i === parts.length - 1) return { i, id: parts[i].id, at: parts[i].from + Math.max(0, Math.min(len, ms - start)), start };
+    start += len;
+  }
+  return { i: 0, id: take.id, at: 0, start: 0 };
+}
+
+/** The words of a context with their times, for the timeline: [{ text, from, to }] (from null = the whole take). */
+export function contextTimes(text) {
+  let nodes = [];
+  try { nodes = parse(text ?? '').filter((n) => n.t !== 'sym'); } catch { return text ? [{ text: String(text), from: null, to: null }] : []; }
+  const label = (n) => (n.text ?? (n.letters ?? []).join('') ?? '') || write([{ ...n, meta: [] }]).replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim();
+  return nodes.map((n) => {
+    const m = /^(\d+)_(\d+)$/.exec((n.meta ?? []).find((x) => x.sym === "'t")?.value ?? '');
+    return { text: label(n), from: m ? Number(m[1]) : null, to: m ? Number(m[2]) : null };
+  });
+}
+
+/**
+ * A context divided at a moment (ms inside the take's file): → [left, right]. A word with its own time goes to the side
+ * its beginning lies on; a word without one stays on both. Text that does not parse stays whole on both sides.
+ */
+export function splitContext(text, ms) {
+  if (!text) return ['', ''];
+  let nodes;
+  try { nodes = parse(text); } catch { return [text, text]; }
+  const fromOf = (n) => { const m = /^(\d+)_(\d+)$/.exec((n.meta ?? []).find((x) => x.sym === "'t")?.value ?? ''); return m ? Number(m[1]) : null; };
+  const side = (keep) => write(nodes.filter((n) => n.t === 'sym' || keep(fromOf(n)))).trim();
+  return [side((t) => t == null || t < ms), side((t) => t == null || t >= ms)];
+}
 
 /** Join take i with take i + 1 of line n (squeezed together). → lines (unchanged if there is no neighbour) */
 export function joinTakes(lines, n, i) {
@@ -58,7 +99,9 @@ export function cutTake(lines, n, i, ms) {
     else { left.push({ ...p, to: p.from + (ms - at) }); right.push({ ...p, from: p.from + (ms - at) }); }
     at += len;
   }
-  const a = { ...take, id: `${take.id}<`, ms, parts: left }, b = { ...take, id: `${take.id}>`, ms: take.ms - ms, parts: right, thumb: null };
+  const where = locate(take, ms); // the context's times count inside the file the cut falls into
+  const [before, after] = partsOf(take).length === 1 ? splitContext(take.context, where.at) : [take.context, take.context];
+  const a = { ...take, id: `${take.id}<`, ms, parts: left, context: before }, b = { ...take, id: `${take.id}>`, ms: take.ms - ms, parts: right, context: after, thumb: null };
   return lines.map((l, j) => (j !== n ? l : { ...l, takes: [...l.takes.slice(0, i), a, b, ...l.takes.slice(i + 1)] }));
 }
 

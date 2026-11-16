@@ -31,19 +31,24 @@ export function doorOf(snap) {
 export function sharingView(snap, size, { drag = null } = {}) {
   const door = doorOf(snap);
   const hiddenDoor = door.tile && ['offer', 'sending', 'sent', 'accepted', 'loading'].includes(door.look);
-  const tiles = snap.tiles.filter((t) => !t.under && !(hiddenDoor && t.label === door.tile.label));
+  const mark = (role) => `${snap.pulse === role ? ' breathe' : ''}${snap.flash === role ? ' flash' : ''}${snap.shake === role ? ' shake' : ''}${snap.fresh?.has?.(role) ? ' appear' : ''}`;
+  // what stands in the grid: after a login or in a role's lists the choices (browse), else the sharing points, then what waits for me
+  const real = snap.tiles.filter((t) => !t.under && !(hiddenDoor && t.label === door.tile.label));
+  const tiles = snap.browse ? snap.browse.map((b, i) => ({ ...b, role: `browse:${i}`, choice: true }))
+    : [...real.map((t) => ({ ...t, role: `sp:${t.n}` })), ...(snap.incoming ?? []).map((x, i) => ({ ...x, role: `incoming:${i}`, waitsForMe: true })),
+      ...(snap.acceptThere ? [{ label: snap.acceptThere.label, role: 'accept-there', waitsForMe: true }] : [])];
   const self = snap.self ?? { id: 'me', label: snap.own };
   const accounts = [{ ...self, current: true, roleKey: `person:${self.id}` }, ...(snap.persons ?? []).map((p) => ({ ...p, roleKey: `person:${p.id}` })),
     ...(snap.accounts ?? []).map((a, i) => ({ ...a, roleKey: `account:${i}` })).filter((a) => a.role)]; // Admin, Atlas, Groups: square; my own login is my person
-  const piles = snap.hellos?.length ? Object.fromEntries(snap.hellos.map((p) => [p.pile, p.count ?? 0])) : null;
+  const piles = snap.hellos?.length && !snap.browse ? Object.fromEntries(snap.hellos.map((p) => [p.pile, p.count ?? 0])) : null;
   const native = snap.apps?.length ? snap.apps.slice(0, 5).map((a, i) => ({ id: a.glyph ?? (/mail|gm/i.test(a.pkg ?? '') ? 'mail' : /bluetooth/.test(a.pkg ?? '') ? 'bluetooth' : 'messenger'), label: a.label ?? a.glyph, i, role: `app:${i}` }))
     : [{ id: 'save', role: 'web:save' }, { id: 'more', role: 'out:system' }]; // the web: save as download, the system's share sheet
-  const L = menuLayout({ accounts, tiles, piles, native, join: door.look }, size);
+  const L = menuLayout({ accounts, tiles, piles, native: snap.apps?.length ? [] : native, join: door.look }, size);
   const html = [], svg = [];
-  for (const a of L.accounts) html.push(`<span class="acc${a.square ? ' square' : ''}${a.current ? ' current' : ''}${a.joined === 'waiting' ? ' waiting' : ''}" data-role="${a.roleKey}" style="left:${f1(a.x - a.s / 2)}px;top:${f1(a.y - a.s / 2)}px;width:${f1(a.s)}px;height:${f1(a.s)}px">${esc(String(a.label ?? '?').charAt(0).toUpperCase())}</span>`);
-  html.push(`<span class="plus${snap.clip === 'ready' ? ' ready' : ''}" data-role="add:new" style="left:${f1(L.plus.x - L.plus.s / 2)}px;top:${f1(L.plus.y - L.plus.s / 2)}px;width:${f1(L.plus.s)}px;height:${f1(L.plus.s)}px">+</span>`);
+  for (const a of L.accounts) html.push(`<span class="acc${a.square ? ' square' : ''}${a.current ? ' current' : ''}${a.joined === 'waiting' ? ' waiting' : ''}${mark(a.roleKey)}" data-role="${a.roleKey}" style="left:${f1(a.x - a.s / 2)}px;top:${f1(a.y - a.s / 2)}px;width:${f1(a.s)}px;height:${f1(a.s)}px">${esc(String(a.label ?? '?').charAt(0).toUpperCase())}</span>`);
+  html.push(`<span class="plus${snap.clip === 'ready' ? ' ready' : ''}${mark('add:new')}" data-role="add:new" style="left:${f1(L.plus.x - L.plus.s / 2)}px;top:${f1(L.plus.y - L.plus.s / 2)}px;width:${f1(L.plus.s)}px;height:${f1(L.plus.s)}px">+</span>`);
   const d = L.device;
-  html.push(`<div class="tile device" data-role="sp:0" style="left:${f1(d.x)}px;top:${f1(d.y)}px;width:${f1(d.s)}px;height:${f1(d.s)}px"></div>`);
+  html.push(`<div class="tile device${mark('sp:0')}" data-role="sp:0" style="left:${f1(d.x)}px;top:${f1(d.y)}px;width:${f1(d.s)}px;height:${f1(d.s)}px"></div>`);
   html.push(`<span class="bubble-acc back" data-role="dev:all" style="left:${f1(d.back.x - d.back.r)}px;top:${f1(d.back.y - d.back.r)}px;width:${f1(2 * d.back.r)}px;height:${f1(2 * d.back.r)}px"></span>`);
   html.push(`<span class="bubble-acc front" data-role="dev:new" style="left:${f1(d.front.x - d.front.r)}px;top:${f1(d.front.y - d.front.r)}px;width:${f1(2 * d.front.r)}px;height:${f1(2 * d.front.r)}px">${esc(cut(self.label, 9))}</span>`);
   if (door.tile && door.look !== 'none' && door.look !== 'joined') {
@@ -56,13 +61,16 @@ export function sharingView(snap, size, { drag = null } = {}) {
       html.push(`<span class="way-bubble join ${look}" data-role="sp:${door.tile.n}" style="left:${f1(j.x - j.r)}px;top:${f1(j.y - j.r)}px;width:${f1(2 * j.r)}px;height:${f1(2 * j.r)}px">join</span>`);
     }
   }
-  for (const p of L.piles) html.push(`<div class="pile${p.n ? '' : ' faint'}" data-role="hello:${(snap.hellos ?? []).findIndex((x) => x.pile === p.pile)}" style="left:${f1(p.x)}px;top:${f1(p.y)}px;width:${f1(p.s)}px;height:${f1(p.s)}px"><b>${p.pile}</b><em>${p.n}</em></div>`);
+  for (const p of L.piles) html.push(`<div class="pile${p.n ? '' : ' faint'}${mark(`hello:${(snap.hellos ?? []).findIndex((x) => x.pile === p.pile)}`)}" data-role="hello:${(snap.hellos ?? []).findIndex((x) => x.pile === p.pile)}" style="left:${f1(p.x)}px;top:${f1(p.y)}px;width:${f1(p.s)}px;height:${f1(p.s)}px"><b>${p.pile}</b><em>${p.n}</em></div>`);
   for (const t of L.tiles) {
     const c = { x: t.x + t.s / 2, y: t.y + t.s / 2 }, r = t.s / 2 + 5;
-    const joined = door.look === 'joined' && /\/Sign/.test(t.path ?? '') ? ' mine' : '';
-    html.push(`<div class="tile ${t.state ?? ''}${t.encrypted ? ' sealed' : ''}${t.shown ? ' shown' : ''}${joined}" data-role="sp:${t.n}" style="left:${f1(t.x)}px;top:${f1(t.y)}px;width:${f1(t.s)}px;height:${f1(t.s)}px"><span>${esc(cut(t.label))}</span></div>`);
+    const box = `style="left:${f1(t.x)}px;top:${f1(t.y)}px;width:${f1(t.s)}px;height:${f1(t.s)}px"`;
+    if (t.choice) { html.push(`<div class="tile choice${t.found ? ' breathe found' : ''}${t.faint ? ' faint' : ''}${mark(t.role)}" data-role="${t.role}" ${box}><span>${esc(cut(t.label, 22))}</span>${t.sub ? `<small>${esc(cut(t.sub, 16))}</small>` : ''}</div>`); continue; }
+    if (t.waitsForMe) { html.push(`<div class="tile waits breathe${mark(t.role)}" data-role="${t.role}" ${box}><span>${esc(cut(t.label))}</span></div>`); continue; }
+    const mine = door.look === 'joined' && /\/Sign\/?$/.test(t.path ?? '') ? ' mine' : '';
+    html.push(`<div class="tile ${t.state ?? ''}${t.encrypted ? ' sealed' : ''}${t.shown ? ' shown' : ''}${mine}${snap.focus === t.n ? ' focus' : ''}${mark(t.role)}" data-role="${t.role}" ${box}><span>${esc(cut(t.label))}</span></div>`);
     for (const [k, [a, b]] of Object.entries(TILE_ARCS)) {
-      const on = (t.consent ?? []).includes(k) || (t.kinds ?? []).includes(k);
+      const on = (t.consent ?? []).includes(k) || (t.kinds ?? []).includes(k) || ((t.always || t.alwaysAll) && !(t.kinds ?? []).length);
       svg.push(`<path class="tile-arc ${on ? 'on' : 'off'}" d="${arcPath(c.x, c.y, r, a + 4, b - 4)}"/><path class="hit" data-role="sp-kind:${t.n}:${k}" d="${arcPath(c.x, c.y, r, a + 4, b - 4)}"/>`);
     }
     if (t.always || t.alwaysAll || t.backupOwn) {
@@ -72,7 +80,33 @@ export function sharingView(snap, size, { drag = null } = {}) {
     for (const to of t.copyTo ?? []) { const o = L.tiles.find((x) => x.n === to); if (o) svg.push(`<path class="flow new" d="${bridge(c, { x: o.x + o.s / 2, y: o.y + o.s / 2 })}"/>`); }
   }
   for (const n of L.native) html.push(`<span class="native" data-role="${n.role}" style="left:${f1(n.x)}px;top:${f1(n.y)}px;width:${f1(n.s)}px;height:${f1(n.s)}px">${GLYPH[n.id] ?? esc(String(n.label ?? '').charAt(0))}</span>`);
+  if (snap.apps?.length) html.push(appRow(snap.apps, L.k)); // the native app: every app that takes a share, side by side, sliding (as until 16.11.)
+  if (snap.confirm) html.push(confirmHtml(snap.confirm, size, L.k));
   if (snap.note) html.push(`<div class="menu-note" data-role="note">${esc(snap.note)}</div>`);
   if (drag) svg.push(`<path class="carry ${drag.from === 'dev:all' ? 'all' : 'new'}" d="M${f1(drag.x0)} ${f1(drag.y0)}L${f1(drag.x)} ${f1(drag.y)}"/>`);
   return { html: html.join(''), svg: svg.join(''), layout: L, door };
+}
+
+/**
+ * The share row at the very bottom (native app, as in the version until 16.11.): every app that takes a share, the most
+ * used first, each with its own icon and name; it slides left and right under the finger (the browser's own scrolling:
+ * smooth, with momentum, snapping to an app). A tap = the last take goes there; ↑ on the row = the system's share sheet.
+ */
+export function appRow(apps, k = 1) {
+  const icon = (a) => (a.icon ? `<img src="${esc(String(a.icon).startsWith('data:') ? a.icon : `data:image/png;base64,${a.icon}`)}" alt="">` : `<i>${GLYPH[a.glyph] ?? '↗'}</i>`);
+  const items = apps.map((a, i) => `<span class="app" data-role="app:${i}">${icon(a)}<em>${esc(cut(a.label ?? '', 11))}</em></span>`).join('');
+  return `<div class="row" data-role="row-area" style="--k:${k.toFixed(3)}">${items}<span class="app" data-role="out:system"><i>⋯</i><em></em></span></div>`;
+}
+
+/**
+ * The first circle (engine: confirm): what goes to this sharing point, before anything goes. Its name, the three strands
+ * as bars (visual left · context bottom · sound right, tap = on/off), the middle = yes (→ from now on · a number = that
+ * many takes now). Pushed down or a tap beside it = nothing goes.
+ */
+export function confirmHtml(c, { w, h }, k = 1) {
+  const s = Math.min(w - 48 * k, 300 * k), x = (w - s) / 2, y = (h - s) / 2 - 20 * k;
+  const bar = (kind, cls) => `<i class="bar ${cls}${c.kinds.includes(kind) ? ' on' : ''}" data-role="confirm:${kind}"></i>`;
+  return `<div class="confirm-veil" data-role="sheet"></div><div class="confirm" data-role="confirm:box" style="left:${f1(x)}px;top:${f1(y)}px;width:${f1(s)}px;height:${f1(s)}px">`
+    + `<b>${esc(cut(c.label, 18))}</b>${bar('v', 'left')}${bar('x', 'bottom')}${bar('a', 'right')}`
+    + `<span class="confirm-ok${c.kinds.length ? '' : ' none'}" data-role="confirm:ok">${c.how === 'new' ? '→' : esc(String(c.count ?? 1))}</span></div>`;
 }

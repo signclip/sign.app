@@ -78,8 +78,9 @@ video::-webkit-media-controls { display: none !important; }
 #row .gap { display: inline-block; width: 14px; height: 36px; flex: none; }
 #row.typing .gap { border-radius: 2px; background: transparent; }
 #row.typing .gap.caret { box-shadow: inset 3px 0 0 var(--b-now); animation: breathe 1.1s ease-in-out infinite; }
-#row .gap.end { width: 50vw; }
-#say { left: -9999px; top: 0; opacity: 0; width: 10px; height: 10px; }
+#row .gap.end { width: 28px; } #row .gap.tail { width: 50vw; }
+#row .take[data-role], #row .bubble { cursor: text; }
+#say { left: 0; top: 0; opacity: 0; width: 1px; height: 1px; font-size: 16px; border: 0; padding: 0; pointer-events: none; } /* in sight (no scrolling to it), 16 px (iOS does not zoom) */
 #note { left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom)); text-align: center; color: var(--mut); font-size: 13px; pointer-events: none; }
 @keyframes breathe { 50% { opacity: .5; } }
 
@@ -91,7 +92,8 @@ video::-webkit-media-controls { display: none !important; }
 .tile.picked { border-color: var(--hold); border-width: 3px; }
 .tags { position: absolute; left: 4px; right: 4px; bottom: 4px; display: flex; flex-wrap: wrap; gap: 2px; pointer-events: none; }
 .chip.tag { height: 18px; font-size: 10px; padding: 0 6px; background: var(--c-next); border-width: 1px; }
-.double { border-radius: 24px; overflow: hidden; background: var(--sc); border: 3px solid var(--sc-stroke); }
+.double { border-radius: 24px; overflow: hidden; background: transparent; border: 3px solid var(--sc-stroke); pointer-events: all; }
+#pickvideo { border-radius: 24px; object-fit: cover; background: var(--sc); pointer-events: none; }
 .double video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .empty { text-align: center; color: var(--sc-stroke); font-size: 28px; }
 .sel { width: 26px; height: 26px; border-radius: 13px; display: flex; align-items: center; justify-content: center; font: 600 13px Inter, system-ui, sans-serif;
@@ -155,3 +157,48 @@ video::-webkit-media-controls { display: none !important; }
 .shake { animation: shake .35s ease-in-out; } @keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 .chip.offer.wait { width: 56px; animation: breathe 1.6s ease-in-out infinite; }
+
+/* the sharing menu, completed 17.11.: choices after a login, what waits for me, the first circle, the share row */
+.breathe { animation: breathe 1.4s ease-in-out infinite !important; }
+.flash { box-shadow: 0 0 0 4px var(--hold) !important; }
+#sharing-html .tile.choice { background: var(--card); border: 2px solid var(--sc-stroke); }
+#sharing-html .tile.choice.found { background: var(--sc); border-width: 3px; }
+#sharing-html .tile.choice small { color: var(--mut); font-size: 10px; }
+#sharing-html .tile.faint { opacity: .45; border-style: dashed; }
+#sharing-html .tile.waits { background: var(--sc); border: 2.5px dashed var(--sc-stroke); }
+#sharing-html .tile.focus { border: 3px solid var(--rc-stroke); }
+#sharing-html .row { left: 0; right: 0; bottom: calc(10px + env(safe-area-inset-bottom)); height: calc(86px * var(--k, 1)); display: flex; justify-content: flex-start; align-items: flex-start; gap: calc(18px * var(--k, 1));
+  padding: calc(12px * var(--k, 1)) calc(22px * var(--k, 1)) 0; overflow-x: auto; overflow-y: hidden; touch-action: pan-x; scroll-snap-type: x proximity; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  border-top: 1px solid var(--line); overscroll-behavior-x: contain; }
+#sharing-html .row::-webkit-scrollbar { display: none; }
+#sharing-html .row .app { flex: none; width: calc(54px * var(--k, 1)); display: flex; flex-direction: column; align-items: center; gap: 4px; scroll-snap-align: start; cursor: pointer; }
+#sharing-html .row .app img, #sharing-html .row .app i { width: calc(46px * var(--k, 1)); height: calc(46px * var(--k, 1)); border-radius: 14px; display: flex; align-items: center; justify-content: center;
+  background: var(--card); border: 1.5px solid var(--line); font-style: normal; font-size: 20px; object-fit: cover; }
+#sharing-html .row .app img { border: 0; background: none; }
+#sharing-html .row .app em { font: 400 10px Inter, system-ui, sans-serif; font-style: normal; color: var(--mut); white-space: nowrap; }
+#sharing-html .row .app:active { transform: scale(.92); }
+#sharing-html .confirm-veil { inset: 0; background: color-mix(in srgb, var(--bg) 70%, transparent); cursor: default; }
+#sharing-html .confirm { border-radius: 50%; background: var(--card); border: 3px solid var(--rc-stroke); box-shadow: 0 8px 30px rgba(0,0,0,.15); animation: appear .25s ease-out both; }
+#sharing-html .confirm b { position: absolute; top: 17%; left: 0; right: 0; text-align: center; font: 600 15px Inter, system-ui, sans-serif; }
+#sharing-html .confirm .bar { position: absolute; background: var(--mut); opacity: .35; border-radius: 4px; cursor: pointer; }
+#sharing-html .confirm .bar::after { content: ''; position: absolute; inset: -14px; }
+#sharing-html .confirm .bar.on { background: var(--rc-stroke); opacity: 1; }
+#sharing-html .confirm .bar.left { left: 9%; top: 34%; width: 7px; height: 32%; } #sharing-html .confirm .bar.on.left, #sharing-html .confirm .bar.on.right { width: 10px; }
+#sharing-html .confirm .bar.right { right: 9%; top: 34%; width: 7px; height: 32%; }
+#sharing-html .confirm .bar.bottom { bottom: 9%; left: 34%; height: 7px; width: 32%; } #sharing-html .confirm .bar.on.bottom { height: 10px; }
+#sharing-html .confirm-ok { width: 34%; height: 34%; border-radius: 50%; background: var(--rc); border: 3px solid var(--rc-stroke); font: 600 24px Inter, system-ui, sans-serif; color: #4A1B0C; display: flex; align-items: center; justify-content: center;
+  animation: breathe 1.4s ease-in-out infinite; }
+#sharing-html .confirm-ok.none { opacity: .35; animation: none; }
+.double .who { position: absolute; left: 8px; right: 8px; top: 8px; display: flex; align-items: center; gap: 6px; font: 600 13px Inter, system-ui, sans-serif; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.6); pointer-events: none; z-index: 2; }
+.double .who small { font-weight: 400; opacity: .8; } .double .who i { margin-left: auto; font-style: normal; letter-spacing: 3px; font-size: 10px; }
+/* the timeline in the spread button (17.11.) */
+.button.wide { fill: var(--rest); } .button.wide-edge { fill: none; stroke: var(--rc-stroke); stroke-width: 3; }
+.tl-band { fill: var(--card); } .tl-pic { opacity: .9; }
+.tl-row.v { fill: var(--c-later); } .tl-row.a { fill: var(--c-next); } .tl-row.x { fill: var(--nest); } .tl-row.off { fill: var(--mut); opacity: .5; }
+.tl-said { fill: var(--c-now); stroke: var(--b-now); stroke-width: 1; }
+.tl-word { font: 500 9px Inter, system-ui, sans-serif; fill: #4A1B0C; pointer-events: none; } .tick.full { stroke-width: 2; }
+.tl-join { stroke: var(--fg); stroke-width: 2; stroke-dasharray: 2 3; }
+.playhead { stroke: var(--b-now); stroke-width: 3; stroke-linecap: round; }
+.strip { padding: 4px 6px; border-radius: 16px; background: var(--card); border: 1.5px solid var(--sc-stroke); min-height: 38px; align-items: center; touch-action: pan-x; }
+.strip .chip.pick { flex: none; background: var(--card); border: 1.5px solid var(--sc-stroke); color: #0C447C; }
+.strip .chip.pick.on { background: var(--sc); border-width: 2.5px; font-weight: 600; }

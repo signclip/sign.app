@@ -18,13 +18,17 @@
 
 import { buttonMeaning, live, count } from './take-state.js';
 import { joinTakes, cutTake, putOnLine, removeTake } from './line.js';
+import { slotPx } from './layout.js';
 import { zoomed, tapFilter, turnOrder, setFilter } from './similar-view.js';
 import { insertGesture, fromField } from '../1-model/context.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
 import { flipPicture, focusAt } from './camera.js';
 
-const SPAN_MS = 6000, CUT = 1.15;
+const CUT = 1.15, RUN_RATE = 0.5; // past the widest by 15 % = cut · the timeline runs through at half speed
+const onLine = (r) => r === 'line' || r.startsWith('take:') || r.startsWith('old:');
 const fake = (role) => ({ target: { closest: () => ({ dataset: { role } }) } });
+
+const inRow = (r) => r === 'context' || r === 'under' || r.startsWith('gap:') || r.startsWith('chip:') || r.startsWith('bubble:');
 
 export function gesturesOf(A) {
   const say = document.querySelector('#say');
@@ -34,6 +38,8 @@ export function gesturesOf(A) {
     if (A.st.share) return sharing(ev, e);
     if (ev.type === 'pinch') return pinch(ev);
     const r = ev.role ?? '';
+    if (onLine(r) && (ev.type === 'drag' || ev.type === 'swipe' || ev.type === 'drag-end')) return pull(ev); // the line follows the finger (17.11.)
+    if (A.st.typing && ev.type === 'tap' && !inRow(r)) say.blur(); // a tap anywhere else takes over what is written (blur commits), then does what it does
     if (r === 'button') return button(ev);
     if (ev.type === 'tap') {
       if (r.startsWith('strand:')) return A.dispatch({ type: 'strand', kind: r.slice(7) });
@@ -46,15 +52,24 @@ export function gesturesOf(A) {
       if (r.startsWith('initial:')) return toggleValue('initial', r.slice(8));
       if (r.startsWith('value:')) { const [, name, id] = r.split(':'); return toggleValue(name, id); }
       if (r === 'window') return focusHere(ev);
-      if (r === 'context' || r.startsWith('gap:') || r.startsWith('chip:') || r.startsWith('bubble:')) return openTyping(r);
+      if (r === 'screen' && A.L && A.st.similar === 'closed' && A.st.strands.x && ev.y > A.L.cy + A.L.R + 10 * A.L.k) return openTyping('context'); // anywhere under the bottom arc = write (17.11.)
+      if (inRow(r)) return openTyping(r);
     }
     if (ev.type === 'hold' && r.startsWith('filter:')) return A.dispatch({ type: 'filters', filters: turnOrder(A.st.filters, r.slice(7)) });
     if (ev.type === 'drag' && r === 'datebar') return dateSpan(ev);
     if (ev.type === 'swipe') {
+      if (r === 'double' && (ev.dir === 'left' || ev.dir === 'right')) return A.similar.step(ev.dir) || nextResult(ev.dir); // ← → above: the next account that may be hers, else the next result
       if (r.startsWith('chip:') && ev.dir === 'down' && r.slice(5) === 'Name' && A.st.onboard.on) { A.dispatch({ type: 'onboard', patch: { dropped: true } }); return A.syncOnboard(); }
       if (r === 'window' && (ev.dir === 'left' || ev.dir === 'right') && A.st.rec === 'idle' && A.take.camera) return flip();
     }
     return null;
+  }
+
+  /** ← → on a result in the double view: the next / the one before (F5). */
+  function nextResult(dir) {
+    const list = A.data.entries ?? [], i = list.findIndex((e) => e.key === A.st.pick);
+    if (i < 0 || list.length < 2) return null;
+    return A.similar.pick(list[(i + (dir === 'left' ? 1 : -1) + list.length) % list.length].key);
   }
 
   // ---------- the button ----------
@@ -62,11 +77,16 @@ export function gesturesOf(A) {
     const st = A.st;
     if (st.wide > 0.02) {
       if (ev.type === 'drag') return scrub(ev);
-      if (ev.type === 'tap') { wide = null; A.data.cut = 0; return A.dispatch({ type: 'wide', spread: 0 }); }
-      if (ev.type === 'swipe' || ev.type === 'drag-end') { if (wide) wide.ms0 = st.wideMs; return null; }
+      if (ev.type === 'tap') return A.player.playing ? A.player.pause() : run(); // tap = it stops / runs on
+      if (ev.type === 'swipe' && ev.dir === 'down' && Math.abs(ev.dy) > Math.abs(ev.dx) * 2) return closeWide(); // pushed down = closed
+      if (ev.type === 'swipe' || ev.type === 'drag-end') { scrubFrom = null; return null; }
+      return null;
     }
     if (A.similar.looking && st.pick && ev.type === 'swipe' && (ev.dir === 'up' || ev.dir === 'down')) return A.similar.decide(ev.dir);
+    const across = Math.abs(ev.dx ?? 0) > Math.abs(ev.dy ?? 0);
+    if (st.rec === 'idle' && count(st) && ((ev.type === 'drag' && (across || pulled)) || ((ev.type === 'swipe' || ev.type === 'drag-end') && pulled))) return pull(ev);
     const m = buttonMeaning(st, ev);
+    if (st.onboard.on && !st.onboard.name && !st.onboard.nameSign && ['start', 'photo'].includes(m?.do)) { A.shake('context'); return openTyping('context'); } // first the name, then its sign (17.11.: a hello without a name went out)
     switch (m?.do) {
       case 'start': return A.take.start();
       case 'pause': return A.take.pause();
@@ -102,28 +122,59 @@ export function gesturesOf(A) {
     A.keepLines();
     return null;
   }
-  async function play() {
-    const take = takeNow(), v = document.querySelector('#replay');
-    const chain = take && [...(A.index?.tables.chains.values() ?? [])].find((c) => c.from?.path === take.id);
-    const at = chain && A.media.visualOf(chain);
-    if (!at) return A.shake('button');
-    if (!v.paused && v.dataset.take === take.id) return v.pause();
-    const { url, picture } = await A.media.playable(at);
-    if (picture) return null;
-    v.src = url; v.dataset.take = take.id; v.hidden = false; v.onended = () => { v.hidden = true; };
-    return v.play().catch(() => {});
+  /** Tap on an earlier take: it plays in the window (what it really is: its parts, one after another), tap again = pause. */
+  function play() {
+    const take = takeNow();
+    if (!take) return A.shake('button');
+    if (A.player.playing) return A.player.pause();
+    return A.player.show(take, 0, { play: true, onEnd: () => A.paint() }).then((ok) => (ok ? null : A.shake('button')));
+  }
+
+  // ---------- the line under the finger (17.11.): it slides, lets go, rests on the nearest take ----------
+  let pulled = null; // { v (px/ms), x, t }
+  function pull(ev) {
+    const px = slotPx(A.L), n = count(A.st);
+    if (ev.type === 'drag') {
+      const v = pulled ? (ev.dx - pulled.x) / Math.max(1, ev.t - pulled.t) : 0;
+      pulled = { x: ev.dx, t: ev.t, v: pulled ? pulled.v * 0.6 + v * 0.4 : 0 };
+      A.data.lineShift = Math.max(A.st.at - n - 0.35, Math.min(A.st.at + 0.35, ev.dx / px)); // a little past the ends, then it holds
+      return A.paint();
+    }
+    const shift = A.data.lineShift ?? 0, fling = pulled ? Math.max(-2, Math.min(2, (pulled.v * 90) / px)) : 0; // let go in motion: it runs on, at most 2 takes
+    pulled = null;
+    const to = Math.max(0, Math.min(n, Math.round(A.st.at - shift - fling)));
+    const rest = shift + (to - A.st.at); // the same picture with the button on the new take; this much is left to slide
+    if (to !== A.st.at) { navigator.vibrate?.(6); A.dispatch({ type: 'at', at: to }); }
+    const start = performance.now();
+    const settle = (now) => {
+      const f = Math.min(1, (now - start) / 180);
+      A.data.lineShift = rest * (1 - f) ** 3;
+      if (f >= 1) A.data.lineShift = 0;
+      A.paint();
+      if (f < 1 && !pulled) requestAnimationFrame(settle);
+    };
+    requestAnimationFrame(settle);
+    return null;
   }
 
   // ---------- spread, squeeze ----------
   function pinch(ev) {
     const L = A.L, [a, b] = ev.roles ?? [];
     const nearButton = L && Math.hypot(ev.centre.x - L.button.x, ev.centre.y - L.button.y) < 70 * L.k;
-    if ((a === 'button' || b === 'button' || nearButton) && A.st.similar !== 'full') {
+    if ((a === 'button' || b === 'button' || nearButton) && A.st.similar !== 'full' && A.st.rec === 'idle' && count(A.st)) {
+      if (live(A.st)) A.dispatch({ type: 'at', at: count(A.st) - 1 }); // the button holds no take yet: the newest one opens
       const spread = Math.max(0, Math.min(1.4, (ev.scale - 1) / 1.2 + (wide?.base ?? 0)));
-      if (ev.phase === 'move') { wide ??= { base: A.st.wide, ms0: A.st.wideMs }; A.data.cut = spread > CUT ? 1 : 0; return A.dispatch({ type: 'wide', spread }); }
-      const base = wide; wide = null; A.data.cut = 0;
-      if (spread > CUT && !live(A.st)) return cut();
-      return A.dispatch({ type: 'wide', spread: spread < 0.1 ? 0 : Math.min(1, spread), ms: base?.ms0 ?? A.st.wideMs });
+      if (ev.phase === 'move') {
+        if (!wide) { wide = { base: A.st.wide, fresh: A.st.wide < 0.1 }; if (wide.fresh) { A.player.pause(); A.dispatch({ type: 'wide', spread, ms: 0 }); } } // it opens at the take's beginning: the whole take lies to the right
+        A.data.cut = spread > 1 ? Math.min(1, (spread - 1) / (CUT - 1)) : 0;
+        return A.dispatch({ type: 'wide', spread });
+      }
+      const was = wide; wide = null; A.data.cut = 0;
+      if (spread > CUT && was && !was.fresh) return cut(); // spread further on the open timeline: the take parts at the mark
+      if (spread < 0.1) return closeWide();
+      A.dispatch({ type: 'wide', spread: 1 });
+      if (was?.fresh) run(); // just opened: it runs through slowly, the picture in the window runs along
+      return null;
     }
     if (ev.phase !== 'end') return null;
     if (a?.startsWith('take:') && b?.startsWith('take:') && ev.scale < 0.75) return join(Number(a.slice(5)), Number(b.slice(5)));
@@ -133,45 +184,64 @@ export function gesturesOf(A) {
     if (level !== A.st.similar) { navigator.vibrate?.(8); if (level !== 'closed') location.hash = level; } // Android back = closes (hashchange in app.js)
     return A.dispatch({ type: 'similar', level });
   }
+  /** The timeline runs: the take plays in the window at half speed, the moment at the mark follows it. */
+  function run() {
+    const take = takeNow();
+    if (!take) return null;
+    const from = A.st.wideMs >= (take.ms ?? 0) - 60 ? 0 : A.st.wideMs; // at its end: from the beginning again
+    return A.player.show(take, from, { play: true, rate: RUN_RATE, muted: true, onTime: (ms) => { if (A.st.wide > 0.02) A.dispatch({ type: 'wide', spread: A.st.wide, ms }); }, onEnd: () => A.paint() });
+  }
+  function closeWide() {
+    wide = null; A.data.cut = 0; scrubFrom = null;
+    A.dispatch({ type: 'wide', spread: 0 });
+    return A.showAt();
+  }
+  /** A finger on the open timeline: it stops and follows the finger; the window shows that moment. */
+  let scrubFrom = null;
   function scrub(ev) {
-    const L = A.L, w = L && (2 * L.R) / 1.618;
-    wide ??= { base: A.st.wide, ms0: A.st.wideMs };
-    const take = takeNow(), len = take?.ms ?? 0;
-    const ms = Math.max(0, Math.min(len, wide.ms0 - (ev.dx * SPAN_MS) / (w || 200)));
-    const ticks = [];
-    for (let t = Math.ceil((ms - SPAN_MS / 2) / 500) * 500; t <= ms + SPAN_MS / 2; t += 500) if (t >= 0 && t <= len) ticks.push(L.button.x + ((t - ms) * w) / SPAN_MS);
-    A.data.wideTicks = ticks;
+    const take = takeNow();
+    if (!take) return null;
+    if (scrubFrom == null || ev.fresh) { scrubFrom = A.st.wideMs; A.player.pause(); }
+    const span = Math.max(2000, Math.min(6000, (take.ms ?? 0) * 1.4)), w = (2 * A.L.R) / 1.618;
+    const ms = Math.max(0, Math.min(take.ms ?? 0, scrubFrom - (ev.dx * span) / w));
+    A.player.show(take, ms);
     return A.dispatch({ type: 'wide', spread: A.st.wide, ms });
   }
   function cut() {
     const n = A.st.lines.length - 1, i = Math.min(A.st.at, count(A.st) - 1);
     const lines = cutTake(A.st.lines, n, i, A.st.wideMs);
-    if (lines === A.st.lines) { A.shake('button'); return A.dispatch({ type: 'wide', spread: 1 }); } // nothing to cut here: it stays open
+    if (lines === A.st.lines) { A.shake('button'); return A.dispatch({ type: 'wide', spread: 1 }); } // too near an end (< 200 ms): it stays open
     navigator.vibrate?.([10, 30, 10]);
+    A.player.stop();
     A.dispatch({ type: 'lines', lines });
-    A.keepLines();
-    return A.dispatch({ type: 'wide', spread: 0 });
+    A.dispatch({ type: 'wide', spread: 0 });
+    A.keepLines(); A.take.saveLine();
+    return A.showAt();
   }
   function join(i, j) {
     const lo = Math.min(i, j);
     if (Math.abs(i - j) !== 1) return A.shake(`take:${i}`);
     navigator.vibrate?.(20);
     A.dispatch({ type: 'lines', lines: joinTakes(A.st.lines, A.st.lines.length - 1, lo) });
-    return A.keepLines();
+    A.keepLines(); A.take.saveLine();
+    return A.showAt();
   }
 
   // ---------- the context row ----------
+  /** Where a tap in the row writes: a gap, a take (behind it), a bubble (into it, as its last), the row itself (the end). */
+  function caretOf(role) {
+    if (role.startsWith('gap:')) { const [, how, path] = role.split(':'); return how === 'end' ? null : { how, at: path ? path.split('.').map(Number) : [] }; }
+    if (role.startsWith('bubble:')) { const p = role.slice(7); return p ? { how: 'in', at: p.split('.').map(Number) } : null; }
+    return null;
+  }
   function openTyping(role) {
     const o = A.st.onboard;
     if (o.on && !o.dropped && !o.name) A.dispatch({ type: 'onboard', patch: { dropped: true } });
-    let at = null, how = 'after';
-    if (role.startsWith('gap:')) { const [, h, path] = role.split(':'); how = h; at = path ? path.split('.').map(Number) : null; }
-    else if (role.startsWith('bubble:')) { how = 'in'; const p = role.slice(7); at = p ? p.split('.').map(Number) : null; }
-    A.data.how = how === 'start' || how === 'end' ? 'after' : how;
-    A.dispatch({ type: 'caret', at: how === 'end' || how === 'start' ? null : at });
+    if (A.st.typing && say.value.trim()) commit(); // a second tap while writing: what is written stays where it was, the caret moves on
+    A.dispatch({ type: 'caret', at: caretOf(role) });
     A.dispatch({ type: 'typing', on: true });
     say.value = ''; A.data.typing = '';
-    say.focus({ preventScroll: true });
+    if (document.activeElement !== say) say.focus({ preventScroll: true });
     if (o.on) A.syncOnboard();
   }
   function commit() {
@@ -186,9 +256,10 @@ export function gesturesOf(A) {
       return A.syncOnboard();
     }
     if (o.on && o.gestures === PASSWORD_PARTS.length - 1) { A.dispatch({ type: 'onboard', patch: { own: text, ownTyped: true } }); return A.syncOnboard(); }
-    const r = insertGesture(A.st.context, A.st.caret, A.data.how ?? 'after', fromField(text));
+    const c = A.st.caret;
+    const r = insertGesture(A.st.context, c?.at ?? null, c?.how ?? 'after', fromField(text));
     A.dispatch({ type: 'context', text: r.text });
-    return A.dispatch({ type: 'caret', at: A.st.caret ? r.at : null });
+    return A.dispatch({ type: 'caret', at: c ? { how: 'after', at: r.at } : null }); // the next word goes behind this one
   }
 
   // ---------- Similar's selection views ----------
@@ -226,6 +297,8 @@ export function gesturesOf(A) {
     const on = (role) => H.down(fake(role));
     const deviceRole = (x) => (x?.startsWith('dev:') ? 'sp:0' : x);
     if (ev.type === 'tap') {
+      if (r === 'confirm:box') return null; // the first circle itself: only its bars and its middle do something
+      if (A.data.snap?.confirm && (r === 'sheet' || r === 'sharing' || !r)) { on('sheet'); return H.swipe('down'); } // a tap beside the first circle: nothing goes
       if (!r || r === 'sharing') return A.engine.show(false);
       if (r === 'web:save') return saveLast();
       if (r.startsWith('dev:')) return null;

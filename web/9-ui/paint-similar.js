@@ -17,13 +17,16 @@ const px = (n) => `${Number(n).toFixed(1)}px`;
 const ICON = { v: '◖', x: '◡', a: '◗', initial: 'A', date: '▮', name: '@', sharing: '●', spot: '◎' };
 
 /** HTML of Similar. entries: [{ key, thumb, words, t, person, sharing, spot }] (ordered, filtered) · L: take layout */
-export function similarHtml(st, entries, L, { names = [], sharing = [], spots = [], range = null } = {}) {
+export function similarHtml(st, entries, L, { names = [], sharing = [], spots = [], range = null, compare = null } = {}) {
   if (st.similar === 'closed' || !L.similarBox) return '';
   const box = L.similarBox, f = st.filters, out = [];
-  const inner = { x: box.x + 30 * L.k, y: box.y + 6 * L.k, w: box.w - 60 * L.k, h: box.h - 50 * L.k };
+  // 17.11.: the selection views lie at the top; a tap on @, sharing point or spot opens its own strip right under them
+  // (the names and sharing points there are to choose), the results move down by that much.
+  const head = (['name', 'sharing', 'spot'].includes(f.open) ? 78 : 38) * L.k;
+  const inner = { x: box.x + 30 * L.k, y: box.y + head, w: box.w - 60 * L.k, h: box.h - head - 8 * L.k };
   if (st.similar === 'double' && L.doubleBox) {
     const d = L.doubleBox, e = entries.find((x) => x.key === st.pick);
-    out.push(`<div class="double" style="left:${px(d.x)};top:${px(d.y)};width:${px(d.w)};height:${px(d.h)}" data-role="double">${e?.thumb ? `<img src="${esc(e.thumb)}" alt="">` : ''}<video id="pickvideo" playsinline muted loop></video><div class="tags">${(e?.words ?? []).slice(0, 4).map((w) => `<span class="chip tag">${esc(w)}</span>`).join('')}</div></div>`);
+    out.push(`<div class="double" style="left:${px(d.x)};top:${px(d.y)};width:${px(d.w)};height:${px(d.h)}" data-role="double">${compare ? `<div class="who"><b>${esc(compare.label)}</b><small>${esc(compare.id)}</small>${compare.n > 1 ? `<i>${Array.from({ length: compare.n }, (_, k) => (k === compare.i ? '●' : '○')).join('')}</i>` : ''}</div>` : ''}<div class="tags">${(e?.words ?? []).slice(0, 4).map((w) => `<span class="chip tag">${esc(w)}</span>`).join('')}</div></div>`);
   } else {
     const spotsOf = cloudSpots(entries.length, inner, { beside: L.wide, k: L.k });
     for (const s of spotsOf) {
@@ -34,17 +37,17 @@ export function similarHtml(st, entries, L, { names = [], sharing = [], spots = 
   }
   const chip = (name, x, y) => `<span class="sel${f.on[name] ? ' on' : ''}${f.open === name ? ' open' : ''}" data-role="filter:${name}" style="left:${px(x)};top:${px(y)}">${ICON[name]}</span>`;
   out.push(chip('initial', box.x + 4 * L.k, box.y + 4 * L.k), chip('date', box.x + box.w - 28 * L.k, box.y + 4 * L.k));
-  const bottom = box.y + box.h - 30 * L.k, names6 = ['v', 'x', 'a', 'name', 'sharing', 'spot'];
+  const bottom = box.y + 4 * L.k, names6 = ['v', 'x', 'a', 'name', 'sharing', 'spot'];
   names6.forEach((n, i) => out.push(chip(n, box.x + box.w / 2 + (i - 2.5) * 34 * L.k - 13 * L.k, bottom)));
   if (f.open === 'initial') {
     const letters = initialsOf(entries.length ? entries : [], f.order.initial).slice(0, 30);
-    out.push(`<div class="letters" style="left:${px(box.x + 4 * L.k)};top:${px(box.y + 34 * L.k)};height:${px(box.h - 74 * L.k)}">${letters.map((c) => `<span class="${(f.value.initial ?? []).includes(c) ? 'on' : ''}" data-role="initial:${esc(c)}">${esc(c)}</span>`).join('')}</div>`);
+    out.push(`<div class="letters" style="left:${px(box.x + 4 * L.k)};top:${px(box.y + 38 * L.k)};height:${px(box.h - 50 * L.k)}">${letters.map((c) => `<span class="${(f.value.initial ?? []).includes(c) ? 'on' : ''}" data-role="initial:${esc(c)}">${esc(c)}</span>`).join('')}</div>`);
   }
   if (f.open === 'date') {
     const [a, b] = range ?? [0, 1];
-    out.push(`<div class="datebar" data-role="datebar" style="left:${px(box.x + box.w - 24 * L.k)};top:${px(box.y + 34 * L.k)};height:${px(box.h - 74 * L.k)}"><b style="top:${(a * 100).toFixed(1)}%;height:${((b - a) * 100).toFixed(1)}%"></b><em>${f.order.date === 'new' ? '↓' : '↑'}</em></div>`);
+    out.push(`<div class="datebar" data-role="datebar" style="left:${px(box.x + box.w - 24 * L.k)};top:${px(box.y + 38 * L.k)};height:${px(box.h - 50 * L.k)}"><b style="top:${(a * 100).toFixed(1)}%;height:${((b - a) * 100).toFixed(1)}%"></b><em>${f.order.date === 'new' ? '↓' : '↑'}</em></div>`);
   }
   const list = { name: names, sharing, spot: spots }[f.open];
-  if (list) out.push(`<div class="strip" style="left:${px(box.x + 8 * L.k)};width:${px(box.w - 16 * L.k)};top:${px(bottom - 40 * L.k)}">${list.slice(0, 12).map((x) => `<span class="chip pick${(f.value[f.open] ?? []).includes(x.id) ? ' on' : ''}" data-role="value:${f.open}:${esc(x.id)}">${esc(x.label)}</span>`).join('')}</div>`);
+  if (list) out.push(`<div class="strip" style="left:${px(box.x + 8 * L.k)};width:${px(box.w - 16 * L.k)};top:${px(bottom + 34 * L.k)}">${list.slice(0, 12).map((x) => `<span class="chip pick${(f.value[f.open] ?? []).includes(x.id) ? ' on' : ''}" data-role="value:${f.open}:${esc(x.id)}">${esc(x.label)}</span>`).join('')}</div>`);
   return out.join('');
 }

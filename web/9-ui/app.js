@@ -30,6 +30,8 @@ import { listen } from './touch.js';
 import { takeFlow } from './take-flow.js';
 import { similarFlow } from './similar-flow.js';
 import { mediaOf } from './media.js';
+import { playerOf } from './player.js';
+import { live as isLive, count as takesOn } from './take-state.js';
 import { gesturesOf } from './gestures-take.js';
 import { mountSharing } from './sharing-engine.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
@@ -77,11 +79,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (A.st.context !== before.context && !A.st.onboard.on) keep('sign.series', A.st.context);
     if (A.st.similar !== before.similar || A.st.filters !== before.filters || A.st.context !== before.context) A.similar?.refresh();
     if (A.st.similar === 'closed' && before.similar !== 'closed') A.similar?.close();
+    if ((A.st.at !== before.at || A.st.rec !== before.rec) && A.st.wide < 0.02 && !A.similar?.comparing) A.showAt?.();
     A.paint();
   };
   A.shake = (role) => { const el = document.querySelector(`[data-role="${role}"]`); el?.classList.add('shake'); setTimeout(() => el?.classList.remove('shake'), 400); navigator.vibrate?.([40, 40, 40]); };
   A.say = (text) => { A.data.note = text; A.paint(); setTimeout(() => { if (A.data.note === text) { A.data.note = ''; A.paint(); } }, 2600); };
   A.take = takeFlow(A);
+  A.player = playerOf(A, $('#replay'));
+  /** The window shows what the button holds: live, or the earlier take's picture (17.11.). */
+  A.showAt = () => { const s = A.st; if (isLive(s) || s.rec !== 'idle') return A.player.stop(); const take = s.lines.at(-1).takes[Math.min(s.at, takesOn(s) - 1)]; return take ? A.player.show(take, 0) : A.player.stop(); };
   A.similar = similarFlow(A);
 
   // ---------- onboarding: the app teaches itself (onboarding-steps.js) ----------
@@ -117,7 +123,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     lastChain: async () => A.take.lastChain(),
     selection: () => Object.keys(A.st.strands).filter((k) => A.st.strands[k]),
     onSources: async (list) => { A.sources = list; await A.reindex(); },
-    words: () => nowWords(A.st.context, A.st.sticky).map((w) => w.text),
+    words: () => (A.st.onboard.on ? [] : nowWords(A.st.context, A.st.sticky).map((w) => w.text)), // the onboarding's own words ("Name", the drawn ones) find nobody
+    onDoor: (state) => { A.data.door = state; A.paint(); },
+    onRole: () => { if (A.st.onboard.on) { A.dispatch({ type: 'onboard', patch: { on: false } }); A.dispatch({ type: 'context', text: '' }); keep('sign.series', ''); } }, // Admin, Atlas, Groups: their login is their account, no steps
     index: () => A.index,
     nameSign: async () => { const p = localStorage.getItem('sign.nameSign'); return p ? store.read(p).catch(() => null) : null; },
     helloTakes: async ({ door = false } = {}) => {
@@ -131,7 +139,17 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   new MutationObserver(() => { if (A.st.share === panel.hidden) A.dispatch({ type: 'share', open: !panel.hidden }); A.syncOnboard(); }).observe(panel, { attributes: true, attributeFilter: ['hidden'] });
 
   // ---------- painting ----------
-  const size = () => ({ w: innerWidth, h: innerHeight, keyboard: A.st.keyboard });
+  // The keyboard (17.11.): a browser shrinks only the visual viewport, Android's web view shrinks the whole window. Both
+  // count: the tallest window seen at this width is the screen, what is missing below is the keyboard.
+  const full = { w: 0, h: 0 };
+  const measure = () => {
+    if (full.w !== innerWidth) { full.w = innerWidth; full.h = 0; } // turned: measured anew
+    const vv = globalThis.visualViewport, seen = Math.min(innerHeight, vv ? vv.height + vv.offsetTop : innerHeight);
+    const typing = document.activeElement === $('#say');
+    if (!typing || seen > full.h) full.h = Math.max(full.h, innerHeight);
+    return Math.max(0, Math.round(full.h - seen));
+  };
+  const size = () => ({ w: innerWidth, h: full.h || innerHeight, keyboard: A.st.keyboard });
   function paint() {
     const st = A.st, L = takeLayout(size(), st.similar);
     A.L = L;
@@ -139,7 +157,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     Object.assign(win.style, { left: `${L.cx - L.R}px`, top: `${L.cy - L.R}px`, width: `${2 * L.R}px`, height: `${2 * L.R}px` });
     win.classList.toggle('off', !st.strands.v);
     win.classList.toggle('gone', st.similar === 'full');
-    const svg = takeSvg(st, L, { thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, wideTicks: A.data.wideTicks });
+    const svg = takeSvg(st, L, { thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift });
     if ($('#take').dataset.svg !== svg) { $('#take').innerHTML = svg; $('#take').dataset.svg = svg; }
     $('#take').classList.toggle('gone', st.similar === 'full');
     const row = seriesRow(st.context, st.sticky);
@@ -148,20 +166,35 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     rowEl.style.top = `${L.queueY}px`;
     rowEl.classList.toggle('typing', st.typing);
     rowEl.classList.toggle('gone', st.similar === 'full' || !st.strands.x);
-    rowEl.innerHTML = rowHtml(row, { waiting: st.onboard.on && st.onboard.nameSign && st.onboard.gestures === PASSWORD_PARTS.length - 1 && !st.onboard.ownTyped && !st.typing, all: st.typing, caret: st.caret, typing: st.typing ? A.data.typing : '', offers: st.onboard.on ? ['Name', ...st.onboard.words] : [] });
-    $('#similar').innerHTML = similarHtml(st, A.data.entries ?? [], L, A.data.similarLists ?? {});
+    rowEl.innerHTML = rowHtml(row, { waiting: st.onboard.on && st.onboard.nameSign && st.onboard.gestures === PASSWORD_PARTS.length - 1 && !st.onboard.ownTyped && !st.typing, all: st.typing, on: st.typing, caret: st.caret, typing: st.typing ? A.data.typing : '', offers: st.onboard.on ? ['Name', ...st.onboard.words] : [] });
+    const sim = similarHtml(st, A.data.entries ?? [], L, A.data.similarLists ?? {});
+    if ($('#similar').dataset.text !== sim) { $('#similar').innerHTML = sim; $('#similar').dataset.text = sim; }
+    const pv = $('#pickvideo'), db = st.similar === 'double' ? L.doubleBox : null; // the picked result plays in its own element (17.11.): a repaint no longer stops it
+    pv.hidden = !db;
+    if (db) { Object.assign(pv.style, { left: `${db.x}px`, top: `${db.y}px`, width: `${db.w}px`, height: `${db.h}px` }); const e = (A.data.entries ?? []).find((x) => x.key === st.pick); if (e?.thumb && pv.poster !== e.thumb) pv.poster = e.thumb; }
+    else if (pv.src) { pv.pause(); pv.removeAttribute('src'); pv.removeAttribute('poster'); pv.load(); }
     $('#note').textContent = A.data.note ?? '';
     const o = st.onboard;
-    const h = o.on ? hintOf({ ...o, takeNow: st.rec !== 'idle', shareOpen: st.share, join: A.data.sharing?.door?.look }) : null;
+    let h = o.on ? hintOf({ ...o, takeNow: st.rec !== 'idle', shareOpen: st.share, join: A.data.sharing?.door?.look }) : null;
+    if (A.data.door === 'ready' && !st.share) h = { step: 'join', role: 'button', gesture: 'swipe-up' }; // the admin answered (17.11.): the button shows the way to join
+    if (st.share && h && h.role !== 'hello') h = null; // the menu is open: nothing of the take pulses through it
     const hint = hintSvg(h, { L, sharing: A.data.sharing?.layout ?? null, w: innerWidth, h: innerHeight });
     if ($('#hint').dataset.svg !== hint) { $('#hint').innerHTML = hint; $('#hint').dataset.svg = hint; }
+    if (st.typing) { // the caret stays in sight in a long row (17.11.)
+      const c = rowEl.querySelector('.chip.typing') ?? rowEl.querySelector('.gap.caret');
+      if (c) { const a = c.getBoundingClientRect(), mid = a.left + a.width / 2; if (mid < 40 || mid > innerWidth - 40) rowEl.scrollLeft += mid - innerWidth / 2; }
+    }
   }
   function paintSharing() {
     if (!A.data.snap) return;
     const v = sharingView(A.data.snap, { w: innerWidth, h: innerHeight }, { drag: A.data.drag });
     A.data.sharing = v;
-    $('#sharing-svg').innerHTML = v.svg;
-    $('#sharing-html').innerHTML = v.html;
+    if ($('#sharing-svg').dataset.text !== v.svg) { $('#sharing-svg').innerHTML = v.svg; $('#sharing-svg').dataset.text = v.svg; }
+    if ($('#sharing-html').dataset.text !== v.html) { // only when something changed: the share row stays where the finger left it, what breathes keeps its beat
+      const at = $('#sharing-html .row')?.scrollLeft ?? 0;
+      $('#sharing-html').innerHTML = v.html; $('#sharing-html').dataset.text = v.html;
+      const row = $('#sharing-html .row'); if (row && at) row.scrollLeft = at;
+    }
     A.paint();
   }
   A.paintSharing = paintSharing;
@@ -173,9 +206,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   say.addEventListener('input', () => { A.data.typing = say.value; A.similar.refresh(); A.paint(); });
   say.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); say.blur(); } }); // Enter = done: the keyboard goes, blur commits
   say.addEventListener('blur', () => { g.commit(); A.dispatch({ type: 'typing', on: false }); });
-  const vv = globalThis.visualViewport;
-  vv?.addEventListener('resize', () => A.dispatch({ type: 'keyboard', px: Math.max(0, innerHeight - vv.height - vv.offsetTop) }));
-  addEventListener('resize', () => { A.paint(); paintSharing(); });
+  const keyboardNow = () => { const px = measure(); if (px !== A.st.keyboard) A.dispatch({ type: 'keyboard', px }); else A.paint(); };
+  globalThis.visualViewport?.addEventListener('resize', keyboardNow);
+  globalThis.visualViewport?.addEventListener('scroll', keyboardNow);
+  say.addEventListener('focus', () => setTimeout(keyboardNow, 300));
+  addEventListener('resize', () => { keyboardNow(); paintSharing(); });
   addEventListener('hashchange', () => { if (location.hash) return; if (A.st.share) A.engine?.show(false); else if (A.st.similar !== 'closed') A.dispatch({ type: 'similar', level: 'closed' }); });
 
   // thumbs of the kept line, then the camera after the first paint (15.11.)
@@ -183,6 +218,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const chain = [...(A.index?.tables.chains.values() ?? [])].find((c) => c.from?.path === take.id);
     if (chain) A.media.picOf(A.media.visualOf(chain)).then((url) => { if (url) { A.data.thumbs[take.id] = url; A.paint(); } });
   }
+  measure();
   paint();
   requestAnimationFrame(() => document.body.classList.add('ready'));
   setTimeout(() => A.take.openCamera(), 350);

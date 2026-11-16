@@ -1,0 +1,81 @@
+// player.js — an earlier take of the line in the take window (17.11.): shown, played, moved through, part by part.
+//
+// Purpose:   a take of the line may be a whole file, a cut (one part of a file) or a join (several parts, line.js
+//            partsOf). This plays what the take really is: each part from its beginning to its end, one after another,
+//            and tells the moment inside the take (ms) while it runs, so the timeline in the spread button follows.
+//            show() without play = the picture at that moment (moving the timeline by hand). A photo shows as a still.
+// Depends:   browser (the #replay video inside the window); line.js (partsOf, locate); media.js through A
+// Test:      locate/partsOf in tests/ui.test.mjs; playing needs a browser (checked in Chrome with the test camera).
+// Limits:    one take at a time · a part's end is met within one animation frame (≈ 16 ms, at half speed ≈ 8 ms of
+//            the take) · files are read whole from the device once per take looked at (a 10 s take ≈ 3–10 MB).
+
+import { partsOf, locate } from './line.js';
+
+export function playerOf(A, video) {
+  const files = new Map(); // take chain path → Promise({ url, picture } | null)
+  let cur = null;
+
+  const fileOf = (id) => {
+    if (!files.has(id)) {
+      files.set(id, (async () => {
+        const chain = [...(A.index?.tables.chains.values() ?? [])].find((c) => c.from?.path === id);
+        const at = chain && A.media.visualOf(chain);
+        return at ? A.media.playable(at) : null;
+      })().catch(() => null));
+    }
+    return files.get(id);
+  };
+  const ready = () => new Promise((done) => {
+    if (video.readyState >= 1) return done();
+    const ok = () => { video.removeEventListener('loadedmetadata', ok); video.removeEventListener('error', ok); done(); };
+    video.addEventListener('loadedmetadata', ok); video.addEventListener('error', ok);
+    setTimeout(ok, 3000);
+  });
+
+  /** Back to the live picture. */
+  function stop() {
+    if (cur) cancelAnimationFrame(cur.raf);
+    cur = null;
+    video.onended = null;
+    if (!video.paused) video.pause();
+    if (video.dataset.take && video.dataset.take !== 'compare') { video.hidden = true; delete video.dataset.take; }
+  }
+
+  /**
+   * Show the take at ms. play: it runs from there · rate: speed · onTime(ms): the moment while it runs ·
+   * onEnd(): its last part ended. → true if there is a picture to show
+   */
+  async function show(take, ms = 0, { play = false, rate = 1, onTime = null, onEnd = null, muted = false } = {}) {
+    if (cur) cancelAnimationFrame(cur.raf);
+    const parts = partsOf(take), where = locate(take, Math.max(0, Math.min(take.ms ?? 0, ms)));
+    const me = cur = { take, i: where.i, raf: 0, onTime, onEnd, rate, playing: play };
+    const f = await fileOf(where.id);
+    if (cur !== me) return false; // another call came meanwhile
+    if (!f) { stop(); return false; }
+    video.dataset.take = take.id;
+    video.hidden = false;
+    if (f.picture) { video.removeAttribute('src'); video.poster = f.url; video.dataset.file = ''; video.load(); return true; }
+    if (video.dataset.file !== where.id) { video.removeAttribute('poster'); video.src = f.url; video.dataset.file = where.id; await ready(); if (cur !== me) return false; }
+    video.muted = muted; video.loop = false; video.playbackRate = rate;
+    try { video.currentTime = where.at / 1000; } catch { /* not seekable yet */ }
+    if (!play) { if (!video.paused) video.pause(); return true; }
+    video.play().catch(() => {});
+    const step = () => {
+      if (cur !== me) return;
+      const part = parts[me.i], start = parts.slice(0, me.i).reduce((n, p) => n + (p.to - p.from), 0);
+      const t = video.currentTime * 1000;
+      me.onTime?.(Math.max(0, Math.min(take.ms ?? 0, start + t - part.from)));
+      if (t >= part.to - 8 || video.ended) { // this part is through: the next one, or the end
+        if (me.i + 1 < parts.length) { show(take, start + (part.to - part.from) + 1, { play: true, rate, onTime, onEnd, muted }); return; }
+        video.pause(); me.playing = false; me.onEnd?.(); return;
+      }
+      me.raf = requestAnimationFrame(step);
+    };
+    me.raf = requestAnimationFrame(step);
+    return true;
+  }
+
+  const pause = () => { if (cur) { cancelAnimationFrame(cur.raf); cur.playing = false; } if (!video.paused) video.pause(); };
+
+  return { show, stop, pause, get playing() { return Boolean(cur?.playing) && !video.paused; }, get take() { return cur?.take ?? null; } };
+}

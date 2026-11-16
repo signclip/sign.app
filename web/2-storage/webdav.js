@@ -105,7 +105,12 @@ export class WebDavStore {
   }
 
   async move(from, to) {
-    const res = await this.request('MOVE', from, { headers: { Destination: this.url(to), Overwrite: 'F' } });
+    const go = () => this.request('MOVE', from, { headers: { Destination: this.url(to), Overwrite: 'F' } });
+    let res = await go();
+    if (res.status === 409) { // the folder it moves into is missing (17.11.: within/@(name)!(n_…)/ at the first move): make it, once more
+      await this.makeFolders(to);
+      res = await go();
+    }
     if (res.status === 412) throw new ExistsError(to);
     if (res.status === 404) throw new MissingError(from);
     if (!res.ok) throw new Error(`MOVE ${from}: ${res.status}`);

@@ -91,7 +91,7 @@ async function clipboardText() {
 const HELD_UP = { hello: 'join', join: 'within', quiet: 'within' };
 const HELD_DOWN = { hello: 'quiet', join: 'hello' };
 
-export async function mountSharing({ panel, onDraw = () => {}, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, helloTakes = async () => [], project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {}, onLookAll = () => {}, words = () => [], index = () => null }) {
+export async function mountSharing({ panel, onDraw = () => {}, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, helloTakes = async () => [], project = null, onHello = () => {}, onDoor = () => {}, onRole = () => {}, onOwnHold = () => {}, onLook = () => {}, onLookAll = () => {}, words = () => [], index = () => null }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
@@ -131,8 +131,13 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
 
   let sealWith = null; deviceKeys().then((k) => { sealWith = k.device; }, () => {}); // the list is sealed like every .sign
   const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()), deviceKey: sealWith });
-  const all = () => tiles(s.entries, s.rules, s.open, s.runs).filter((x) => { const e = s.entries[x.n - 1]; return e && !(e.key && !e.path); })
+  // The list is changed by one writer at a time (17.11.): two changes side by side both read the same version and one was lost.
+  let writing = Promise.resolve();
+  const write = (edit) => { const run = writing.then(() => changeList(own, edit, meta())); writing = run.catch(() => {}); return run; };
+  const every = () => tiles(s.entries, s.rules, s.open, s.runs).filter((x) => { const e = s.entries[x.n - 1]; return e && !(e.key && !e.path); }); // also the door after the join: its state is still followed (quiet note, rename)
+  const all = () => every()
     .filter((x) => !(x.group && s.joinStates?.get?.(x.label) === 'within' && s.doorLabels?.has(x.label))) // joined (15.11.): the door is no tile any more; my Sign is
+    .filter((x) => !(doorLabel && x.label === doorLabel && ['join-own', 'within'].includes(s.joinStates?.get?.(x.label)))) // 17.11.: gone the moment my own Sign came, never both side by side
     .map((x) => { const to = s.moved?.get(s.entries[x.n - 1]?.id); return to ? { ...x, moved: to, label: `→ ${to.replace(/^https?:\/\//, '').split('/')[0]}` } : x; })
     .filter((x) => ![s.adminN, s.atlasN, s.groupsN].includes(x.n)) // Admin, Atlas, Groups (15.11.): a login is an account (the small circle upper left), no storage tile
     .filter((x) => !(ctx.role && doorLabel && x.label === doorLabel)); // a role has no door // Admin and Atlas are no storage (15.11.) // devices (this one and the person's others) are no tiles: their check keys are for the seals // this device is the own tile (0), not a second one
@@ -174,13 +179,19 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   }
 
   /** Why a join stopped (16.11.): into sign-debug.txt and as a short note in the menu, never silent. */
-  const joinNote = (why) => { debugNote({ method: 'join', where: project?.label ?? 'Sign', error: String(why).slice(0, 300), ms: 0 }); s.note = String(why).slice(0, 60); if (!panel.hidden) draw(); return null; };
+  const joinNote = (why) => {
+    debugNote({ method: 'join', where: project?.label ?? 'Sign', error: String(why).slice(0, 300), ms: 0 });
+    if (/no name sign yet/.test(String(why)) || ctx.role) return null; // not a failure (17.11.): the onboarding is not there yet, or a role says no hello — only in the log
+    s.note = String(why).slice(0, 60); if (!panel.hidden) draw(); return null;
+  };
   /**
    * The project's door, then the hello at once (16.11., user: first start = automatic). The door comes into the list
    * (joinProject); if no hello went out yet and the door is open, the hello goes with name sign and password gestures.
    * Tapping or dragging onto the hello bubble stays a second way (a door with a password waits for it first).
    */
-  async function joinDoor() {
+  let joining = null; // one at a time (17.11.): every change of the list loads anew and asked again, three hellos went out side by side
+  const joinDoor = () => (joining ??= joinDoorOnce().finally(() => { joining = null; }));
+  async function joinDoorOnce() {
     const label = project?.label || 'Sign';
     if (await joinProject(ctx, project, { report: joinNote })) await load();
     if (!project?.doors?.length || (await joins.get(label).catch(() => null))) return draw();
@@ -189,20 +200,24 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     if (ready.length < 4) return draw(); // name sign + 3 password gestures first (flow.js); until then the bubble waits
     const m = await helloToDoor(ctx, label).catch((err) => joinNote(`hello: ${err?.message ?? err}`));
     if (!m) return joinNote('hello: nothing went out');
-    (s.joinStates ??= new Map()).set(label, m.state); s.fresh.add(label); onHello();
+    (s.joinStates ??= new Map()).set(label, m.state); s.fresh.add(label); onHello(); onDoor(m.state);
     return draw();
   }
-  async function load() {
+  // One load at a time, each after the one before (17.11.): two side by side left the older one's opened sharing
+  // points standing over the newer list, so the door's drop link was missing and no hello went out.
+  let loading = Promise.resolve();
+  const load = () => (loading = loading.then(loadOnce, loadOnce));
+  async function loadOnce() {
     const at = await findList(own, person.label); // my list: several persons may share this device
     const text = at ? dec.decode(await own.read(at)) : '';
     s.entries = text ? readList(text) : [];
     s.rules = text ? rulesOf(text) : [];
     if (!s.entries.some((e) => e.id === device && e.key)) { // this device in my own list with its check key z_ (14.11.):
       const { device: key } = await deviceKeys(); sealWith = key; // whoever reads my list (atlas too) can check my seals
-      const added = await changeList(own, { add: { label: `${person.label} · ${device.slice(2, 6)}`, path: null, id: device, key: key.public } }, meta()).catch(() => null);
-      if (added) return load(); // once; if it cannot be written, the list stays as it was
+      const added = await write({ add: { label: `${person.label} · ${device.slice(2, 6)}`, path: null, id: device, key: key.public } }).catch(() => null);
+      if (added) return loadOnce(); // once; if it cannot be written, the list stays as it was
     }
-    if (await takePendingLogin().catch(() => false)) return load(); // a role login moved here from another account (15.11.)
+    if (await takePendingLogin().catch(() => false)) return loadOnce(); // a role login moved here from another account (15.11.)
     s.open = await openAll(s.entries, { keychain, own, folders });
     onSources(sources(s.rules, s.open, own));
     waitingShares(ctx).then(async (list) => { // asks in the background
@@ -212,16 +227,27 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       if (!panel.hidden) draw();
     });
     findAdmin().then(refreshDoor); // admin? then the signer: who said hello, and the door's piles
-    followJoins(ctx).then(async (states) => { // member: my joins; a state that changed builds its symbol up once
-      for (const [label, st] of states) if (st === 'within' && (await joins.get(label).catch(() => null))?.door) (s.doorLabels ??= new Set()).add(label); // joined doors: no tile
-      for (const [label, st] of states) if (s.joinStates?.get?.(label) !== st) s.fresh.add(label);
-      s.joinStates = states;
-      if (!panel.hidden) draw();
-    });
+    lookForJoins(); // member: my joins; a state that changed builds its symbol up once
     await roleByName(); // Admin, Atlas, Groups (15.11.): known by the login's name, before the door is asked
     if (!ctx.role) joinDoor().catch((err) => joinNote(`join: ${err?.message ?? err}`)); // the first group: the project's door (also after its password came); a role says no hello
     checkMoves().catch(() => {});
   }
+  /** My joins looked at again: on every load, every 15 s while a hello waits, and when the app comes back (17.11.). */
+  let looking = null;
+  const lookForJoins = () => (looking ??= followJoins(ctx).then(async (states) => {
+    for (const [label, st] of states) if (st === 'within' && (await joins.get(label).catch(() => null))?.door) (s.doorLabels ??= new Set()).add(label); // joined doors: no tile
+    for (const [label, st] of states) if (s.joinStates?.get?.(label) !== st) s.fresh.add(label);
+    const before = doorLabel ? s.joinStates?.get?.(doorLabel) ?? null : null;
+    s.joinStates = states;
+    const now = doorLabel ? states.get(doorLabel) ?? null : null;
+    if (now !== before) { onDoor(now); if (now === 'ready') navigator.vibrate?.([20, 60, 20]); } // the answer is there: felt, and the button shows the way
+    if (!panel.hidden) draw();
+    return states;
+  }, () => s.joinStates).finally(() => { looking = null; }));
+  const waitsForAnswer = () => [...(s.joinStates?.values?.() ?? [])].some((st) => st === 'hello');
+  setInterval(() => { if (!document.hidden && waitsForAnswer() && navigator.onLine !== false) lookForJoins(); }, 15000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && waitsForAnswer()) lookForJoins(); });
+
   /** Sealed moves (15.11.): a sharing point that says its content went elsewhere breathes "→ host"; a tap follows it. ≤ 1 look per tile per 10 min. */
   async function checkMoves() {
     s.moved ??= new Map(); s.moveSeen ??= new Map();
@@ -240,7 +266,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     if (change?.remove != null) await moveNote(change.remove).catch(() => {}); // taken away right after everything was copied out: a sealed move note stays behind
     if (change?.remove != null) await logoutEntry(change.remove).catch(() => {}); // a login taken away: its app password deletes itself, the keychain forgets it
     if (change?.remove != null && [s.adminN, s.atlasN, s.groupsN].includes(change.remove)) { ctx.admin = undefined; ctx.door = null; s.adminN = s.atlasN = s.groupsN = null; ctx.groups = null; ctx.atlas = null; s.door = null; s.accounts = s.account = s.index = null; } // Admin or Atlas taken away: asked anew
-    await changeList(own, change, meta());
+    await write(change);
     await load();
     draw();
     run().catch(() => {}); // a new copy or backup starts now, not at the next start
@@ -283,7 +309,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     draw();
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on), newPerson: () => onOwnHold() };
+  const ctx = { every: () => every(), project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on), newPerson: () => onOwnHold() };
   // the admin's door and what Admin, Atlas, Groups do: their own files (15.11., share-door.js, share-accounts.js)
   const { refreshDoor, lookPile, pileList, adminStore } = doorPart(ctx, { panel, onLookAll });
   const { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, showGroups, groupTiles, addToGroup } = accountPart(ctx, { words, onLookAll, project });
@@ -501,6 +527,9 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       s.sending = null; navigator.vibrate?.(states.get(label) === 'ready' ? [40, 40, 40] : 20);
       for (const [l, st] of states) if (s.joinStates?.get?.(l) !== st) s.fresh.add(l);
       s.joinStates = states;
+      onDoor(states.get(label) ?? null);
+      if (states.get(label) === 'ready') { await joins.set(label, { ...(await joins.get(label)), tapped: false }); s.note = t('notReachable'); return draw(); } // not taken (seal, network): a tap tries again
+      if (states.get(label) === 'join-own') return arrived(label);
       return draw();
     }
     if (what === 'own' && s.joinStates.get(ctx.tileOf(Number(a))?.label) === 'join-own') { // the icon complete: tap my space = on to the consent (15.11.)
@@ -582,6 +611,24 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     return null;
   }
 
+  /**
+   * My own Sign came with the join (17.11.): the door is gone, my Sign stands beside me and asks at once, in the first
+   * circle, what goes there from now on (strands on/off, the middle = yes; pushed away = nothing goes, a tap on the tile
+   * asks again). That yes is the consent: only what the person sends lies on the project's Nextcloud.
+   */
+  async function arrived(label) {
+    const mine = await joins.get(label).catch(() => null);
+    if (mine) await joins.set(label, { ...mine, state: 'within' });
+    (s.doorLabels ??= new Set()).add(label);
+    const n = s.entries.findIndex((e, i) => { const sp = s.open.get(i + 1)?.spec; return sp?.kind === 'nextcloud' && mine?.account && sp.server === mine.account.server && sp.user === mine.account.user; }) + 1;
+    navigator.vibrate?.(20);
+    if (!n) return draw();
+    s.fresh.add(`sp:${n}`); s.focus = n;
+    const tile = ctx.tileOf(n);
+    if (tile && !tile.always) return apply(gestureOn(targetFor(tile, 'hold'), 'hold', s.rules, { selection: selection(), private: tile.private }));
+    return draw();
+  }
+
   // ---------- drawing ----------
   /**
    * Is one of my Nextcloud logins an admin of its instance (14.11.)? Then this device is the admin app: hellos in its
@@ -645,7 +692,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     const P = globalThis.signPersons, label = { admin: project?.admin, atlas: project?.atlas, groups: project?.groups }[role] || role;
     const e = s.entries[n - 1], said = doorLabel && (await joins.get(doorLabel).catch(() => null));
     if (said && P && e && !P.persons().some((x) => x.id === P.current() && x.role)) {
-      await changeList(own, { remove: n }, meta()); // out of my list, not logged out
+      await write({ remove: n }); // out of my list, not logged out
       const id = P.add();
       if (!id) return;
       P.setRole(id, role, label);
@@ -653,7 +700,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       localStorage.setItem('sign.pendingLogin', JSON.stringify({ for: id, entry: { label: e.label, path: e.path, id: e.id } }));
       return location.reload();
     }
-    ctx.role = role;
+    ctx.role = role; s.note = ''; onRole(role); // a role says no hello: no onboarding steps, no note about one
     if (role === 'admin') s.adminN ??= n; else if (role === 'atlas') s.atlasN ??= n; else s.groupsN ??= n;
     P?.setRole?.(P.current(), role, label);
     s.fresh.add(`person:${P?.current()}`); // it builds up there: the request disappears into the small circle
@@ -705,7 +752,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     let p = null; try { p = JSON.parse(localStorage.getItem('sign.pendingLogin') || 'null'); } catch { /* none */ }
     if (!p || p.for !== globalThis.signPersons?.current()) return false;
     localStorage.removeItem('sign.pendingLogin');
-    await changeList(own, { add: p.entry }, meta());
+    await write({ add: p.entry });
     return true;
   }
   const START = ['direct', 'record', 'choose']; // straight to the take as left · records at once · the persons to choose at start

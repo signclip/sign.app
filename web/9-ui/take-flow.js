@@ -66,12 +66,22 @@ export function takeFlow(A) {
     A.dispatch({ type: 'discard' });
   }
 
-  /** ← while recording or paused: kept. */
-  async function keep() {
-    const r = t.recorder ? await t.recorder.stop() : { video: null, audio: null, lengthMs: Date.now() - t.began };
+  /**
+   * ← while recording or paused: kept. The button is free at once (17.11.): the next tap starts the next take, it no
+   * longer pauses a take that is still being written. Takes are saved one after another, in the order they were made.
+   */
+  let saving = Promise.resolve();
+  function keep() {
+    const rec = t.recorder, began = t.began, preview = t.preview;
     t.recorder = null;
     navigator.vibrate?.([15, 60, 15]);
-    return save({ video: r.video, audio: r.audio, lengthMs: r.lengthMs, began: t.began, preview: t.preview });
+    A.dispatch({ type: 'rec', to: 'idle' });
+    const run = saving.then(async () => {
+      const r = rec ? await rec.stop() : { video: null, audio: null, lengthMs: Date.now() - began };
+      return save({ video: r.video, audio: r.audio, lengthMs: r.lengthMs, began, preview });
+    });
+    saving = run.catch(() => {});
+    return run;
   }
 
   /** The photo dot is on: one tap = one picture, kept at once. */
@@ -107,8 +117,27 @@ export function takeFlow(A) {
     A.reindex();
   }
 
+  /**
+   * The open line after a cut or a join (17.11.): a new line on top of its chain, every take by reference — a cut as two
+   * parts of one take '(from_to), no file is rewritten (add-line.js). Best effort: the line on the screen stays as it is.
+   */
+  async function saveLine() {
+    const line = A.st.lines.at(-1);
+    if (!line?.takes.length || !t.lineChain) return null;
+    try {
+      const elements = [];
+      for (const take of line.takes) for (const p of (take.parts ?? [{ id: take.id, from: 0, to: take.ms, len: take.ms }])) {
+        elements.push({ bytes: await A.store.read(p.id), ...(p.from > 0 || p.to < (p.len ?? p.to) ? { part: [p.from, p.to] } : {}) });
+      }
+      if (elements.length > 64) return null;
+      t.lineChain = (await addLine({ own: A.store, chainPath: t.lineChain, elements, device: A.device, person: A.person, deviceKey: await sealKey() })).chain;
+      A.reindex();
+      return t.lineChain;
+    } catch (err) { console.warn('line', err); return null; }
+  }
+
   /** The chain of the line in force (↑ on the button shares it). */
   const lastChain = () => A.chosenChain?.() ?? t.lineChain;
 
-  return { setCamera: (stream) => { t.camera = stream; }, openCamera, start, pause, resume, keep, anew, photo, lastChain, get camera() { return t.camera; } };
+  return { saveLine, setCamera: (stream) => { t.camera = stream; }, openCamera, start, pause, resume, keep, anew, photo, lastChain, get camera() { return t.camera; } };
 }

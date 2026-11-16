@@ -54,6 +54,10 @@ export function takeLayout({ w, h, keyboard = 0 }, similar = 'closed') {
     }
     if (similar === 'double') doubleBox = squareIn(similarBox, 0.92);
   }
+  if (keyboard && scale === 1) { // the keyboard is up (17.11.): the whole take stays in what is left, smaller if it must
+    const need = 2 * R0 + 1.8 * ring + 64 * k, room = h - keyboard - 6 * k;
+    if (need > room) scale = Math.max(0.4, (room - 64 * k) / (2 * R0 + 1.8 * ring));
+  }
   if (similar === 'full') { similarBox = { x: 8 * k, y: 10 * k, w: w - 16 * k, h: h - 20 * k }; scale = 0; }
   const R = R0 * scale;
   const lineR = R + ring * 0.8 * (scale || 1); // through the button: it overlaps the window a little (08.11.)
@@ -97,13 +101,26 @@ export function lineSlots(L, count, at, shift = 0) {
   const { cx, cy, lineR, k, scale } = L;
   const s = scale || 1, step = 13, out = [];
   for (let i = 0; i < count; i++) {
-    const off = i - at + shift; // < 0 left of the button
-    if (off === 0 || Math.abs(off) > LINE_SIDE) continue;
-    const deg = Math.sign(off) * (10 + step * (Math.abs(off) - 0.5));
+    const off = i - at + shift; // < 0 left of the button; shift = how far the finger pulled the line (in takes, 17.11.)
+    const a = Math.abs(off);
+    if (a < 0.02 || a > LINE_SIDE + 0.5) continue;
+    const deg = Math.sign(off) * (a < 1 ? (10 + step * 0.5) * a : 10 + step * (a - 0.5)); // through the button without a jump
     const [x, y] = polar(cx, cy, lineR, deg);
-    out.push({ i, x, y: y, r: 15 * k * s });
+    out.push({ i, x, y, r: 15 * k * s * (a < 1 ? 0.7 + 0.3 * a : 1), off });
   }
   return out;
+}
+/** How many px along the line one take is (to turn a finger's way into takes). */
+export const slotPx = (L) => (L.lineR * 13 * Math.PI) / 180;
+
+/**
+ * The timeline inside the spread button (17.11.). take: { ms } · ms: the moment in the middle · → { span (ms across the
+ * widest button), px (per ms), x(t) }: a short take fills the button, a long one runs through it.
+ */
+export function timeline(L, take, ms) {
+  const span = Math.max(2000, Math.min(6000, (take?.ms ?? 0) * 1.4));
+  const px = ((2 * L.R) / PHI) / span;
+  return { span, px, x: (t) => L.button.x + (t - ms) * px };
 }
 
 /** The button spread across (16.11.): a pill as high as the button, as wide as the window ÷ φ at most. → { x, y, w, h } */

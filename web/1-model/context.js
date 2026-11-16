@@ -187,7 +187,8 @@ export function leadOf(text) {
 /**
  * Write a gesture at a spot in the series (15.11.): tapped in the row = there, below the row = at the end.
  * at: the path of a gesture in contextTree(text) ([i] top level, [i, j] inside prefix i …) or null = at the end ·
- * how: 'after' = behind that gesture · 'in' = into that prefix, as its last element.
+ * how: 'after' = behind that gesture · 'in' = into that prefix, as its last element · 'first' = in front: at [] or
+ * null = the very first of the series, at a prefix = the first element inside it (17.11.: any spot can be written at).
  * → { text, at } with at = the spot of what was written (the next one goes behind it).
  */
 export function insertGesture(text, at, how, add) {
@@ -195,13 +196,16 @@ export function insertGesture(text, at, how, add) {
   const real = (list) => list.map((n, ix) => [n, ix]).filter(([n]) => n.t !== 'sym');
   const asGroup = (n) => { if (n.body.t !== 'group') n.body = { t: 'group', items: [n.body], meta: [] }; return n.body.items; };
   const end = () => { nodes.push(...more); return { text: write(nodes), at: [real(nodes).length - 1] }; };
+  if (how === 'first' && !at?.length && more.length) { nodes.unshift(...more); return { text: write(nodes), at: [more.length - 1] }; }
   if (!at?.length || !more.length) return end();
   let list = nodes;
   const path = [];
+  const inner = (n) => { while (n?.t === 'group' && real(n.items).length === 1 && ['prefix', 'group'].includes(real(n.items)[0][0].t)) n = real(n.items)[0][0]; return n; }; // a prefix stands in its own bracket (G4): the view shows it as one bubble
   for (let d = 0; d < at.length; d++) {
-    const [n, ix] = real(list)[at[d]] ?? [];
-    if (!n) return end();
-    const last = d === at.length - 1;
+    const [outer, ix] = real(list)[at[d]] ?? [];
+    if (!outer) return end();
+    const n = inner(outer), last = d === at.length - 1;
+    if (last && how === 'first' && n.t === 'prefix') { const items = asGroup(n); items.unshift(...more); return { text: write(nodes), at: [...path, at[d], more.length - 1] }; }
     if (last && how === 'in' && n.t === 'prefix') { const items = asGroup(n); items.push(...more); return { text: write(nodes), at: [...path, at[d], real(items).length - 1] }; }
     if (last || n.t !== 'prefix') { list.splice(ix + 1, 0, ...more); return { text: write(nodes), at: [...path, at[d] + more.length] }; }
     path.push(at[d]);

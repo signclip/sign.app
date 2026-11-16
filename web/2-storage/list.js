@@ -104,13 +104,26 @@ export function listPath({ id, person, time }) {
   return `chain/${monthOf(time)}/${buildName({ words: [WORD], person, time, u: uOf(id), kind: 'chain', ext: 'sign' })}`;
 }
 
-/** The list in force: the newest list file in chain/ (by time in its name), or null. person: only that person's (14.11.: several on a device). */
+/**
+ * The list in force: the newest list file in chain/ (by time in its name), or null. person: only that person's (14.11.:
+ * several on a device). Two versions of the same second (17.11.: the door's two links are added one right after the
+ * other): the one in force is the one no other version of that second builds on (its `:chain.1` names the one below).
+ * Limits: the tie costs one read per version of that second (≤ 5 in practice); otherwise only the listing.
+ */
 export async function findList(store, person = null) {
   const lists = (await store.list('chain/')).map((f) => f.path)
     .map((path) => ({ path, name: readName(path.slice(path.lastIndexOf('/') + 1)) }))
     .filter((f) => f.path.endsWith('.sign') && f.name?.words.includes(WORD) && (!person || f.name.person === person))
     .sort((a, b) => String(a.name.time).localeCompare(String(b.name.time)));
-  return lists.at(-1)?.path ?? null;
+  const last = lists.at(-1);
+  if (!last) return null;
+  const tie = lists.filter((f) => f.name.time === last.name.time);
+  if (tie.length === 1) return last.path;
+  const below = new Set();
+  for (const f of tie) {
+    try { const d = readFile(new TextDecoder().decode(await store.read(f.path))).defs.get('chain.1'); if (d?.id?.u) below.add(d.id.u); } catch { /* unreadable: it cannot be the one in force */ below.add(f.name.u); }
+  }
+  return (tie.filter((f) => !below.has(f.name.u)).at(-1) ?? last).path;
 }
 
 /** Read, change, write: the list in force → the next version in chain/. → { path, text, entries, rules } */

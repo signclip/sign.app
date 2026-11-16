@@ -41,7 +41,7 @@ const dec = new TextDecoder();
 
 /** The group of a label in the list: its read and drop entries (both links), or null. */
 export function groupOf(ctx, label) {
-  const tiles = ctx.all().filter((t) => t.label === label);
+  const tiles = (ctx.every ?? ctx.all)().filter((t) => t.label === label);
   const read = tiles.find((t) => t.drop);
   return read ? { read, drop: ctx.tileOf(read.drop) } : null;
 }
@@ -247,7 +247,15 @@ async function dropStoreOf(ctx, n) {
   return connect({ ...spec, write: true, drop: true }, { secret: await ctx.keychain.get(entry.id) }).store;
 }
 
-async function sayHelloTo(ctx, label, { door = false } = {}) {
+const helloOut = new Map(); // label → the hello on its way (17.11.): a second call while it runs gets the same one, never a second hello
+function sayHelloTo(ctx, label, opts = {}) {
+  const key = `${ctx.person?.id ?? ''} ${label}`;
+  if (!helloOut.has(key)) helloOut.set(key, sayHelloOnce(ctx, label, opts).finally(() => helloOut.delete(key)));
+  return helloOut.get(key);
+}
+async function sayHelloOnce(ctx, label, { door = false } = {}) {
+  const before = await joins.get(label).catch(() => null);
+  if (before?.helloPath && before.state === 'hello') return; // it is out and waits for its answer: said once
   const g = groupOf(ctx, label);
   if (!g) return;
   const open = await dropStoreOf(ctx, g.drop.n);
@@ -269,7 +277,7 @@ export async function followJoins(ctx) {
   const states = new Map();
   const door = ctx.doorLabel && ctx.s.entries.some((e) => e.label === ctx.doorLabel);
   if (door && !(await joins.get(ctx.doorLabel))) states.set(ctx.doorLabel, 'door'); // in the list, no hello yet: a bubble to drag onto
-  for (const t of ctx.all().filter((x) => x.drop)) {
+  for (const t of (ctx.every ?? ctx.all)().filter((x) => x.drop)) { // every(): the door too once it is no tile any more (17.11.: its state was lost and the tile came back)
     const mine = await joins.get(t.label);
     if (!mine) continue;
     states.set(t.label, mine.state);
