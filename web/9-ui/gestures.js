@@ -122,7 +122,7 @@ export const TABLE = [
   ['next', 'left', 'item', 'any', 'next (later); on hello: go on to join'],
   ['before', 'right', 'item', 'any', 'before'],
   // a chip
-  ['chip-on-off', 'tap', 'chip', 'any', 'this context on / off for similar'],
+  ['chip-on-off', 'tap', 'chip', 'any', 'what is written in the take always searches in Similar (context first, sound and picture later); a tap takes this word out of the search / in again (16.11.)'],
   ['write-here', 'tap', 'queue', 'any', 'a chip or bubble in the row below the take: the field opens, what is written goes behind it (into a bubble: as its last element); tap under the row = at the end (15.11.)'],
   ['chips-later', 'left', 'chip', 'any', 'a long chip row: the later ones come in from the right (15.11.)'],
   ['chips-earlier', 'right', 'chip', 'any', 'a long chip row: the earlier ones come back from the left (15.11.)'],

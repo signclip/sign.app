@@ -43,7 +43,7 @@ import { addLine, MAX_ELEMENTS } from '../4-save/add-line.js';
 import { askRemove } from '../8-join/remove-request.js';
 import { deviceKeys, joins } from './device-keys.js';
 const sealKey = async () => (await deviceKeys().catch(() => null))?.device ?? null; // every .sign this device writes gets its y_ (SCHEMA B2)
-import { readName } from '../1-model/filename.js';
+import { readName, flatWords } from '../1-model/filename.js';
 import { openDevices, startTake, browserTap } from '../5-take/recorder.js';
 import { relay } from '../5-take/relay.js';
 import { loadWhisper } from '../5-take/whisper-engine.js';
@@ -669,8 +669,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   /** Files from elsewhere as the Similar tiles (admin: a hello's name sign and password gestures, 15.11.); closing Similar ends it. */
   async function lookAt(items) {
     for (const k of [...thumbs.keys()]) if (k.startsWith('look:')) thumbs.delete(k);
-    const groups = new Map(); // 16.11.: one tile per hello (her line: name sign, password gesture 1 · 2 · own), not one per take
-    for (const x of items) groups.set(x.group ?? x.path, [...(groups.get(x.group ?? x.path) ?? []), x]);
+    const groups = new Map(); // 16.11. (user): a pile is a search in its folder, put together by name – one tile per person, her line = all her pieces (name sign, password gestures; several hellos one after another)
+    const keyOf = (x) => (x.name ? `@${x.name}` : x.group ?? x.path);
+    for (const x of items) groups.set(keyOf(x), [...(groups.get(keyOf(x)) ?? []), x]);
     items = [...groups.values()].map((pieces) => ({ ...pieces[0], pieces }));
     data.look = items;
     data.double = null;
@@ -694,7 +695,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
   /** Admin, in Doppel: move the person this take belongs to one pile on (up) or back (down); her takes leave, the next one shows. */
   async function decide(how) {
-    const at = data.look?.[data.lookAt ?? data.doubleAt ?? (data.look?.length === 1 ? 0 : -1)]; // one person only: no tap needed first
+    const tile = data.look?.[data.lookAt ?? data.doubleAt ?? (data.look?.length === 1 ? 0 : -1)]; // one person only: no tap needed first
+    const at = tile?.pieces?.[data.pieceAt ?? 0] ?? tile; // the hello of the piece on the button (a name may have several)
     if (!at?.[how]) return null;
     if (at.pile === 'within' && how === 'down') { // 16.11. (user): ↓ in within = the sharing menu opens, quiet breathes, a tap on it = quiet (account off)
       navigator.vibrate?.(12);
@@ -718,10 +720,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     }
     data.deleteChoices = null; if (data.offers?.some((o) => o.origin === 'delete')) data.offers = [];
     feedback('saved'); // moved: the green ring goes out from the point (16.11.)
-    const rest = data.look.filter((x) => x.group !== at.group);
+    const left = (x) => { const pieces = (x.pieces ?? [x]).filter((p) => p.group !== at.group); return pieces.length ? { ...pieces[0], pieces } : null; }; // that hello leaves; the rest of her name stays
+    const rest = data.look.map(left).filter(Boolean);
     data.compare = null;
     if (!rest.length) { pairOff(); return closeSimilar(); }
-    const next = Math.min(data.look.slice(0, data.lookAt ?? data.doubleAt).filter((x) => x.group !== at.group).length, rest.length - 1);
+    const next = Math.min(data.look.slice(0, data.lookAt ?? data.doubleAt).map(left).filter(Boolean).length, rest.length - 1);
     for (const k of [...thumbs.keys()]) if (k.startsWith('look:')) thumbs.delete(k);
     data.look = rest;
     showSimilar(true);
@@ -748,7 +751,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (st.similar && !data.double && (data.reveal ?? 1) > 0) await animate('reveal', data.reveal ?? 1, 0);
     if (!data.look) await keepSimilar();
     step('similar-out');
-    data.words = [];
+    data.wordsOff = [];
     data.double = null; // Doppel ends with Similar
     if (data.ownLine) { if (data.ownLine.mine) ({ line: data.line, lineThumbs: data.lineThumbs } = data.ownLine); data.versions = data.ownLine.versions; delete data.ownLine; } // my line back on top
     delete data.top; if (take.replayAt < 0 && st.screen === 'line') step('live');
@@ -923,7 +926,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (data.look && data.top && !data.compare) { data.similar = data.top.items.map((_, n) => `piece:${n}`); data.similar.forEach(thumbOf); return panel('#similar', on, [], () => {}); } // searched only in this line's elements (16.11.)
     if (data.look && data.compare) { data.similar = data.compare.map((_, i) => `cmp:${i}`); data.similar.forEach(thumbOf); return panel('#similar', on, [], () => {}); } // the search in within/ (16.11.)
     if (data.look) { data.similar = data.look.map((_, i) => `look:${i}`); data.similar.forEach(thumbOf); return panel('#similar', on, [], () => {}); }
-    const hits = similar(index, { words: data.words, filters: filtersOf(index, filter) });
+    const hits = similar(index, { words: searchWords(), filters: filtersOf(index, filter) });
     data.similar = hits.slice(0, MANY).map((h) => h.key);
     for (const key of data.similar) thumbOf(key); // pictures for the tiles, as they come
     const chips = filterChips(index, filter, t);
@@ -943,8 +946,16 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // ---------- the context field: chips, and writing (one gesture per Enter; the series goes one on per take) ----------
   const say = $('#say');
   /** The series as it shows: what is being typed is in it already, live, at its spot (15.11.); a space = and, as in the notation. */
+  /** What Similar searches (16.11., user): what is written in the take – its context with what is being typed – minus the words tapped off. */
+  function searchWords() {
+    const text = [sticky.map((w) => `(${w})`).join(' '), data.contextNow ?? series].filter(Boolean).join(' ');
+    let words = []; try { words = flatWords(text); } catch { words = text.split(/[\s()]+/).filter(Boolean); }
+    return [...new Set(words)].filter((w) => !(data.wordsOff ?? []).includes(w));
+  }
   function showSeries() {
     const typing = say.value.trim() ? insertGesture(series, data.insertAt?.at ?? null, data.insertAt?.how ?? null, fromField(say.value)) : null;
+    data.contextNow = typing?.text ?? series;
+    if (st.similar && !data.look) { clearTimeout(showSeries.soon); showSeries.soon = setTimeout(() => showSimilar(true), 250); } // Similar follows what is typed
     setChips(withTakes(markTyping(contextTree(typing?.text ?? series), typing?.at))); // bubbles in bubbles; one take per element: now, next, some time later; ↑ = flies
     paint();
   }
@@ -1097,8 +1108,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         setChips();
         return paint();
       }
-      case 'chip-on-off': // a chip as a word for Similar
-        data.words = data.words.includes(hit.text) ? data.words.filter((w) => w !== hit.text) : [...data.words, hit.text];
+      case 'chip-on-off': // 16.11.: every word of the take searches in Similar; a tap takes one out (again = in)
+        data.wordsOff = (data.wordsOff ?? []).includes(hit.text) ? data.wordsOff.filter((w) => w !== hit.text) : [...(data.wordsOff ?? []), hit.text];
         return st.similar ? showSimilar(true) : paint();
       case 'take-while-held': if (st.screen === 'line' && take.replayAt >= 0) await replay(-(take.replayAt + 1)); return begin('take-while-held'); // in the line: live at once, then it records
       case 'strand-while-held': return begin('strand-while-held', { kind });
