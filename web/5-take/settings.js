@@ -13,7 +13,7 @@
 /** getUserMedia constraints for a Take. */
 export function constraints({ fps = 60, size = 1080, facing = 'user', stereo = true } = {}) {
   return {
-    video: { width: { ideal: size }, height: { ideal: size }, aspectRatio: { ideal: 1 }, frameRate: { ideal: fps }, facingMode: facing, resizeMode: 'crop-and-scale' },
+    video: { width: { ideal: size }, height: { ideal: size }, aspectRatio: { ideal: 1 }, frameRate: { ideal: fps }, facingMode: facing, resizeMode: 'crop-and-scale', zoom: true }, // zoom: true = Chrome asks for the camera's zoom (16.11.); others ignore it
     audio: { channelCount: { ideal: stereo ? 2 : 1 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
   };
 }

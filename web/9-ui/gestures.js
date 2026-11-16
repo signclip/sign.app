@@ -79,8 +79,6 @@ export const TABLE = [
   ['split', 'stretch', 'item', 'any', 'a take of the line held, the other finger pulls away from it: past the mark (a line across it shows) it is two parts, cut in its middle (15.11.)', 'item'],
   ['join', 'stretch', 'item>item', 'any', 'two takes held, pushed together: one after the other in a new line (15.11.)', 'item'],
   ['form', 'stretch', 'live', 'any', 'picture held, the other finger pulls: across = narrower / wider · up-down = lower / higher · slanted = squarer / rounder', 'live'],
-  ['form-next', 'up', 'live', 'any', 'swipe up on the picture: the next form – circle → ellipse → rectangle (16.11.)'],
-  ['form-before', 'down', 'live', 'any', 'swipe down on the picture: the form before – rectangle → ellipse → circle (16.11.)'],
   ['switch-camera', 'left', 'live', 'any', 'the other camera slides in (front / back), also during a take: the picture changes, the sound goes on'],
   ['switch-camera', 'right', 'live', 'any', 'the same, the other way'],
   // edges: bring in, push away
@@ -103,8 +101,8 @@ export const TABLE = [
   ['look-up', 'up', 'reference', 'any', 'admin, a pile in Doppel: on a pile (hello → join → within, quiet → within)'],
   ['look-down', 'down', 'reference', 'any', 'admin, a pile in Doppel: back a pile (hello → quiet, join → hello anew; within: the sharing menu opens, a tap on quiet = account off)'],
   // the line in its arc over the point, the chain under it (view/arc.js): opened and closed by the scale
-  ['line-choose', 'tap', 'line-arc', 'any', 'tap on the line: chosen, outlined – now ↑ on the point = the context just recorded onto every take of the line, ↓ = that context out of all of them; then it is unchosen (16.11.)'],
-  ['line-choose', 'tap', 'item', 'any', 'the same, tapping a take of the line'],
+  ['line-choose', 'tap', 'line-arc', 'any', 'tap on the line (between its takes): chosen, outlined – now ↑ on the point = the context just recorded onto every take of the line, ↓ = that context out of all of them; then it is unchosen (16.11.)'],
+  ['line-go', 'tap', 'item', 'any', 'tap on a take of the line: it slides into the point and plays (16.11.)'],
   ['line-zoom', 'pinch', 'line-arc', 'any', 'two fingers on the line: the takes apart (bigger) / together (smaller), continuous'],
   ['line-zoom', 'pinch', 'item', 'any', 'the same, starting on a take of the line'],
   ['straighten', 'spread', 'line-arc', 'any', 'spread further when the takes are as far apart as they go: the take opens as its timeline; spread on there = cut at the point (16.11.)'],

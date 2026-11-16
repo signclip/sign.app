@@ -59,7 +59,7 @@ import { write as writeNotation, parse as parseNotation } from '../1-model/notat
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse, look } from './state.js';
 import { MANY, CLOUD, CLOUD_GONE, cloudHome } from './view/ring.js';
-import { formOf, formBy, snapForm, stepForm, extentOf, inside as insideWindow } from './view/shape.js';
+import { formOf, formBy, snapForm, extentOf, inside as insideWindow } from './view/shape.js';
 import { mountScreen, targetOf } from './screen.js';
 import { normalize, readyStep, choose, CHOICES } from './settings.js';
 import { watch } from './ready.js';
@@ -425,6 +425,19 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     lineThumbs();
     await show(videos[take.replayAt]);
     step(st.mode === 'line' ? (by > 0 ? 'before' : 'next') : 'replay-back');
+  }
+
+  /** The camera's zoom (16.11.): the camera's own where it has one (Chrome asks for it with zoom: true), else larger in the window
+   *  (1–4 ×, the picture only: what is recorded stays whole). In sign-debug.txt: which of the two, or why none. */
+  let digital = 1;
+  async function zoomCamera(factor) {
+    if (!camera) return debugNote({ method: 'zoom', where: 'live', error: 'no camera open', ms: 0 });
+    const done = await zoomBy(camera, factor).catch((e) => { debugNote({ method: 'zoom', where: 'camera', error: String(e?.message ?? e), ms: 0 }); return false; });
+    if (done) return true;
+    digital = Math.max(1, Math.min(4, digital * factor));
+    const p = ((1 - 1 / digital) / 2) * 100; // the middle of the picture, larger; the window keeps its form (Chrome / Android WebView: object-view-box)
+    $('#live').style.objectViewBox = `inset(${p.toFixed(2)}%)`;
+    return false;
   }
 
   // ---------- the window's form by hand (14.11.): corners rounder or squarer, narrower or lower ----------
@@ -1043,7 +1056,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
 
   /** Fly one Similar tile into the line, then the new line slides in on the chain. */
   async function intoLine(tileRole, ms = 420) {
-    const from = screen.last?.shapes.find((x) => x.role === tileRole && x.type === 'thumb');
+    await flyToPoint(tileRole, ms);
+    data.line = { count: (data.line?.count ?? 0) + 1, at: 0 };
+  }
+  /** A picture on the screen (a Similar tile, a take of the line) glides into the point (≈ 0.3–0.4 s). */
+  async function flyToPoint(role, ms) {
+    const from = screen.last?.shapes.find((x) => x.role === role && x.type === 'thumb');
     data.arrive = { x: from?.x ?? innerWidth, y: from?.y ?? 0, s: from?.s, t: 0 };
     await new Promise((done) => {
       const t0 = performance.now();
@@ -1055,7 +1073,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       requestAnimationFrame(frame);
     });
     delete data.arrive;
-    data.line = { count: (data.line?.count ?? 0) + 1, at: 0 };
   }
 
   // ---------- one gesture → one action ----------
@@ -1171,14 +1188,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       }
       case 'zoom': case 'waits': return null; // pinch goes straight to the camera (picture), or on the point to time / the waits (handlers.pinch)
       case 'form': return null; // the picture held, the other finger pulls: handlers.stretch shapes the window as it moves
-      case 'form-next': case 'form-before': { // ↑ / ↓ on the picture: circle → ellipse → rectangle (16.11.); fine-tuning: hold + pull
-        rawShape = null;
-        const was = data.shape;
-        data.shape = stepForm(data.shape, row.action === 'form-next' ? 1 : -1);
-        if (data.shape !== was) navigator.vibrate?.(10);
-        settings = normalize({ ...settings, shape: data.shape }); saveSettings();
-        return paint();
-      }
       case 'split': case 'join': return null; // a take held, the other finger pulls or pushes: handlers.stretch shows the mark, stretchEnd does it
       case 'switch-camera':
         if (take.recorder && !take.relay) return null; // without the canvas the recorder would end
@@ -1239,6 +1248,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'chips-later': case 'chips-earlier': data.chipScroll = (data.chipScroll ?? 0) + (row.action === 'chips-later' ? -1 : 1) * 160; return paint(); // a long row scrolls sideways
       case 'context-close': return openContext(false);
       case 'line-choose': data.lineSel = !data.lineSel; navigator.vibrate?.(8); return paint(); // chosen: outlined
+      case 'line-go': { // a take of the line tapped (16.11.): it slides into the point and plays
+        await flyToPoint(`line:${hit.index}`, 300);
+        await replay(hit.index);
+        const r = $('#replay'); data.replayPaused = false; r.play?.().catch(() => {});
+        return paint();
+      }
       case 'line-zoom': return null; // continuous: handlers.pinch
       // ---------- in the table, not wired yet: each says where it docks ----------
       case 'take-over': return reference(hit.index); // Similar · Doppel: the result above, the live picture below
@@ -1345,8 +1360,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     },
     slideEnd: () => null,
     pinch: (factor, role, how = {}) => { // continuous, view only: on the picture = camera zoom · on the point = time (line zoom, or the waits)
-      if (role === 'live') return zoomBy(camera, factor);
-      if (st.similar && !data.double && (role === 'similar-band' || role?.startsWith('similar:'))) { // the cloud (16.11.): bigger / smaller, and along with the fingers
+      if (role === 'live') return zoomCamera(factor); // two fingers on the picture: the camera's zoom (16.11.: also without a zoom in the camera)
+      if (st.similar && !data.double && role === 'similar-band') { // the cloud (16.11.): bigger / smaller, and along with the fingers (on a tile: into it, at the end)
         if ((data.cloudFull ?? 0) > 0.5) return null; // full screen: the pinch decides at its end (smaller = the cloud again)
         const c = data.cloud ?? cloudHome(screen.size()), at = how.at ?? how.mid ?? { x: c.x, y: c.y }, last = cloudAt ?? at;
         if (c.s >= 0.99 && factor > 1) data.cloudOver = (data.cloudOver ?? 1) * factor; // past its biggest (it fills the part above the take): on to the whole screen
@@ -1373,6 +1388,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       const g = pinchStep(factor);
       if (st.similar && !data.double && (role === 'similar-band' || role?.startsWith('similar:'))) { // 16.11.: cloud ⇄ the whole screen
         const over = data.cloudOver ?? 1; data.cloudOver = 1;
+        if (g === 'spread' && role?.startsWith('similar:')) return act('spread', role); // zoomed into a tile: that take in Doppel, playing
         if ((data.cloudFull ?? 0) > 0.5) return g === 'squeeze' ? fullSimilar(false) : null; // smaller: the cloud again (the take glides back)
         if (over > 1.2) return fullSimilar(true);
       }
@@ -1414,6 +1430,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         return true;
       }
       if (heldRole !== 'live') return false;
+      if (!rawShape) debugNote({ method: 'form', where: 'live', error: `stretch ${factor.toFixed(2)} fx ${how.fx?.toFixed(2)} fy ${how.fy?.toFixed(2)}`, ms: 0 }); // in sign-debug.txt: the pull arrived
       reshape(formBy(rawShape ?? data.shape, factor, how));
       return true;
     },
