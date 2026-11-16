@@ -58,8 +58,8 @@ import { withSticky, afterTake as stepSeries, nextOfSeries, readContext, context
 import { write as writeNotation, parse as parseNotation } from '../1-model/notation.js';
 import { actionFor } from './gestures.js';
 import { startState, next, toRecord, toKeep, toUse, look } from './state.js';
-import { MANY } from './view/ring.js';
-import { formOf, formBy, snapForm, extentOf, inside as insideWindow } from './view/shape.js';
+import { MANY, CLOUD, CLOUD_GONE, cloudHome } from './view/ring.js';
+import { formOf, formBy, snapForm, stepForm, extentOf, inside as insideWindow } from './view/shape.js';
 import { mountScreen, targetOf } from './screen.js';
 import { normalize, readyStep, choose, CHOICES } from './settings.js';
 import { watch } from './ready.js';
@@ -663,7 +663,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     data.deleteChoices = null; if (data.offers?.some((o) => o.origin === 'delete')) data.offers = [];
     const rest = data.look.filter((x) => x.group !== at.group);
     data.compare = null;
-    if (!rest.length) { pairOff(); return act('edge-out', 'upper-right'); }
+    if (!rest.length) { pairOff(); return closeSimilar(); }
     const next = Math.min(data.look.slice(0, data.lookAt ?? data.doubleAt).filter((x) => x.group !== at.group).length, rest.length - 1);
     for (const k of [...thumbs.keys()]) if (k.startsWith('look:')) thumbs.delete(k);
     data.look = rest;
@@ -677,16 +677,28 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const x = data.look?.[Number(key.slice(5))];
     return x ? { store: x.from, path: x.path } : null;
   };
-  /** Similar · viele, the upper half: the tiles slide down from the top (≈ 0.3 s). */
+  /** Similar · viele (16.11.): the cloud flies in from the upper right to where it last was (≈ 0.3 s); the take stays. */
   async function openMany() {
-    data.manyFull = false;
     data.reveal = 0;
-    data.lowT = 0;
     step('similar-in');
     showSimilar(true);
-    await Promise.all([animate('reveal', 0, 1), animate('lowT', 0, 1)]); // the tiles come down while the take window moves down
-    delete data.lowT;
+    await animate('reveal', 0, 1);
   }
+  /** Similar closes (squeezed small, or Back): the cloud flies out to the upper right; Doppel ends with it. */
+  async function closeSimilar() {
+    if (st.similar && !data.double && (data.reveal ?? 1) > 0) await animate('reveal', data.reveal ?? 1, 0);
+    if (!data.look) await keepSimilar();
+    step('similar-out');
+    data.words = [];
+    data.double = null; // Doppel ends with Similar
+    if (data.look) { delete data.look; data.lookAt = null; data.compare = null; $('#template').removeAttribute('src'); pairOff(); const r = $('#replay'); r.onended = null; r.pause(); r.hidden = take.replayAt < 0; } // a hello looked at: done, the take window live again
+    delete data.reveal;
+    $('#template').removeAttribute('src');
+    return showSimilar(false);
+  }
+  /** Where the cloud is and how big (16.11.): kept on this device; a pinch on it moves and sizes it. */
+  data.cloud = JSON.parse(kept('sign.cloud', () => 'null'));
+  const keepCloud = () => { try { localStorage.setItem('sign.cloud', JSON.stringify(data.cloud)); } catch { /* private mode */ } };
 
   /** Similar · Doppel: result i of the tiles plays above in the same window as the live picture (loop, muted). */
   async function reference(i) {
@@ -970,10 +982,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         filter = { ...filter, kinds: [kind] };
         step('similar-from', { kinds: [kind] });
         return showSimilar(true);
-      case 'similar-context':
-        data.words = [st.hold.text];
-        step('similar-context');
-        return showSimilar(true);
       case 'sticky': { // on: the word goes in front (the next level); off: it leaves the front
         const word = hit.text;
         if (!word) return null; // the sticky bubble itself: its chips are tapped one by one
@@ -1045,6 +1053,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       }
       case 'zoom': case 'waits': return null; // pinch goes straight to the camera (picture), or on the point to time / the waits (handlers.pinch)
       case 'form': return null; // the picture held, the other finger pulls: handlers.stretch shapes the window as it moves
+      case 'form-next': case 'form-before': { // ↑ / ↓ on the picture: circle → ellipse → rectangle (16.11.); fine-tuning: hold + pull
+        rawShape = null;
+        const was = data.shape;
+        data.shape = stepForm(data.shape, row.action === 'form-next' ? 1 : -1);
+        if (data.shape !== was) navigator.vibrate?.(10);
+        settings = normalize({ ...settings, shape: data.shape }); saveSettings();
+        return paint();
+      }
       case 'split': case 'join': return null; // a take held, the other finger pulls or pushes: handlers.stretch shows the mark, stretchEnd does it
       case 'switch-camera':
         if (take.recorder && !take.relay) return null; // without the canvas the recorder would end
@@ -1055,18 +1071,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         $('#live').srcObject = camera;
         unwatch = watch(camera, onActivity, { video: $('#live') });
         return null;
-      case 'similar-in': return openMany(); // first the upper half, sliding down
-      case 'similar-out':
-        if (st.similar && !data.double && (data.reveal ?? 1) > 0) await Promise.all([animate('reveal', data.reveal ?? 1, 0), animate('lowT', 1, 0)]); // the tiles slide up, the take window back to the middle
-        if (!data.look) await keepSimilar();
-        step('similar-out');
-        data.words = [];
-        data.double = null; // Doppel ends with Similar
-        if (data.look) { delete data.look; data.lookAt = null; data.compare = null; $('#template').removeAttribute('src'); pairOff(); const r = $('#replay'); r.onended = null; r.pause(); r.hidden = take.replayAt < 0; } // a hello looked at: done, the take window live again
-        data.manyFull = false;
-        delete data.reveal; delete data.grow; delete data.lowT;
-        $('#template').removeAttribute('src');
-        return showSimilar(false);
+      case 'similar-in': return openMany(); // the cloud flies in
+      case 'similar-out': return closeSimilar();
       case 'share-last': if (take.recorder || take.starting) await end(); take.shareOnce = null; take.shareChain = null; step('share-last'); return menu.show(true); // ↑ on the point: the sharing points as circles
       case 'always-there': return menu.dropKind(hit.n, hit.kind);
       // 16.11.: no full screen by ↑ / ↓ any more
@@ -1095,22 +1101,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
         await layOn(data.similar.slice(0, n)); // one line, the results one after another
         return arrive();
       }
-      case 'similar-nearer': // spread above the take or over Similar: closed → half → full (a far planet comes nearer)
-        if (!st.similar) return openMany();
-        if (!data.double && !data.manyFull) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); } // half → full: the arcs bend out
-        return null;
-      case 'similar-farther': // squeeze: full → half → closed
-        if (data.manyFull) { await animate('grow', data.grow ?? 1, 0); data.manyFull = false; delete data.grow; return paint(); } // the arcs bend back
-        return st.similar ? act('edge-out', 'upper-right') : null;
+      case 'similar-nearer': return st.similar ? null : openMany(); // spread above the take: the cloud comes; on it the pinch already sized it
+      case 'similar-farther': return st.similar && !data.double && (data.cloud?.s ?? 1) < CLOUD_GONE ? closeSimilar() : null; // squeezed small enough: away
       case 'share-in': take.shareOnce = null; take.shareChain = null; return menu.show(true); // pulled in from the middle right
       case 'share-out': return menu.show(false);
-      case 'from-top': // ↓ from the top: closed → viele half → viele full
-        if (st.similar && !data.double) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); } // half → full: the arcs bend out
-        return openMany();
-      case 'from-top-far': // a long pull from the top (14.11.): viele full at once
-        if (!st.similar) await openMany();
-        if (!data.double && !data.manyFull) { data.manyFull = true; data.grow = 0; return animate('grow', 0, 1); }
-        return null;
       case 'context-open': data.insertAt = null; paint(); return (data.open ?? 0) > 0.5 ? null : openContext(true); // under the take: open, write at the end
       case 'write-here': data.insertAt = hit.queue; paint(); return (data.open ?? 0) > 0.5 ? say.focus() : openContext(true); // a spot in the row: write there (the keyboard stays)
       case 'chips-later': case 'chips-earlier': data.chipScroll = (data.chipScroll ?? 0) + (row.action === 'chips-later' ? -1 : 1) * 160; return paint(); // a long row scrolls sideways
@@ -1162,6 +1156,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   let propertyRole = null; // the finger that holds a property (gripped, or parallel gesture)
   let paired = false; // the other finger acted while it was held: its lifting is no drag
   let spentRole = null; // that finger just let go after acting as a property: its drag end is not a drag
+  let cloudAt = null; // the cloud being pinched: where the fingers were last
   let pendingHold = null, usedHold = null, cutting = null; // a take of the line held: split or join by a second finger (15.11.)
   const SPLIT_AT = 1.6, JOIN_AT = 0.6; // the marks: pulled to 1.6 × the start distance = split · pushed to 0.6 × = join
   /** The window's edges on the screen: [top, bottom] in client px, or null. */
@@ -1214,6 +1209,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (role?.startsWith('offer:') && dir.startsWith('down')) { data.offers = data.offers.filter((o) => offerText(o) !== role.slice(6)); return paint(); } return act(dir, role); }, // ↓ on an offer: away
     pinch: (factor, role, how = {}) => { // continuous, view only: on the picture = camera zoom · on the point = time (line zoom, or the waits)
       if (role === 'live') return zoomBy(camera, factor);
+      if (st.similar && !data.double && (role === 'similar-band' || role?.startsWith('similar:'))) { // the cloud (16.11.): bigger / smaller, and along with the fingers
+        const c = data.cloud ?? cloudHome(screen.size()), at = how.at ?? how.mid ?? { x: c.x, y: c.y }, last = cloudAt ?? at;
+        data.cloud = { x: c.x + at.x - last.x, y: c.y + at.y - last.y, s: Math.max(CLOUD[0], Math.min(CLOUD[1], c.s * factor)) };
+        cloudAt = at;
+        return paint();
+      }
       if (role === 'line-arc' || role?.startsWith('line:')) { data.lineZoom = Math.max(LINE_ZOOM[0], Math.min(LINE_ZOOM[1], (data.lineZoom ?? 1) * factor)); return paint(); } // the takes apart / together
       if (role !== 'point') return null; // elsewhere the pinch ends as a step (pinchEnd)
       const fx = how.fx ?? factor, fy = how.fy ?? 1;
@@ -1222,6 +1223,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       return null;
     },
     pinchEnd: (factor, role) => { // spread = nearer / more, squeeze = farther / less, where the first finger lay
+      if (cloudAt) { cloudAt = null; keepCloud(); } // the cloud stays where it was put
       const g = pinchStep(factor);
       if (!g || role === 'live' || role === 'point') return null; // those zoomed continuously
       if (st.screen === 'line' && st.sub === 'spread') { // 16.11.: in a take's timeline
@@ -1291,7 +1293,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   globalThis.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
     if (!$('#share').hidden) return menu.back() || menu.show(false); // an account → the accounts → closed
     if (data.double) { data.double = null; data.offers = []; $('#template').removeAttribute('src'); pairOff(); return paint(); } // Doppel → viele
-    if (st.similar) return act('edge-out', 'upper-right');
+    if (st.similar) return closeSimilar();
     if ((data.open ?? 0) > 0) return openContext(false);
     return globalThis.Capacitor.Plugins.App.minimizeApp?.();
   });
@@ -1309,7 +1311,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     else if (zone?.endsWith('left') && dx > 60) act('edge-in', zone);
     else if (zone?.endsWith('right') && dx < -60) act('edge-in', zone);
   }, true);
-  $('#similar').addEventListener('pointerup', (e) => { if (innerWidth - e.clientX < 72) act('edge-out', 'upper-right'); });
   $('#share').addEventListener('pointerup', (e) => { if (innerWidth - e.clientX < 24) act('edge-out', 'middle-right'); });
   addEventListener('resize', paint);
   $('#replay').addEventListener('timeupdate', (e) => { data.timeMs = e.target.currentTime * 1000; });

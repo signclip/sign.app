@@ -29,7 +29,7 @@ export const STEPS = [
   ['replay-back', 'point'], // watch it
   ['grip', 'strand:v'], // grip a strand: it turns green, the other finger acts on it (15.11.)
   ['take-while-held', 'point'], // all switched-on strands while held
-  ['similar-in', 'upper-right'], // Similar
+  ['similar-nearer', 'top-zone'], // Similar: zoom in above the take (16.11.: only so)
 ];
 export const NAME_SIGN_STEP = 1;
 /** The password gestures (15.11.): two drawn words, then one's own; they go with the hello to the admin (SCHEMA B8). */

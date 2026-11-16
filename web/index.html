@@ -65,10 +65,14 @@
        (now strong, next lighter, later lighter still) · arrow = flies into the chain · one edge for all that is one, the sticky's colour (15.11.) */
     .chip rect { stroke: var(--b-next); stroke-width: 1.5; } .chip text { font: 500 14px Inter, system-ui, sans-serif; fill: #4A1B0C; }
     .chip.own rect, .chip.next rect { fill: var(--c-next); } .chip.now rect { fill: var(--c-now); stroke: var(--b-now); stroke-width: 2.5; } .chip.now text { font-weight: 600; }
-    .chip.later rect { fill: var(--c-later); stroke: var(--b-later); stroke-width: 1; } .chip.head rect { fill: var(--c-head); stroke: var(--c-head); } .chip.head text { fill: #fff; }
+    .chip.later rect { fill: var(--c-later); stroke: var(--b-later); stroke-width: 1; } .chip.head rect { fill: var(--c-now); stroke: var(--b-now); stroke-width: 2; } .chip.head text { font-weight: 600; } /* sticky and prefixes (16.11.): the colour of the take now; next and later paler; the edge tells the cluster */
     .chip.wait rect { fill: none; stroke-dasharray: 5 4; } .wave-heard { fill: none; stroke: var(--c-head); stroke-width: 1; pointer-events: none; }
     .chip.typing { animation: breathe 1.4s ease-in-out infinite; } /* being typed: there live, until Enter or the take */
     .cut-mark { stroke: var(--b-now); stroke-width: 4; stroke-linecap: round; stroke-dasharray: 6 5; pointer-events: none; } .join-mark { stroke: var(--b-now); stroke-width: 8; stroke-linecap: round; opacity: .6; pointer-events: none; } /* split / join a take (15.11.) */
+    .similar-band.cloud { fill: var(--sc, #E6F1FB); fill-opacity: .55; stroke: var(--sc-stroke, #378ADD); stroke-opacity: .35; stroke-width: 1; } /* Similar as a cloud over the take (16.11.) */
+    /* multiplied-out clusters (16.11.): every word of one cluster and its bubble share the edge colour; sticky = the outermost */
+    .chip.k0 rect, .bubble.k0, .bubble.sticky { stroke: #A67C00; } .chip.k1 rect, .bubble.k1 { stroke: #1F8A84; } .chip.k2 rect, .bubble.k2 { stroke: #7B5EA7; }
+    .chip.k3 rect, .bubble.k3 { stroke: #2F6FB0; } .chip.k4 rect, .bubble.k4 { stroke: #B04A7A; } .chip.k5 rect, .bubble.k5 { stroke: #6B8E23; }
     .more { fill: none; stroke: var(--b-now); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; } /* more chips this way */
     .bubble { fill: var(--nest); stroke: var(--nest-b); stroke-width: 1.5; } .caret { stroke: var(--b-now); stroke-width: 2.5; stroke-linecap: round; pointer-events: none; animation: breathe 1.2s ease-in-out infinite; } .fly { fill: none; stroke: #712B13; stroke-width: 1.5; stroke-linecap: round; pointer-events: none; }
     .chip.offer rect { fill: #fff; stroke: #888780; stroke-dasharray: 4 3; } .chip.offer text { fill: #444441; } .bubble.offer { fill: none; stroke: #888780; stroke-dasharray: 4 3; }
@@ -100,8 +104,7 @@
     #similar .chip { background: var(--sc); color: #0C447C; } #similar .chip.on { outline: 2px solid var(--sc-stroke); }
     .similar-band { fill: var(--sc); opacity: .18; }
     #context { position: absolute; left: var(--field-x, 12px); width: var(--field-w, calc(100% - 24px)); top: calc(var(--field-y, 640px) - 24px); } /* right under the bottom arc; Android's buttons stay free */
-    #context input { -webkit-user-select: text; user-select: text; width: 100%; box-sizing: border-box; font: 500 17px Inter, system-ui, sans-serif; padding: 12px 16px; border-radius: 22px; border: none; background: transparent; color: transparent; caret-color: var(--b-now); outline: none; } /* the letters show in their chip, live (15.11.): here only the caret */ /* the row to type in: the box around it holds the chips above (SVG field-box) */
-    .field-box { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 1.5; }
+    #context input { -webkit-user-select: text; user-select: text; width: 100%; box-sizing: border-box; font: 500 17px Inter, system-ui, sans-serif; padding: 12px 16px; border-radius: 22px; border: none; background: transparent; color: transparent; caret-color: transparent; outline: none; } /* invisible (16.11.): the letters show in their chips, live; no field, no caret */
     /* sharing points after ↑ on the point (view/points.js): a layer over the screen, only the shapes take touches */
     #share { position: absolute; inset: 0; pointer-events: none; }
     #share .points, #share svg { position: absolute; inset: 0; width: 100%; height: 100%; }

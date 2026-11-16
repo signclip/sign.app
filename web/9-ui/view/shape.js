@@ -136,3 +136,12 @@ export function snapForm(form, shown) {
   const round = f.round > (atCircle ? 0.75 : 0.92) ? 1 : f.round < (atRect ? 0.15 : 0.06) ? 0 : f.round; // a rectangle holds the same way
   return { round, aspect };
 }
+
+/** The three forms to step through (16.11.): circle → ellipse (1.4 × wide) → rectangle (1.4 × wide, slightly rounded corners). */
+export const FORMS = [{ round: 1, aspect: 1 }, { round: 1, aspect: 1.4 }, { round: 0.12, aspect: 1.4 }];
+/** The next (+1) or previous (−1) of FORMS from the one nearest to form; stays at the ends. */
+export function stepForm(form, dir) {
+  const f = formOf(form);
+  const near = FORMS.map((x, i) => [Math.abs(x.round - f.round) + Math.abs(Math.log(x.aspect / f.aspect)), i]).sort((a, b) => a[0] - b[0])[0][1];
+  return FORMS[Math.max(0, Math.min(FORMS.length - 1, near + dir))];
+}

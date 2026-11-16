@@ -42,7 +42,7 @@ export function mountScreen({ root, live, replay, template, pair = null, overlay
     const css = globalThis.document?.documentElement.style; // the context field follows the window: row and box share x and width
     css?.setProperty('--field-y', `${view.fieldY}px`); css?.setProperty('--field-x', `${view.field.x}px`); css?.setProperty('--field-w', `${view.field.w}px`);
     fit(live, view.video, false);
-    if (live) live.style.visibility = view.hideLive ? 'hidden' : ''; // Similar · viele: the tiles take the window
+    if (live) live.style.visibility = view.hideLive ? 'hidden' : ''; // no picture (the visual strand off)
     fit(replay, view.video, false);
     const two = pair?.dataset.on && view.template; // Doppel of two takes (15.11.): side by side above, below stays free for the own take
     if (two) { const b = view.template, half = { cx: b.cx - b.d / 4, cy: b.cy, d: b.d / 2 - 4, radius: 14 }; fit(template, half, false); fit(pair, { ...half, cx: b.cx + b.d / 4 }, false); pair.hidden = false; }
@@ -62,6 +62,9 @@ export function mountScreen({ root, live, replay, template, pair = null, overlay
     const inside = Math.max(Math.abs(event.clientX - r.left - v.cx), Math.abs(event.clientY - r.top - v.cy)) <= v.d / 2; // the whole field
     return inside ? 'live' : null;
   };
+
+  /** The screen's size (the cloud's home is relative to it). */
+  screen.size = () => { const { width: w, height: h } = root.getBoundingClientRect(); return { w, h }; };
 
   return screen;
 }

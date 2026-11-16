@@ -18,6 +18,7 @@ function middleOf(s) {
   if (s.type === 'thumb') return [s.x + s.s / 2, s.y + s.s / 2];
   if (s.x1 != null) return [(s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2]; // a strand bar on the window's edge
   if (s.cx != null) return [s.cx, s.cy];
+  if (s.w != null && s.h != null) return [s.x + s.w / 2, s.y + s.h / 2]; // a zone (top-zone: zoom into Similar)
   return null;
 }
 
@@ -48,6 +49,11 @@ export function withHint(shapes, hint, { w, h, k = w / 390 }) {
     at = edge.at;
     if (hint.gesture === 'edge-in') dir = edge.inward;
     if (hint.gesture === 'edge-out') dir = edge.inward.map((d) => -d);
+  }
+  if (hint.gesture === 'spread' || hint.gesture === 'squeeze') { // two pale points apart (zoom in) or together (16.11.)
+    const way = (hint.gesture === 'spread' ? 1 : -1) * WAY * k, off = hint.gesture === 'spread' ? 12 * k : WAY * k + 12 * k;
+    for (const side of [-1, 1]) out.push({ type: 'hint', cx: at[0] + side * off, cy: at[1], r: 14 * k, dx: side * way, dy: 0, cls: 'hint move' });
+    return out;
   }
   const moving = dir[0] || dir[1];
   const how = moving ? 'move' : hint.gesture; // tap · double-tap · hold · move

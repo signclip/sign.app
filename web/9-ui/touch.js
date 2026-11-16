@@ -46,7 +46,7 @@ export function edgeZone(x, y, w, h) {
  *   hold(role)               the finger stayed HOLD_MS · holdLong(role) at LONG_MS · holdMove(role, x, y, long) while carried
  *                            · holdEnd(role) · dragEnd(element, moved, role, { long })
  *   swipe(dir, role)         · pinch(factor, role, how): two fingers, neither held yet; role of the first;
- *                              how { fx, fy (distance across / up-down changed), angle (0 = side by side, 90 = above), mid (start, between) }
+ *                              how { fx, fy (distance across / up-down changed), angle (0 = side by side, 90 = above), mid (start, between), at (now, between) }
  *   pinchEnd(factor, role, mid) both fingers up: the whole change of distance (pinchStep makes it spread / squeeze)
  *   out(x0, y0, x1, y1, dir) → did a swipe up / down end beyond the window's edge? (the edge rule)
  *   stretch(heldRole, factor, how) the second finger moves while the first is held → true if it changed the held thing
@@ -105,7 +105,7 @@ export function bind(el, h) {
         const now = [Math.abs(p.x - q.x), Math.abs(p.y - q.y)];
         const ratio = (i) => (across[i] > 8 && now[i] > 8 ? now[i] / across[i] : 1); // a component near zero says nothing
         const angle = (Math.atan2(now[1], now[0]) * 180) / Math.PI;
-        h.pinch?.(d / spread, pinchers()[0]?.role, { fx: ratio(0), fy: ratio(1), angle, mid }); // where the first finger went down: the point or the picture
+        h.pinch?.(d / spread, pinchers()[0]?.role, { fx: ratio(0), fy: ratio(1), angle, mid, at: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 } }); // where the first finger went down: the point or the picture · at = between them now
         total *= d / spread;
         across = now;
         spread = d;

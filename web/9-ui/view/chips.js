@@ -23,7 +23,7 @@ export const chipW = (text, k = 1) => Math.round((text ? 26 + text.length * 8.4 
 const GAP = 8; // between gestures
 const INNER = 4; // between chips inside a bubble
 const PAD = 6; // bubble around its content, per level
-const H = 32; // chip height
+export const H = 32; // chip height
 const ROOMY = 3; // levels with their own padding; deeper ones share the edge
 
 /** Is this word now, past or coming? Without times it keeps the take's position (now · next · later) or is just mine. */
@@ -58,6 +58,26 @@ export function withTakes(gestures) {
     return g.items.length === 1 && inner === g.items[0] ? g : inner;
   };
   if (out[0]) flying(out[0]).fly = true;
+  return out;
+}
+
+/**
+ * The take's terms one by one (16.11.): every word its own chip – sticky and prefix words (they stay: dark), the words of
+ * the gesture taken now, heard words; a space in a gesture = two words = two chips. → [{ text, cls, role }].
+ */
+export function wordChips(groups = [], { timeMs = null } = {}) {
+  const out = [], outer = groups.some((g) => g.stable) ? 0 : null; // with sticky, every word lies in its cluster
+  const walk = (g, inherit = { cluster: outer }) => {
+    const c = { ...inherit, ...g, cluster: inherit.cluster ?? clusterOf(g) }; // the outermost cluster: one edge for all inside
+    if (g.head) { for (const h of g.head) out.push(word(typeof h === 'string' ? h : h.text, 'head', c)); for (const x of g.items) walk(x, { offer: c.offer, origin: c.origin, cluster: c.cluster }); return; }
+    if (g.stable) { out.push(word(g.text, 'head', { ...c, cluster: 0 })); return; }
+    const tone = c.offer ? `offer${c.origin ? ` ${c.origin}` : ''}${c.take ? ` ${c.take}` : ''}${c.wait ? ' wait' : ''}` : toneOf(c, c.take, timeMs);
+    const words = String(g.text ?? '').split(/\s+/).filter(Boolean);
+    if (!words.length) out.push(word('', tone, c));
+    for (const w of words) out.push(word(w, tone, c));
+  };
+  const word = (text, tone, c) => ({ text, cls: `chip ${tone}${c.heard ? ' heard' : ''}${c.typing ? ' typing' : ''}${c.offer ? '' : edge(c.cluster)}`, role: c.offer ? `offer:${c.text ?? text}` : text ? `chip:${text}` : null });
+  for (const g of groups) walk(g);
   return out;
 }
 
@@ -152,14 +172,28 @@ export function rowHeight(groups = [], k = 1) {
 }
 
 /** A node at x (its left edge), level, middle y. */
+/**
+ * Which multiplied-out cluster a group opens (16.11.): sticky = 0 (it holds for all takes: the outermost), a prefix = 1 … 5
+ * from its spot in the series – the same in the window and under the arc. sticky and prefixes are one kind: everything
+ * inside the outermost cluster has its edge colour; a new colour = a new cluster from the outside.
+ */
+export function clusterOf(g) {
+  if (g.sticky) return 0;
+  if (!g.head || !g.at) return null;
+  const hash = g.at.reduce((a, i) => a * 7 + i + 1, 0);
+  return 1 + (hash % 5);
+}
+const edge = (cl) => (cl == null ? '' : ` k${cl}`);
+
 function put(n, x, level, o) {
   const { y, k, out } = o;
   if (n.chip) return out.push(...chipOf(n.chip, x, o));
   const g = n.group, h = heightOf(n, k, level), width = widthOf(n, k, level);
+  o = { ...o, cluster: o.cluster ?? clusterOf(g) }; // sticky and prefixes are one kind: the outermost cluster gives the edge to all inside it (16.11.)
   const words = [...n.head.map((c) => c.text), ...n.items.map(textOf)].join(' ');
   const offer = n.ctx.offer ? `offer:${words}` : null;
   const spot = o.queue && g.at && !g.sticky ? `queue:in:${g.at.join('.')}:${words}` : null; // tapped in the row: write into this bubble
-  out.push({ type: 'bubble', x, y: y - h / 2, w: width, h, at: g.at, cls: `bubble d${Math.min(level, 4)}${g.sticky ? ' sticky' : ''}${offer ? ` offer ${n.ctx.origin ?? ''}`.trimEnd() : ''}`,
+  out.push({ type: 'bubble', x, y: y - h / 2, w: width, h, at: g.at, cls: `bubble d${Math.min(level, 4)}${g.sticky ? ' sticky' : ''}${offer ? ` offer ${n.ctx.origin ?? ''}`.trimEnd() : edge(o.cluster)}`,
     role: offer ?? (g.sticky ? 'sticky' : spot ?? `gesture:${words}`) });
   if (g.fly && !g.sticky) out.push(flyOver(x + width / 2, y - h / 2, k));
   const from = out.length;
@@ -177,7 +211,7 @@ function chipOf(c, x, o) {
   const w = chipW(c.text, k), shapes = [];
   const tone = c.offer ? `offer${c.origin ? ` ${c.origin}` : ''}${c.picked ? ' picked' : ''}${c.take ? ` ${c.take}` : ''}${c.wait ? ' wait' : ''}` : c.head ? 'head' : toneOf(c, c.take, timeMs);
   const spot = o.queue && c.at && !c.offer ? `queue:${c.how ?? 'after'}:${c.at.join('.')}:${c.text}` : null; // tapped in the row: write behind it (a prefix word: into its bubble)
-  shapes.push({ type: 'chip', x, y, w, h: H * k, at: c.how === 'in' ? null : c.at, text: c.text, cls: `chip ${tone}${c.heard ? ' heard' : ''}${c.typing ? ' typing' : ''}`, role: c.offer ? `offer:${c.text}` : c.wait ? null : spot ?? `chip:${c.text}` });
+  shapes.push({ type: 'chip', x, y, w, h: H * k, at: c.how === 'in' ? null : c.at, text: c.text, cls: `chip ${tone}${c.heard ? ' heard' : ''}${c.typing ? ' typing' : ''}${c.offer ? '' : edge(o.cluster)}`, role: c.offer ? `offer:${c.text}` : c.wait ? null : spot ?? `chip:${c.text}` });
   if (c.heard) { // heard, not typed: a fine wave inside the bottom edge
     const y0 = y + 12 * k, x0 = x + 14 * k, n = Math.max(2, Math.floor((w - 28 * k) / (8 * k)));
     shapes.push({ type: 'path', d: `M${x0} ${y0}${' q2 -3 4 0 t4 0'.repeat(n)}`, cls: 'wave-heard' });

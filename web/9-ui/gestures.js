@@ -80,27 +80,19 @@ export const TABLE = [
   ['split', 'stretch', 'item', 'any', 'a take of the line held, the other finger pulls away from it: past the mark (a line across it shows) it is two parts, cut in its middle (15.11.)', 'item'],
   ['join', 'stretch', 'item>item', 'any', 'two takes held, pushed together: one after the other in a new line (15.11.)', 'item'],
   ['form', 'stretch', 'live', 'any', 'picture held, the other finger pulls: across = narrower / wider · up-down = lower / higher · slanted = squarer / rounder', 'live'],
+  ['form-next', 'up', 'live', 'any', 'swipe up on the picture: the next form – circle → ellipse → rectangle (16.11.)'],
+  ['form-before', 'down', 'live', 'any', 'swipe down on the picture: the form before – rectangle → ellipse → circle (16.11.)'],
   ['switch-camera', 'left', 'live', 'any', 'the other camera slides in (front / back), also during a take: the picture changes, the sound goes on'],
   ['switch-camera', 'right', 'live', 'any', 'the same, the other way'],
   // edges: bring in, push away
   ['strands-in', 'edge-in', 'middle-left', 'any', 'show the strand fields (hidden ones come back)'],
-  ['similar-in', 'edge-in', 'upper-right', 'any', 'pull Similar onto the display'],
-  ['similar-out', 'edge-out', 'upper-right', 'any', 'push Similar off'],
   ['share-in', 'edge-in', 'middle-right', 'any', 'pull the sharing points in'],
   ['share-out', 'edge-out', 'middle-right', 'any', 'push them off'],
-  ['from-top', 'down', 'top-middle', 'any', 'pulled down from the top: Similar comes in at the top'],
-  ['from-top-far', 'down-out', 'top-middle', 'any', 'pulled down from the top all the way: Similar · viele over the whole screen at once'],
-  ['from-top', 'down', 'top-zone', 'any', 'pulled down anywhere above the point: Similar comes in (Android keeps its own strip at the very top)'],
-  ['from-top-far', 'down-out', 'top-zone', 'any', 'pulled down far from above the point: Similar · viele full at once'],
   // the scale: Similar lies outside, like far planets
-  ['similar-nearer', 'spread', 'top-zone', 'any', 'spread over the free part above the take: Similar comes nearer (closed → half → full)'],
-  ['similar-nearer', 'spread', 'similar-band', 'any', 'spread over Similar: it comes nearer (half → full)'],
-  ['similar-farther', 'squeeze', 'similar-band', 'any', 'squeeze over Similar: it goes farther (full → half → closed)'],
+  ['similar-nearer', 'spread', 'top-zone', 'any', 'spread over the free part above the take: Similar comes nearer (closed → half → full) – the only way it appears (16.11.: no edge, no pull)'],
+  ['similar-nearer', 'spread', 'similar-band', 'any', 'spread over the cloud: bigger, more results; moved while pinching = it moves (16.11.)'],
+  ['similar-farther', 'squeeze', 'similar-band', 'any', 'squeeze the cloud: smaller; small enough = it flies away to the upper right (16.11.: the only way to close it, besides Back)'],
   ['similar-farther', 'squeeze', 'top-zone', 'any', 'squeeze above the take: Similar goes'],
-  ['similar-farther', 'up', 'similar-band', 'any', 'pushed back up where it came from: full → half → closed'],
-  ['similar-farther', 'up-out', 'similar-band', 'any', 'the same, pushed further'],
-  ['similar-farther', 'up', 'similar-item', 'any', 'pushed up on a result: the same'],
-  ['similar-farther', 'up-out', 'similar-item', 'any', 'the same'],
   ['similar-all', 'drag', 'similar-band>point', 'any', 'all of Similar onto the chain: the tiles fly into the line one after another'],
   ['take-over', 'tap', 'similar-item', 'any', 'Similar · Doppel: this result above in the same window, the live picture below'],
   ['take-over', 'spread', 'similar-item', 'any', 'fly to this result: it comes into the window (Doppel)'],
@@ -142,10 +134,8 @@ export const TABLE = [
   ['strand-while-held', 'hold', 'point', 'any', 'record only the held strand while the point is held', 'strand'],
   ['share-strand', 'up-out', 'point', 'any', 'the sharing points, sharing only the held strand of the last take', 'strand'],
   ['remove-strand', 'down-out', 'point', 'any', 'delete only the held strand of the last take (chips as always)', 'strand'],
-  ['similar-from', 'edge-in', 'upper-right', 'any', 'Similar from the held strand', 'strand'],
   // parallel: the other finger holds a chip
   ['take-with-context', 'tap', 'point', 'any', 'a take with the held context; tap again = next take of the series, as long as it is held', 'chip'],
-  ['similar-context', 'edge-in', 'upper-right', 'any', 'Similar for the held context', 'chip'],
 ];
 
 /** Named exceptions to the grammar, each with its reason (DESIGN §4: new ones only with approve). */
