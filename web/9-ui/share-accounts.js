@@ -185,7 +185,7 @@ export function accountPart(ctx, { words, onLookAll, project }) {
     const out = (go) => () => go().then(() => openGroup(s.group.folder), () => say(t('notReachable'))); // ↓ = out of this group only (16.11.): her account stays as it is, no link changes
     if (s.group) return [{ label: `← ${s.group.folder}`, go: () => { s.group = null; draw(); }, up: () => renewLinks(s.group.folder).then(() => openGroup(s.group.folder), () => say(t('notReachable'))) }, // ↑ = new member links (a link given out to view stays)
       ...s.group.access.map((a) => ({ label: `@${a.label}`, down: out(() => unshare(ctx.groups, a.id)) })), // an account with access
-      ...s.group.joined.map((j) => ({ label: `@${j.label}`, faint: true, down: out(() => leaveGroup(s.group.folder, j.helloPath)) }))]; // a device by the links (faint)
+      ...s.group.joined.map((j) => ({ label: `@${j.label}`, faint: true, down: out(() => leaveGroup(s.group.folder, j.helloPath).then(() => renewLinks(s.group.folder))) }))]; // a device by the links (faint): ↓ = out, and at once new member links (the others follow; links given out to view stay)
     return [{ label: '←', go: () => { s.groupList = null; draw(); } }, ...s.groupList.filter((g) => words().every((w) => g.toLowerCase().includes(w.toLowerCase()))).map((g) => ({ label: g, look: () => openGroup(g) }))];
   }
   return { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, lookAccount, openAccount, showGroups, groupTiles, addToGroup };

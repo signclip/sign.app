@@ -78,13 +78,14 @@ export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [],
   add('sheet', { x: 0, y: top, w, h: h - top + 24 * k, r: 24 * k, cls: 'sheet', role: 'sheet' });
   add('line', { x1: w / 2 - 20 * k, y1: top + 12 * k, x2: w / 2 + 20 * k, y2: top + 12 * k, cls: 'handle', role: 'sheet' }); // pull down = away
 
+  const fitIn = (text) => (String(text).length > 11 ? `${String(text).slice(0, 10)}…` : String(text));
   const tile = (i, role, cls, label, { stack = false } = {}) => { // no layers behind (14.11.): they said nothing
     const { cx, cy } = grid(i, { w, k, y0 });
     at.set(role, { cx, cy, r: th / 2 });
     if (stack) for (const d of [8, 4]) add('sheet', { x: cx - tw / 2 + d * k, y: cy - th / 2 - d * k, w: tw, h: th, r: 14 * k, cls: 'tile-behind' });
     const z = zoom?.role === role ? zoom.scale : 1, zw = tw * z, zh = th * z; // two fingers on it: it grows or shrinks with them, then settles
     add('sheet', { x: cx - zw / 2, y: cy - zh / 2, w: zw, h: zh, r: 14 * k, cls: `${cls}${appear || fresh.has(role) ? ` appear a${appear ? Math.min(i, 9) : 0}` : ''}${role === flash ? ' flash' : ''}${role === shake ? ' shake' : ''}`, role }); // opening: the tiles build up · flash: done (e.g. copied)
-    if (label) add('label', { x: cx, y: cy + th / 2 + 18 * k, text: label, cls: 'label' });
+    if (label) add('label', { x: cx, y: cy + 5 * k, text: fitIn(label), cls: 'label tile-in' }); // 16.11.: the name inside its tile (≈ 11 letters fit in 86 px)
     return { cx, cy };
   };
 
@@ -171,10 +172,11 @@ export function pointShapes(all, { own = '', name = '', sent = 0, accounts = [],
       add('circle', { cx: me.cx + (group.cx - me.cx) * f, cy: me.cy + (group.cy - me.cy) * f, r: 3.5 * k, cls: `file-dot${d === sent - 1 ? ' walking' : ''}` });
     }
     const said = state === 'hello' || state === 'join' || state === 'join-own'; // after hello: hello stays, highlighted, with the name in the tile; the door's name (Sign) under it
-    const { cx: gx, cy: gy } = tile(i, `sp:${t.n}`, `sp join-group${going ? ' sending' : state === 'door' || state === 'ready' ? ' door breathe' : state === 'hello' ? ' said' : ''}${grow(3)}`, state === 'door' ? 'hello' : state === 'ready' ? 'join' : t.label);
-    if (said || going) {
-      if (name) add('label', { x: gx, y: gy - 4 * k, text: name, cls: 'label tile-name' });
-      add('label', { x: gx, y: gy + 14 * k, text: 'hello', cls: `label tile-word${said ? ' done' : ''}` });
+    const confirmed = state === 'join' || state === 'join-own'; // 16.11.: a solid edge only once the join came; before (hello sent, waiting) dashed
+    const { cx: gx, cy: gy } = tile(i, `sp:${t.n}`, `sp join-group${going ? ' sending' : state === 'door' || state === 'ready' ? ' door breathe' : state === 'hello' ? ' said' : ''}${confirmed ? ' confirmed' : ''}${grow(3)}`, said || going ? null : state === 'door' ? 'hello' : state === 'ready' ? 'join' : t.label);
+    if (said || going) { // inside the tile: my name, and hello (or join once it came)
+      if (name) add('label', { x: gx, y: gy - 4 * k, text: fitIn(name), cls: 'label tile-name' });
+      add('label', { x: gx, y: gy + 14 * k, text: confirmed ? 'join' : 'hello', cls: `label tile-word${said ? ' done' : ''}` });
     }
     if (state === 'join' || state === 'join-own') {
       const mine = grid(i + 1, { w, k, y0 });

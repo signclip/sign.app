@@ -142,20 +142,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const stickyChips = () => sticky.map((text) => ({ text, stable: true }));
   const setChips = (current = data.chips.filter((c) => !c.stable)) => { data.chips = [...stickyChips(), ...current]; };
   setChips([]);
-  /** Chips aside (15.11.): a tap on the open context arc lays all chips aside for a later take; the next tap brings them back. */
-  let aside = JSON.parse(kept('sign.chipsAside', () => 'null')); // { series, sticky, chips, adopted } or null (per person)
-  const keepAside = () => { try { localStorage.setItem('sign.chipsAside', JSON.stringify(aside)); localStorage.setItem('sign.sticky', JSON.stringify(sticky)); } catch { /* private mode */ } };
-  function chipsAside() {
-    const own = data.chips.filter((c) => !c.stable);
-    if (series || sticky.length || own.length || data.adopted?.length) { // chips there: all of them aside
-      aside = { series, sticky, chips: own, adopted: data.adopted ?? [] };
-      series = ''; sticky = []; data.adopted = []; setChips([]);
-    } else if (aside) { // none, some aside: back
-      ({ series, sticky } = aside); data.adopted = aside.adopted; setChips(aside.chips); aside = null;
-    } else return false; // nothing at all
-    keepAside(); navigator.vibrate?.(8); paint();
-    return true;
-  }
   let sources = [{ name: 'own', store }];
   const ownKeys = await deviceKeys().then((k) => ({ [device]: k.device.public }), () => ({})); // this device's z_: the index checks seals
   const reindex = () => buildIndex(sources, { keys: ownKeys });
@@ -169,7 +155,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   take.lastChain = newestOwnChain(); // after a restart the chain gestures go on where they were
 
   const screen = mountScreen({ root: $('#screen'), live: $('#live'), replay: $('#replay'), template: $('#template'), pair: $('#pair'), overlay: $('#overlay') });
-  const nameHint = () => (naming() && data.offers?.some((o) => o.origin === 'name') ? { role: `offer:${person.label}`, gesture: 'down' } : null); // the preset name: ↓ takes it away – and that is how chips go (15.11.)
+  const nameHint = () => (naming() ? { role: 'point', gesture: 'left' } : null); // 16.11.: ← on the point = this name, on to the name sign; the name chip below breathes: tap under it and write another
   const paint = () => screen.paint(st, { ...data, hint: nameHint() ?? hintOf(onboard.at, settings.onboarding) });
   /** An action was done: the onboarding goes one step on if it was its step; at the end it switches off. */
   const learned = (action) => {
@@ -921,7 +907,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   takeVisuals().then((all) => { data.line = { count: all.length, at: 0 }; return lineThumbs(); }).catch(() => {}); // the line is there from the start
   setTimeout(() => askAgain().catch(() => {}), 5000); // remove requests that could not go out before (the sharing points open first)
 
-  globalThis.visualViewport?.addEventListener('resize', () => { data.viewH = globalThis.visualViewport.height - $('#screen').getBoundingClientRect().top; paint(); }); // the keyboard: the field stays above it (measured from the screen's top, under the notch)
+  globalThis.visualViewport?.addEventListener('resize', () => { if (navigator.virtualKeyboard?.overlaysContent) return; data.viewH = globalThis.visualViewport.height - $('#screen').getBoundingClientRect().top; paint(); }); // the keyboard (iOS, web): what is typed stays above it (measured from the screen's top, under the notch)
+  if (navigator.virtualKeyboard) { // Android (16.11.): the keyboard lies over the page; its top edge says how much stays visible – everything moves up above it
+    navigator.virtualKeyboard.overlaysContent = true;
+    navigator.virtualKeyboard.addEventListener('geometrychange', (e) => { const r = e.target.boundingRect; data.viewH = r.height > 0 ? r.y - $('#screen').getBoundingClientRect().top : null; paint(); });
+  }
+  let wideAs = 0; // the screen's height without keyboard, per orientation
+  const measure = () => { const { w, h } = screen.size(); if (w !== wideAs) { wideAs = w; data.fullH = h; } else if (document.activeElement !== say) data.fullH = h; };
+  measure();
+  addEventListener('resize', () => { measure(); paint(); });
 
   if (naming()) askName(); // onboarding starts with the name: write it right away
 
@@ -945,7 +939,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // ---------- one gesture → one action ----------
   async function act(gesture, role, extra = {}) {
     let hit = { ...targetOf(role), ...extra };
-    if (hit.target === 'strand' && hit.kind === 'x' && gesture === 'tap' && !st.hold) hit = { ...hit, target: 'context' }; // the context arc: a tap opens / closes its field (15.11.)
     if (hit.queue && gesture === 'tap' && !st.hold) hit = { ...hit, target: 'queue' }; // the row below: a tap writes there (15.11.)
     if (hit.target === 'delete') return gesture === 'tap' ? removeLast(hit.what) : null;
     if (data.look && data.lookAt != null && hit.target === 'point') { // 16.11.: a hello in the window: ↑ on the point = on (hello → join → within), ↓ = back
@@ -1108,9 +1101,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       case 'context-open': data.insertAt = null; paint(); return (data.open ?? 0) > 0.5 ? null : openContext(true); // under the take: open, write at the end
       case 'write-here': data.insertAt = hit.queue; paint(); return (data.open ?? 0) > 0.5 ? say.focus() : openContext(true); // a spot in the row: write there (the keyboard stays)
       case 'chips-later': case 'chips-earlier': data.chipScroll = (data.chipScroll ?? 0) + (row.action === 'chips-later' ? -1 : 1) * 160; return paint(); // a long row scrolls sideways
-      case 'context-arc': // the arc: closed → open · open: chips aside / back · nothing → closed (15.11.)
-        if (!((data.open ?? 0) > 0.5)) return openContext(true);
-        return chipsAside() || openContext(false);
       case 'context-close': return openContext(false);
       case 'line-zoom': return null; // continuous: handlers.pinch
       // ---------- in the table, not wired yet: each says where it docks ----------
@@ -1205,7 +1195,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (!edges) return undefined;
       return dir === 'up' ? y1 < edges[0] : y1 > edges[1];
     },
-    swipe: (dir, role) => { if (role?.startsWith('offer:') && role !== 'offer:' && dir.startsWith('down') && data.gestureChoices) { suggestGesture(role.slice(6)); return paint(); } // only this word, drawn anew
+    swipe: (dir, role) => { if (naming() && role === 'point' && dir.startsWith('left')) return nameIs(person.label); // the name as it is: on (16.11.)
+      if (role?.startsWith('offer:') && role !== 'offer:' && dir.startsWith('down') && data.gestureChoices) { suggestGesture(role.slice(6)); return paint(); } // only this word, drawn anew
       if (role?.startsWith('offer:') && dir.startsWith('down')) { data.offers = data.offers.filter((o) => offerText(o) !== role.slice(6)); return paint(); } return act(dir, role); }, // ↓ on an offer: away
     pinch: (factor, role, how = {}) => { // continuous, view only: on the picture = camera zoom · on the point = time (line zoom, or the waits)
       if (role === 'live') return zoomBy(camera, factor);
@@ -1312,7 +1303,6 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     else if (zone?.endsWith('right') && dx < -60) act('edge-in', zone);
   }, true);
   $('#share').addEventListener('pointerup', (e) => { if (innerWidth - e.clientX < 24) act('edge-out', 'middle-right'); });
-  addEventListener('resize', paint);
   $('#replay').addEventListener('timeupdate', (e) => { data.timeMs = e.target.currentTime * 1000; });
   await showStart().catch(() => {}); // whose state, how it starts: 2.5 s in the window (15.11.)
   paint();

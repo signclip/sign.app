@@ -48,7 +48,11 @@ export function mountScreen({ root, live, replay, template, pair = null, overlay
     if (two) { const b = view.template, half = { cx: b.cx - b.d / 4, cy: b.cy, d: b.d / 2 - 4, radius: 14 }; fit(template, half, false); fit(pair, { ...half, cx: b.cx + b.d / 4 }, false); pair.hidden = false; }
     else { fit(template, view.template, false); if (pair) pair.hidden = true; } // the small template, or in Similar · Doppel the reference window
     if (template) template.hidden = !view.template;
-    overlay.innerHTML = toSvg(view, { w, h });
+    const svg = toSvg(view, { w, h });
+    if (svg !== screen.svg) { // the same picture: nothing touched
+      overlay.style.setProperty('--t', String(Math.round(performance.now()))); // new elements start where the clock is: running animations keep their phase (no flicker)
+      overlay.innerHTML = svg; screen.svg = svg;
+    }
     return view;
   };
 

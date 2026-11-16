@@ -67,9 +67,11 @@ const POINT_D = 62, RING = 1.35; // the point; toSvg draws its ring at 1.35 × i
  * → { video, template, point, window, shapes }
  */
 export function layout(st, data = {}, { w = 390, h = 844 } = {}) {
-  let k = Math.min(w / 390, h / 760); // drawn for a 390 px phone, scaled to fit width and height (iPad: 15.11.)
-  if (data.viewH && data.viewH < h * 0.85) { // the keyboard is up (15.11.): same size as before if point, window and field fit above it, else just as much smaller as needed
-    h = data.viewH;
+  const fullH = Math.max(h, data.fullH ?? 0); // the screen's height without keyboard (16.11.: some phones shrink the whole page when it comes)
+  let k = Math.min(w / 390, fullH / 760); // drawn for a 390 px phone, scaled to fit width and height (iPad: 15.11.)
+  const seen = Math.min(h, data.viewH ?? h); // what stays visible
+  if (seen < fullH * 0.85) { // the keyboard is up (15.11.): same size as before if point, window and field fit above it, else just as much smaller as needed – it all moves up
+    h = seen;
     for (let i = 0; i < 2; i++) { const need = keyboardNeed(k, w); if (need > h) k *= h / need; }
   }
   const cw = Math.min(w, 390 * k); // one column: the take as on a phone; wider screens have room beside it
