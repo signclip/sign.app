@@ -254,7 +254,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     draw();
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on) };
+  const ctx = { project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on) };
   // the admin's door and what Admin, Atlas, Groups do: their own files (15.11., share-door.js, share-accounts.js)
   const { refreshDoor, lookPile, pileList, adminStore } = doorPart(ctx, { panel, onLookAll });
   const { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, showGroups, groupTiles, addToGroup } = accountPart(ctx, { words, onLookAll, project });
@@ -555,7 +555,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       if (project?.atlas && user === project.atlas.toLowerCase() && s.atlasN !== n) { s.atlasN = n; ctx.atlas = login; atlasCount(login).catch(() => {}); } // this device also holds the atlas login
       if (ctx.admin) continue;
       if (!askedAdmin.has(key)) { const yes = await isAdmin(login, { group: project?.group ?? undefined }); if (yes !== null) askedAdmin.set(key, yes); }
-      if (askedAdmin.get(key)) {
+      if (askedAdmin.get(key) || roleOf(login.user, project ?? {}) === 'admin') { // the Admin login of project.json owns the door even without account rights (then welcome says why)
         ctx.admin = login; s.adminN = n; await setRole('admin', n).catch(() => {});
         const at = await doorFolder(login, project?.doors ?? []).catch(() => null); // where hello/ and join/ really lie (15.11.)
         ctx.door = at == null ? null : connect({ kind: 'nextcloud', label: 'door', id: 'door', server: login.server, user: login.user, folder: at }, { secret: login.password }).store;
