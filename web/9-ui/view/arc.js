@@ -96,8 +96,14 @@ export function arcShapes(win, ring, data = {}, { k = 1, w = 390 } = {}) {
   const d = linePath(win, ring, win.cx, bend, w);
   // no drawn arc through the point (14.11.): the line shows by its elements; the arc stays as a hit area
   res.push({ type: 'path', d, cls: 'hit wide', role: 'line-arc' }); // wide (16.11.): ← → anywhere along the line
-  for (const p of lineSpots(win, { ring, k, count, at: current, bend, w, zoom: data.lineZoom ?? 1 })) {
-    res.push({ type: 'thumb', x: p.x, y: p.y, s: p.s, path: formPath(data.shape, p.x, p.y, p.s), id: `ln${p.i + 99}`, href: data.lineThumbs?.[current + p.i], cls: `thumb own${Math.abs(p.i) === 1 ? ' near' : ''}${fade}`, role: `line:${p.i}` });
+  const spots = lineSpots(win, { ring, k, count, at: current, bend, w, zoom: data.lineZoom ?? 1 });
+  const merge = data.merge, mt = data.mergeT ?? 0, pair = merge ? spots.filter((p) => merge.includes(p.i)) : []; // 16.11.: two takes pushed together melt into one
+  const mx = pair.length === 2 ? (pair[0].x + pair[1].x) / 2 : 0, my = pair.length === 2 ? (pair[0].y + pair[1].y) / 2 : 0;
+  for (const q of spots) {
+    const into = pair.length === 2 && merge.includes(q.i);
+    const side = Math.sign(q.x + q.s / 2 - win.cx) * (data.wide ?? 0); // the button pulled across: the others make room
+    const p = into ? { ...q, x: lerp(q.x, mx, mt), y: lerp(q.y, my, mt) } : { ...q, x: q.x + side };
+    res.push({ type: 'thumb', x: p.x, y: p.y, s: p.s, path: formPath(data.shape, p.x, p.y, p.s), id: `ln${p.i + 99}`, href: data.lineThumbs?.[current + p.i], cls: `thumb own${Math.abs(p.i) === 1 ? ' near' : ''}${fade}${data.lineSel ? ' chosen-line' : ''}`, role: `line:${p.i}` });
   }
   if (data.arrive) { // into the point = into the line at the current spot
     const [px, py] = onShape(win, 0, ring);

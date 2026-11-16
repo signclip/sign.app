@@ -79,6 +79,7 @@ export function targetOf(role) {
   const [what, rest = ''] = role.split(/:(.*)/s);
   switch (what) {
     case 'point': return { target: 'point' };
+    case 'point-wide': return { target: 'point', wide: true }; // the button pulled across: a tap is still play / pause
     case 'live': return { target: 'live' };
     case 'strand': return { target: 'strand', kind: rest };
     case 'chip': case 'gesture': return { target: 'chip', text: rest };
