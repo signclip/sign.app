@@ -2,192 +2,37 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#FAECE7">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-visual">
+  <meta name="theme-color" content="#e4e2dd">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="9-ui/look.css">
   <title>Sign</title>
-  <style>
-    :root {
-      --bg: #faf9f7; --rest: #e4e2dd; --fg: #222; --mut: #8a8984; --card: #fff; --line: #e8e6e1;
-      --rc: #f5c6b8; --rc-stroke: #f5a08a; --sc: #b9d4ee; --sc-stroke: #8fb6e0;
-      --hold: #5fbf92; --hl: #ffe9a0; --video: #2F323A;
-      --c-head: #993C1D; --c-now: #F4A58C; --c-next: #F9CDBE; --c-later: #FDEDE7; /* chips (15.11.): one coral family, now → next → later lighter */
-      --b-now: #A8432A; --b-next: #C9694F; --b-later: #E29C86; --nest: #FFF4CC; --nest-b: #A67C00; /* their edges graded the same way · nesting: one pastel yellow with a golden edge */
-    }
-    @media (prefers-color-scheme: dark) { :root { --bg: #171716; --fg: #eeece7; --card: #222; --line: #333; --hl: #5f5010; --rest: #2b2b29; --nest: #4a3f14; --nest-b: #d9b24a; } }
-    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, sans-serif; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-    #screen { position: absolute; top: env(safe-area-inset-top, 0px); right: env(safe-area-inset-right, 0px); bottom: env(safe-area-inset-bottom, 0px); left: env(safe-area-inset-left, 0px); } /* notch, island, home bar, Android bars: the screen lies inside (15.11.) */
-    #screen video { position: absolute; object-fit: cover; background: transparent; opacity: 0; transition: opacity .45s ease-out; }
-    #screen video.on { opacity: 1; } /* only once a frame plays: no black box, no grey play button */
-    video::-webkit-media-controls, video::-webkit-media-controls-start-playback-button { display: none !important; -webkit-appearance: none; }
-    /* start: plain background → picture fades in → the shapes follow (app.js adds .ready) */
-    #overlay { opacity: 0; transform: scale(.985); transition: opacity .5s ease-out .25s, transform .5s ease-out .25s; }
-    #screen.ready #overlay { opacity: 1; transform: none; }
-    #overlay, #overlay svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-    #overlay [data-role] { cursor: pointer; }
-    /* the view's classes (view/ring.js, chips.js, timeline.js): colour never alone, dashed / filled say it too */
-    .layer { fill: none; stroke: var(--rc-stroke); stroke-width: 2; opacity: .25; }
-    .field-rest { fill: var(--rest); pointer-events: none; } /* outside the window nothing shows (14.11.): the whole square in review */
-    .corner, .top-zone, .bottom-zone { fill: transparent; }
-    .confirm-ok { fill: var(--rc); stroke: var(--rc-stroke); stroke-width: 3; } .label.confirm-count { font-size: 26px; font-weight: 600; pointer-events: none; }
-    .focus-mark { fill: none; stroke: #fff; stroke-width: 2; pointer-events: none; }
-    .flash { stroke: #5fbf92 !important; stroke-width: 5 !important; }
-    .consent-dot { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 2; pointer-events: none; }
-    .appear { transform-box: fill-box; transform-origin: center; animation: appear .32s cubic-bezier(.2,.8,.3,1.2) both; }
-    .a1 { animation-delay: .04s } .a2 { animation-delay: .08s } .a3 { animation-delay: .12s } .a4 { animation-delay: .16s } .a5 { animation-delay: .2s } .a6 { animation-delay: .24s } .a7 { animation-delay: .28s } .a8 { animation-delay: .32s } .a9 { animation-delay: .36s }
-    .start-tile { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 2; animation: appear .4s ease-out; transform-box: fill-box; transform-origin: center; } .start-tile.on { fill: var(--rc); } .start-tile.dashed { fill: none; stroke-dasharray: 4 4; }
-    .start-line { stroke: var(--rc-stroke); stroke-width: 2; } .start-line.dotted { stroke-dasharray: 2 5; stroke-linecap: round; }
-    .start-mode { fill: none; stroke: var(--rc-stroke); stroke-width: 2; } .start-mode.record { stroke-dasharray: 300; stroke-dashoffset: 300; animation: start-run 2.2s linear forwards; } @keyframes start-run { to { stroke-dashoffset: 0; } }
-    .start-wait { font-size: 11px; fill: var(--mut); text-anchor: start; } /* the start (15.11.): whose state, how it starts */
-    .sending { stroke-dasharray: 8 6; animation: sending .6s linear infinite; } @keyframes sending { to { stroke-dashoffset: -14; } } /* data on the way (hello, join): the edge runs */
-    .leave { animation: leave .7s ease-in forwards; transform-box: fill-box; transform-origin: center; } @keyframes leave { to { transform: scale(.2); opacity: 0; } } /* joined: hello and join go */
-    @keyframes appear { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-    @media (prefers-reduced-motion: reduce) { .appear { animation: none; } } /* a corner of the window to drag */
-    * { -webkit-tap-highlight-color: transparent; } [data-role]:focus { outline: none; } /* the arcs answer themselves, no blue box */
-    #screen, body { background: var(--rest); } /* 14.11.: the grey around the window is the whole background, also under notch and home bar */
-    .strand { fill: none; stroke-width: 7; stroke-linecap: round; }
-    .strand.new { stroke: var(--rc-stroke); opacity: .55; } /* will be recorded: pale, solid (14.11.) */
-    .strand.keep, .strand.own { stroke: var(--rc-stroke); }
-    .strand.off { stroke: var(--mut); stroke-width: 3; opacity: .5; }
-    .chip.hold rect, .bubble.hold { stroke: var(--hold); stroke-width: 4; }
-    .strand.hold { stroke: var(--hold); stroke-width: 11; }
-    .strand.wave { stroke-width: 4; } /* landmarks: short and wavy, above the point */
-    .flow { fill: none; stroke-width: 4; stroke-linecap: round; } .flow.own { stroke: var(--rc-stroke); } .flow.waiting { stroke: var(--mut); stroke-dasharray: 4 5; }
-    .video { fill: none; } .video.faded { opacity: .55; }
-    .carry { stroke: var(--rc-stroke); stroke-width: 2; stroke-dasharray: 5 5; pointer-events: none; } .carry.long { stroke-width: 5; stroke-dasharray: none; } /* carried: thin dashed = from now on, thick = everything so far too */
-    .video.other { stroke: var(--sc-stroke); stroke-width: 3; }
-    .feedback { fill: none; stroke-width: 4; pointer-events: none; } .feedback.saved { stroke: #5fbf92; } .feedback.gone { stroke: #e57373; stroke-dasharray: 6 5; }
-    .wait-ring { fill: none; stroke: var(--rc-stroke); stroke-width: 2; pointer-events: none; } .wait-ring.start { stroke-dasharray: 3 4; }
-    .bar { stroke-width: 3; stroke-linecap: round; opacity: .7; } .bar.now { opacity: 1; stroke-width: 4; } .bar.own { stroke: var(--rc-stroke); } .bar.other { stroke: var(--sc-stroke); }
-    /* chips (15.11., view/chips.js): yellow bubble = belongs together · dark = stays (sticky, prefix) · coral inside = when
-       (now strong, next lighter, later lighter still) · arrow = flies into the chain · one edge for all that is one, the sticky's colour (15.11.) */
-    .chip rect { stroke: var(--b-next); stroke-width: 1.5; } .chip text { font: 500 14px Inter, system-ui, sans-serif; fill: #4A1B0C; }
-    .chip.own rect, .chip.next rect { fill: var(--c-next); } .chip.now rect { fill: var(--c-now); stroke: var(--b-now); stroke-width: 2.5; } .chip.now text { font-weight: 600; }
-    .chip.later rect { fill: var(--c-later); stroke: var(--b-later); stroke-width: 1; } .chip.head rect { fill: var(--c-now); stroke: var(--b-now); stroke-width: 2; } .chip.head text { font-weight: 600; } /* sticky and prefixes (16.11.): the colour of the take now; next and later paler; the edge tells the cluster */
-    .tag { pointer-events: none; } .tag rect { fill: var(--c-next); opacity: .9; stroke: var(--b-next); stroke-width: .8; } .tag text { font-family: Inter, system-ui, sans-serif; font-weight: 500; fill: #4A1B0C; } /* chips small on a Similar picture (16.11.) */
-    .chip.wait rect { fill: none; stroke-dasharray: 5 4; } .wave-heard { fill: none; stroke: var(--c-head); stroke-width: 1; pointer-events: none; }
-    .chip.typing, .chip.offer.name { animation: breathe 1.4s ease-in-out infinite; } /* the name at the start breathes: write another below (16.11.) */ /* being typed: there live, until Enter or the take */
-    .cut-mark { stroke: var(--b-now); stroke-width: 4; stroke-linecap: round; stroke-dasharray: 6 5; pointer-events: none; } .join-mark { stroke: var(--b-now); stroke-width: 8; stroke-linecap: round; opacity: .6; pointer-events: none; } /* split / join a take (15.11.) */
-    .similar-band.full { fill: transparent; } /* full Similar: the upper part takes the pinch */
-    .similar-band.cloud { fill: var(--sc, #E6F1FB); fill-opacity: .55; stroke: var(--sc-stroke, #378ADD); stroke-opacity: .35; stroke-width: 1; } /* Similar as a cloud over the take (16.11.) */
-    /* multiplied-out clusters (16.11.): every word of one cluster and its bubble share the edge colour; sticky = the outermost */
-    .chip.k0 rect, .bubble.k0, .bubble.sticky { stroke: #A67C00; } .chip.k1 rect, .bubble.k1 { stroke: #1F8A84; } .chip.k2 rect, .bubble.k2 { stroke: #7B5EA7; }
-    .chip.k3 rect, .bubble.k3 { stroke: #2F6FB0; } .chip.k4 rect, .bubble.k4 { stroke: #B04A7A; } .chip.k5 rect, .bubble.k5 { stroke: #6B8E23; }
-    .point-wide { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 3; } .playhead { stroke: var(--rc-stroke); stroke-width: 3; stroke-linecap: round; pointer-events: none; } .tick { stroke: var(--rc-stroke); stroke-width: 1.5; pointer-events: none; } .wide-pic { opacity: .55; pointer-events: none; } /* the button across (16.11.): a window into the take, a tick per second */
-    .thumb.chosen-line { stroke: var(--hold); stroke-width: 4; } /* the line chosen (16.11.): ↑ / ↓ on the point acts on all of it */
-    .more { fill: none; stroke: var(--b-now); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; } /* more chips this way */
-    .bubble { fill: var(--nest); stroke: var(--nest-b); stroke-width: 1.5; } .caret { stroke: var(--b-now); stroke-width: 2.5; stroke-linecap: round; pointer-events: none; animation: breathe 1.2s ease-in-out infinite; } .fly { fill: none; stroke: #712B13; stroke-width: 1.5; stroke-linecap: round; pointer-events: none; }
-    .chip.offer rect { fill: #fff; stroke: #888780; stroke-dasharray: 4 3; } .chip.offer text { fill: #444441; } .bubble.offer { fill: none; stroke: #888780; stroke-dasharray: 4 3; }
-    .chip.offer.similar rect, .chip.offer.name rect { fill: #E6F1FB; stroke: #378ADD; } .chip.offer.similar text, .chip.offer.name text { fill: #0C447C; } .bubble.offer.similar { stroke: #378ADD; } /* the preset name looks like a template (15.11.) */
-    .chip.offer.password rect { fill: #E1F5EE; stroke: #1D9E75; stroke-dasharray: none; } .chip.offer.password text { fill: #085041; } .bubble.offer.password { stroke: #1D9E75; }
-    .chip.offer.password.now rect { fill: #9FE1CB; stroke-width: 2.5; } .chip.offer.password.later rect { fill: #F1FAF6; stroke-width: 1; } .chip.offer.password.wait rect { fill: #E1F5EE; stroke-dasharray: 5 4; animation: breathe 1.6s ease-in-out infinite; } /* one's own: empty, waiting */
-    .chip.offer.similar rect, .bubble.offer.similar { stroke-dasharray: none; } /* the result's context comes along by itself: not dashed (15.11.) */
-    .chip.picked rect { stroke-width: 2.5; stroke-dasharray: none; }
-    .thread { fill: none; stroke-width: 3; } .thread.own { stroke: var(--rc-stroke); opacity: .5; } .thread.other { stroke: var(--sc-stroke); }
-    .thumb { stroke-width: 3; fill: var(--video); } .thumb.own { stroke: var(--rc-stroke); } .thumb.other { stroke: var(--sc-stroke); } .thumb.far { opacity: .4; }
-    /* the line in its arc over the point, the chain under it (view/arc.js) */
-    .from.own { fill: var(--rc-stroke); } .from.other { fill: var(--sc-stroke); } /* review: own line coral, from Similar blue */
-    .thumb.seen { fill: transparent; } #overlay image { pointer-events: none; } .video.reference { fill: transparent; }
-    .thumb.now { stroke-width: 4; stroke: var(--rc-stroke); } .thumb.own:not(.now) { stroke-width: 1.5; }
-    .thread.line-arc { opacity: .75; } .thumb.near { stroke-width: 2.5; } .thread.level { opacity: .22; stroke-width: 2; } .thread.level.open { opacity: .45; stroke-dasharray: 6 5; }
-    .thread.level.chosen { opacity: .9; stroke-width: 4; stroke-dasharray: none; } .thumb.chosen { opacity: 1; } .back { opacity: .3; }
-    .arriving { opacity: .6; } .thumb.flying { stroke-width: 3; }
-    .now-mark { stroke: var(--fg); stroke-width: 2; opacity: .5; }
-    .point .ring { fill: none; stroke: var(--rc-stroke); stroke-width: 3; } .point .core { fill: var(--rc-stroke); }
-    .point.paused .core { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 4; stroke-dasharray: 6 5; } /* paused: hollow, dashed, tap = on */
-    .point.photo .ring { stroke: var(--mut); stroke-width: 4; } .point.photo .core { fill: var(--card); stroke: var(--mut); stroke-width: 2; } .point.photo .shutter { fill: none; stroke: var(--mut); stroke-width: 2; } /* photo (16.11.): grey shutter, no coral: one picture */
-    .photo { fill: var(--card); stroke: var(--mut); stroke-width: 2; } .photo.on { fill: var(--rc); stroke: var(--rc-stroke); stroke-width: 3; }
-    .point.waiting .ring { stroke-dasharray: 8 6; } .point.line .over .core { fill: var(--card); opacity: .7; } /* line (16.11.): the take's picture inside, play / pause over it */
-    .point.with .ring { stroke: var(--hold); stroke-width: 5; } /* the point acts on the held property */
-    /* panels slide in from the edges */
-    body.full #similar, body.full #chips, body.full #share { display: none; }
-    #chips { position: absolute; top: 72px; left: 12px; right: 12px; text-align: center; }
-    #similar { position: absolute; top: 8px; left: 8px; right: 8px; height: 44px; white-space: nowrap; overflow-x: auto; overflow-y: hidden; } /* metadata and strand choice above the tiles */
-    #similar .chip { background: var(--sc); color: #0C447C; } #similar .chip.on { outline: 2px solid var(--sc-stroke); }
-    .similar-band { fill: var(--sc); opacity: .18; }
-    #context { position: absolute; left: var(--field-x, 12px); width: var(--field-w, calc(100% - 24px)); top: calc(var(--field-y, 640px) - 24px); } /* right under the bottom arc; Android's buttons stay free */
-    #context input { -webkit-user-select: text; user-select: text; width: 100%; box-sizing: border-box; font: 500 17px Inter, system-ui, sans-serif; padding: 12px 16px; border-radius: 22px; border: none; background: transparent; color: transparent; caret-color: transparent; outline: none; } /* invisible (16.11.): the letters show in their chips, live; no field, no caret */
-    /* sharing points after ↑ on the point (view/points.js): a layer over the screen, only the shapes take touches */
-    #share { position: absolute; inset: 0; pointer-events: none; }
-    #share .points, #share svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-    #share [data-role] { pointer-events: all; cursor: pointer; } /* all: also a tile drawn without fill (the + tile) takes the finger */
-    .badge.admin { fill: var(--rc-stroke); stroke: var(--card); stroke-width: 2; } .fill { fill: var(--sc-stroke); pointer-events: none; } .fill.high { fill: #e57373; }
-    #share .note:empty { pointer-events: none; padding: 0; } #share .note { position: absolute; left: 0; right: 0; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); text-align: center; color: var(--mut); font-size: 0.9em; pointer-events: auto; user-select: text; -webkit-user-select: text; padding: 6px 12px; }
-    #share:not([hidden]) .points { animation: sheet-up .22s ease-out; }
-    @keyframes sheet-up { from { transform: translateY(30%); opacity: 0; } to { transform: none; opacity: 1; } }
-    /* onboarding (onboarding.js, view/hint.js): the next element breathes, a pale point does the gesture */
-    .hint { fill: var(--rc-stroke); opacity: 0; pointer-events: none; transform-box: fill-box; transform-origin: center; }
-    .hint.tap { animation: hint-tap 1.6s ease-out infinite; } .hint.double-tap { animation: hint-tap .8s ease-out infinite; }
-    .hint.hold, .hint.hold-slow { animation: hint-hold 2.2s ease-in-out infinite; } .hint.move { animation: hint-move 1.8s ease-in-out infinite; }
-    @keyframes hint-tap { 0% { opacity: 0; transform: scale(1.6); } 30% { opacity: .6; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
-    @keyframes hint-hold { 0% { opacity: 0; transform: scale(1.4); } 20% { opacity: .6; transform: scale(1); } 75% { opacity: .6; transform: scale(1); } 100% { opacity: 0; transform: scale(.6); } }
-    @keyframes hint-move { 0% { opacity: 0; transform: none; } 20% { opacity: .6; transform: none; } 80% { opacity: .6; transform: translate(var(--dx), var(--dy)); } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)); } }
-    .join-group.door { fill: var(--sc); fill-opacity: .35; stroke: var(--sc-stroke); stroke-width: 2.5; stroke-dasharray: 6 4; }
-    #context { opacity: 0; transition: opacity .15s; } #context.shown { opacity: 1; }
-    #context.breathe input { animation: breathe 1.6s ease-in-out infinite; }
-    .hinted, .breathe { animation: breathe 1.6s ease-in-out infinite; } @keyframes breathe { 50% { opacity: .55; } }
-    /* 16.11.: the overlay is drawn anew many times a second (sound levels): running animations keep their phase from the clock
-       (--t, set at each paint) instead of starting over – no flicker of the point, the hints, the breathing chips */
-    #overlay .hinted, #overlay .breathe, #overlay .hint, #overlay .chip.typing, #overlay .chip.offer.name, #overlay .caret, #overlay .sending, #overlay .file-dot.walking, #overlay .chip.offer.password.wait rect { animation-delay: calc(var(--t, 0) * -1ms); }
-    .tile-behind { fill: var(--card); stroke: var(--line); pointer-events: none; }
-    .sheet { fill: var(--card); stroke: var(--line); filter: drop-shadow(0 -2px 8px rgba(0,0,0,.08)); }
-    .handle { stroke: var(--mut); stroke-width: 4; stroke-linecap: round; }
-    .sp { fill: var(--card); stroke: var(--mut); stroke-width: 1.5; }
-    .sp.own-device { fill: var(--rc); stroke: var(--rc-stroke); }
-    .sp.always { stroke: var(--rc-stroke); stroke-width: 2.5; }
-    .sp.shown { fill: var(--sc); }
-    .sp.focus { stroke: var(--hold); stroke-width: 4; }
-    .sp.waiting, .sp.error, .sp.closed, .sp.device { stroke-dasharray: 5 4; opacity: .55; }
-    .sp.add, .sp.out { fill: none; stroke-dasharray: 5 4; } .sp.round { stroke-dasharray: none; stroke-width: 1.5; } .sp.faint { opacity: .35; } .sp.person { fill: var(--rc); } .person-initial { pointer-events: none; font-weight: 600; } .person-record { fill: none; stroke: var(--rc-stroke); stroke-width: 2; pointer-events: none; } .badge.person-start { fill: var(--sc-stroke); } .apps-rule { stroke: var(--mut); opacity: .25; } .row-area { fill: transparent; } .app-label { font-size: 10px; } #share .row { will-change: transform; } .glyph.dot { fill: var(--mut); stroke: none; } .sp.add.ghost { opacity: .35; stroke-dasharray: 2 4; } .glyph.ghost { opacity: .5; }
-    .shake { animation: shake .35s ease-in-out; transform-box: fill-box; transform-origin: center; } @keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } } .sp.add.now { stroke: var(--rc-stroke); stroke-width: 2.5; }
-    .sp.folder { fill: var(--sc); }
-    .sp.group { stroke: var(--sc-stroke); stroke-width: 2.5; }
-    .badge { fill: var(--card); stroke: var(--sc-stroke); stroke-width: 2; stroke-dasharray: 3 2; pointer-events: none; } .badge.joined { fill: var(--sc); stroke-dasharray: none; }
-    .badge.sealed { fill: var(--sc-stroke); stroke: var(--sc-stroke); stroke-dasharray: none; } .badge.unsealed { fill: none; stroke: var(--rc-stroke); stroke-width: 2.5; stroke-dasharray: 2 2; }
-    .view-only { fill: none; stroke: var(--sc-stroke); stroke-width: 1.2; stroke-dasharray: 3 3; pointer-events: none; }
-    .chevron { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; } .chevron.own { stroke: var(--rc-stroke); opacity: .7; } .chevron.backup { stroke: var(--rc-stroke); opacity: .9; }
-    .join-line { fill: none; stroke: var(--sc-stroke); stroke-width: 3; } .join-line.hello { stroke-dasharray: 2 6; stroke-linecap: round; animation: sending 1.2s linear infinite; } /* 16.11.: waiting for join, the dots keep walking */ .join-line.own { stroke: var(--rc-stroke); }
-    .join-me, .join-own { fill: var(--rc); stroke: var(--rc-stroke); stroke-width: 1.5; } .join-group { fill: var(--sc); stroke: var(--sc-stroke); stroke-width: 1.5; }
-    .join-group.waiting, .join-own.waiting { fill: none; stroke-dasharray: 3 3; }
-    .badge.ran { fill: var(--hold); stroke: var(--hold); stroke-dasharray: none; } .badge.failed { fill: none; stroke: var(--rc-stroke); stroke-dasharray: none; stroke-width: 2.5; }
-    .hello { fill: none; stroke: var(--sc-stroke); stroke-width: 2.5; stroke-dasharray: 6 4; } .hello-dot { fill: var(--sc-stroke); pointer-events: none; }
-    .hello.faint { opacity: .35; } .join-line.sending { stroke-dasharray: 2 6; animation: sending .6s linear infinite; } .file-dot { fill: var(--sc-stroke); pointer-events: none; } .file-dot.walking { animation: walk .5s ease-in-out infinite alternate; } @keyframes walk { to { opacity: .3; } } /* 15.11.: hello on its way, a dot per file */
-    .join-group.said { fill: var(--sc); stroke: var(--sc-stroke); stroke-width: 2.5; stroke-dasharray: 6 4; } .join-group.confirmed { stroke-dasharray: none; stroke-width: 2.5; } .tile-in { text-anchor: middle; } /* 16.11.: dashed until the join came, then solid; names inside the tiles */ .tile-name { font-weight: 600; pointer-events: none; } .tile-word { pointer-events: none; fill: var(--mut); } .tile-word.done { fill: var(--fg); font-weight: 600; } /* hello stays, highlighted, the name inside */
-    .sp.shown.write { stroke: var(--rc-stroke); stroke-width: 3.5; } /* 16.11.: blue = shows in Similar (view) · with a coral edge = I also write there (view + write) · inner dashed = read only */
-    .sp.person.account { fill: var(--card); stroke: var(--mut); } /* an account kept on this device (16.11.): white, its initial inside; a role colours it */
-    .sp.person.role-admin { fill: var(--rc); stroke: var(--rc-stroke); } .sp.person.role-atlas { fill: var(--sc); stroke: var(--sc-stroke); } .sp.person.role-groups { fill: var(--nest); stroke: var(--nest-b); } .account-equator { stroke: var(--sc-stroke); pointer-events: none; } .account-current { fill: none; stroke: var(--fg); stroke-width: 2; pointer-events: none; } /* accounts upper left (15.11.): role = form and colour, current = ringed */
-    .sp.cloud { fill: none; stroke: var(--sc-stroke); stroke-width: 2; }
-    .sp.incoming { fill: none; stroke: var(--sc-stroke); stroke-width: 2.5; stroke-dasharray: 6 4; } .sp.incoming.there { fill: var(--sc); fill-opacity: .4; }
-    .glyph { fill: none; stroke: var(--mut); stroke-width: 1.5; pointer-events: none; }
-    .strand.mini { stroke-width: 5; stroke-linecap: round; }
-    .chip.unsearched { opacity: .4; } .chip.unsearched rect { stroke-dasharray: 3 3; } /* 16.11.: out of the search (tap again = in) */
-    .sp.person.waiting { stroke-dasharray: 3 3; } .sp.self { stroke-width: 3; } .bridge.self { stroke: var(--b-now); stroke-width: 2; } /* 16.11.: the current person first, a line to her device tile; + = a new person */
-    .hit { fill: none; stroke: transparent; stroke-width: 22; } .hit.wide { stroke-width: 52; }
-    .bridge { fill: none; stroke: var(--rc-stroke); stroke-width: 6; opacity: .35; } .bridge.give { stroke: var(--sc-stroke); stroke-width: 3; opacity: .8; stroke-dasharray: 1 7; stroke-linecap: round; } .chevron.give { stroke: var(--sc-stroke); } .bridge.new { stroke-dasharray: 10 7; } .bridge.all { opacity: .55; } .encrypted-edge { fill: none; stroke: var(--video); stroke-width: 2.5; pointer-events: none; } /* 16.11.: solid = everything over there · dashed = a part, new goes in · dark inner edge = encrypted */
-    .label { font: 500 12px Inter, system-ui, sans-serif; fill: var(--fg); pointer-events: none; }
-    .chip.on { outline: 2px solid var(--rc-stroke); }
-    span.chip { display: inline-block; margin: 4px; padding: 6px 12px; border-radius: 16px; background: var(--sc-stroke); color: #fff; }
-  </style>
 </head>
 <body>
-  <div id="screen">
-    <video id="live" autoplay muted playsinline disablepictureinpicture poster="data:image/gif;base64,R0lGODlhAQABAAAAACw="></video>
-    <video id="replay" hidden playsinline loop disablepictureinpicture poster="data:image/gif;base64,R0lGODlhAQABAAAAACw="></video>
-    <video id="pair" hidden playsinline muted loop disablepictureinpicture poster="data:image/gif;base64,R0lGODlhAQABAAAAACw="></video>
-    <video id="template" hidden playsinline muted loop disablepictureinpicture poster="data:image/gif;base64,R0lGODlhAQABAAAAACw="></video>
-    <div id="overlay"></div>
-    <div id="context" hidden><input id="say" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="context"></div>
+  <div id="screen" data-role="screen">
+    <div id="window" data-role="window">
+      <video id="live" autoplay muted playsinline disablepictureinpicture></video>
+      <video id="replay" hidden playsinline disablepictureinpicture></video>
+    </div>
+    <div id="similar"></div>
+    <svg id="take" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="now"></div>
+    <div id="row" data-role="context"></div>
+    <input id="say" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="context">
+    <div id="note"></div>
+    <div id="sharing" hidden data-role="sharing">
+      <svg id="sharing-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="sharing-html"></div>
+    </div>
+    <svg id="hint" xmlns="http://www.w3.org/2000/svg"></svg>
   </div>
-  <div id="chips" hidden></div>
-  <div id="similar" hidden></div>
-  <div id="share" hidden></div>
   <script type="module">
     import { start } from './9-ui/app.js';
     const load = (l) => fetch(`0-i18n/locales/${l}.json`).then((r) => r.json());
     const [de, en] = await Promise.all([load('de'), load('en')]);
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+    if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js');
     start({ locales: { de, en } });
   </script>
 </body>

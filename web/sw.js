@@ -2,8 +2,8 @@
 // Limits: the cache is the app (≈ 200 KB); Takes never go here (they live in OPFS / sharing points).
 // Network first (14.11.): a new version is used at once; the cache only answers when offline or after 3 s.
 // Older caches are deleted, so modules of two versions never mix (cache-first kept old code after an update).
-const SHELL = 'sign-shell-16';
-self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(SHELL).then((c) => c.addAll(['./', './index.html', './manifest.json', './icons/icon.svg', './icons/icon-192.png']))); });
+const SHELL = 'sign-shell-17'; // 16.11.: new surface (9-ui rewritten)
+self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(SHELL).then((c) => c.addAll(['./', './index.html', './manifest.json', './icons/icon.svg', './icons/icon-192.png', './9-ui/look.css']))); });
 self.addEventListener('activate', (e) => e.waitUntil(caches.keys()
   .then((keys) => Promise.all(keys.filter((k) => k !== SHELL).map((k) => caches.delete(k))))
   .then(() => self.clients.claim())));

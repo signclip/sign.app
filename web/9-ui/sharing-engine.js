@@ -1,4 +1,8 @@
-// share-mount.js — puts the sharing points on the screen after ↑ on the point and carries out the gestures.
+// sharing-engine.js — what the sharing menu does, without drawing it (16.11., taken over from share-mount.js of the
+// version until 16.11., lab/ui-until-2026-11-16/): the list in force, its rules, the opened sharing points, upkeep,
+// join and the admin's door. paint-sharing.js draws the snapshot it hands to onDraw and calls its handlers with the
+// same roles as before ('sp:N', 'account:i', 'person:id', 'hello:i', 'own:N', 'app:i', 'add:new', 'sp-kind:N:k', 'bridge:a:b').
+//
 //
 // Purpose:   keeps the list in force, its rules and the opened sharing points together; after every change
 //            of the list it reopens them and hands Similar its sources (show rules). What a gesture means
@@ -47,7 +51,7 @@ import { doorView, toWithin, backToHello, moveAccount, deleteFolder } from '../8
 import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey, withdrawHello } from './share-group.js';
 import { askRemove } from '../8-join/remove-request.js';
 import { folders, canPick } from './folders.js';
-import { bind } from './touch.js';
+
 import { revokeAppPassword, setDisplayName } from '../8-join/provision.js';
 import { renames, adoptRename, declineRename } from '../8-join/rename.js';
 import { nameSignOf } from '../8-join/join.js';
@@ -56,8 +60,8 @@ import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
 import { newSource } from '../1-model/ids.js';
-import { rowLimit, pointShapes, confirmShapes } from './view/points.js';
-import { toSvg } from './view/ring.js';
+
+
 
 const dec = new TextDecoder();
 
@@ -87,7 +91,7 @@ async function clipboardText() {
 const HELD_UP = { hello: 'join', join: 'within', quiet: 'within' };
 const HELD_DOWN = { hello: 'quiet', join: 'hello' };
 
-export async function mountShareMenu({ panel, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, helloTakes = async () => [], project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {}, onLookAll = () => {}, words = () => [], index = () => null }) {
+export async function mountSharing({ panel, onDraw = () => {}, own, keychain, person, device, t, lastChain, selection = () => KINDS, once = () => null, onSources = () => {}, nameSign = async () => null, helloTakes = async () => [], project = null, onHello = () => {}, onOwnHold = () => {}, onLook = () => {}, onLookAll = () => {}, words = () => [], index = () => null }) {
   const s = {
     entries: [], // the sharing points of the list in force
     rules: [], // its rules (list.js rulesOf)
@@ -106,23 +110,24 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     last: kept('sign.upkeep'), // ruleKey → ms of its last run (this device only)
     running: false,
   };
-  const svg = document.createElement('div');
-  svg.className = 'points';
-  const note = document.createElement('div');
-  note.className = 'note';
-  panel.append(svg, note);
-  { // hold the line under the circles (15.11.): the network log as a file into the share row, to find a failure
-    let timer = null;
-    note.addEventListener('pointerdown', () => { timer = setTimeout(async () => {
-      const { logFile } = await import('./debug.js');
-      const file = logFile(globalThis.SIGN_VERSION ?? '');
-      if (await copy(await file.text())) { navigator.vibrate?.(15); say(t('copied')); } // the log as text on the clipboard too (15.11.): paste it anywhere
-      s.pending = { title: 'Sign · debug', files: [file] };
-      if (!s.apps?.list?.length) { const p = s.pending; s.pending = null; return send(p).catch(() => null); }
-      draw();
-    }, 600); });
-    for (const e of ['pointerup', 'pointercancel', 'pointerleave']) note.addEventListener(e, () => clearTimeout(timer));
-  }
+  /** The network log as a file (held on the note line): to find a failure. */
+  async function debugFile() { const { logFile } = await import('./debug.js'); const file = logFile(globalThis.SIGN_VERSION ?? ''); await copy(await file.text()).catch(() => null); return file; }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   let sealWith = null; deviceKeys().then((k) => { sealWith = k.device; }, () => {}); // the list is sealed like every .sign
   const meta = () => ({ device, person, now: Date.now(), time: timeLabel(Date.now()), deviceKey: sealWith });
@@ -599,7 +604,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
         ctx.admin = login; s.adminN = n; await setRole('admin', n).catch(() => {});
         const at = await doorFolder(login, project?.doors ?? []).catch(() => null); // where hello/ and join/ really lie (15.11.)
         ctx.door = at == null ? null : connect({ kind: 'nextcloud', label: 'door', id: 'door', server: login.server, user: login.user, folder: at }, { secret: login.password }).store;
-        debugNote({ admin: user, door: at ?? 'not found among the shares of this login' }); // in sign-debug.txt
+        debugNote({ method: 'door', where: user, ...(at == null ? { error: 'not found among the shares of this login' } : { status: `at ${at || '/'}` }), ms: 0 }); // in sign-debug.txt
       }
     }
     return ctx.admin ?? null;
@@ -736,11 +741,11 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       : s.hellos.length ? pilesOf({ hello: count('hello') }).slice(0, 1) : []; // a group's signer: its hellos
     s.piles = s.piles.map((p) => ({ ...p, n: s.adminN, label: p.count == null ? p.pile : `${p.pile} ${p.count}` }));
     const hellos = s.piles;
-    const view = s.confirm ? confirmShapes(s.confirm, { w, h }) : pointShapes(all(), { own: person.label, name: person.label, sent: s.sent ?? 0, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: s.fresh, focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, zoom: s.zoom ?? null, apps: s.index || s.accounts || s.groupList || s.browse ? null : s.apps ? { ...s.apps, list: rowApps() } : { list: [] }, outOnly: Boolean(s.pending), persons: others().map(withState).filter(Boolean), self: (() => { const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current()); return me ? withState({ ...me, label: me.label || person.label }) : null; })(), accounts: logins(), choosing: Boolean(s.choosing), selfStart: globalThis.signPersons?.persons().find((x) => x.id === globalThis.signPersons.current())?.start ?? 'direct', browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: s.joinStates, leaving: s.leaving ?? new Set(), sending: s.sending ?? null }, { w, h });
-    svg.innerHTML = toSvg(view, { w, h });
+    onDraw({ tiles: all(), confirm: s.confirm ?? null, own: person.label, sent: s.sent ?? 0, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: new Set(s.fresh), focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, apps: s.index || s.accounts || s.groupList || s.browse ? [] : rowApps(), outOnly: Boolean(s.pending), persons: others().map(withState).filter(Boolean), self: (() => { const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current()); return me ? withState({ ...me, label: me.label || person.label }) : null; })(), accounts: logins(), choosing: Boolean(s.choosing), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: new Map(s.joinStates), leaving: new Set(s.leaving ?? []), sending: s.sending ?? null, note: s.note, role: ctx.role ?? null });
+
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();
-    note.textContent = s.note;
+
   }
 
   // ---------- touch: the role is read when the finger goes down ----------
@@ -754,7 +759,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
     },
     slide: (r, dx) => { // the share row follows the finger (14.11.): moved by CSS on every frame, drawn anew only at the end
       if (!s.apps) return null;
-      const limit = rowLimit(rowApps().length, { w: panel.getBoundingClientRect().width }), x = s.apps.x ?? 0;
+      const limit = -Infinity, x = s.apps.x ?? 0; // the row is short now (≤ 5): no sliding limit needed
       s.apps.drag = Math.max(limit - x, Math.min(-x, (s.apps.drag ?? 0) + dx));
       for (const el of panel.querySelectorAll('.row')) el.style.transform = `translateX(${s.apps.drag}px)`;
       return null;
@@ -833,17 +838,17 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       requestAnimationFrame(step);
     },
     holdLong: () => { if (circleOf(role) != null) { navigator.vibrate?.(15); s.flash = role; draw(); } }, // held on: now carried = everything so far too (15.11.)
-    holdMove: (_r, x, y, long) => { // the line follows the finger: carried at once = from now on (thin), held on first = everything so far (thick)
-      const from = panel.querySelector(`[data-role="${role}"]`)?.getBoundingClientRect(), box = panel.getBoundingClientRect();
-      if (!from) return null;
-      let line = svg.querySelector('#carry');
-      if (!line) { line = document.createElementNS('http://www.w3.org/2000/svg', 'line'); line.id = 'carry'; svg.appendChild(line); }
-      Object.entries({ x1: from.left + from.width / 2 - box.left, y1: from.top + from.height / 2 - box.top, x2: x - box.left, y2: y - box.top }).forEach(([k, v]) => line.setAttribute(k, v));
-      line.setAttribute('class', `carry${long ? ' long' : ''}`);
-      return null;
-    },
+    holdMove: () => null, // the line that follows the finger is drawn by paint-sharing.js
+
+
+
+
+
+
+
+
     dragEnd: (el, moved, _r, { long = false } = {}) => {
-      svg.querySelector('#carry')?.remove(); if (s.flash === role) s.flash = null;
+      if (s.flash === role) s.flash = null;
       if (role === 'add:new' && !moved) return addNew(ctx, { person: false }); // + held: only what is on the clipboard (no new person by holding, 16.11.)
       if (role?.startsWith('person:') && moved) { globalThis.signPersons?.switchTo(role.slice(7)); return location.reload(); } // a small person dragged out = pulled big: that person (15.11.)
       const from = circleOf(role);
@@ -865,7 +870,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
       return from != null && onto ? apply(gestureOn(onto, 'drop-point', s.rules, { from, private: ctx.tileOf(onto)?.private, sofar: long })) : null; // carried onto another: from now on; held on first = everything so far too (encrypted when only I read it)
     },
   };
-  bind(panel, handlers);
+  // the touches come from paint-sharing.js: it calls handlers with the role under the finger
 
   /** A tile dropped on this device: its files come here once (no rule); a backup is opened and restored. */
   async function home(n) {
@@ -912,6 +917,7 @@ export async function mountShareMenu({ panel, own, keychain, person, device, t, 
   }
 
   return {
+    handlers, debugFile, draw, tapped, roleState: () => ({ adminN: s.adminN ?? null, atlasN: s.atlasN ?? null, groupsN: s.groupsN ?? null, piles: s.piles ?? [] }),
     show,
     back,
     /**

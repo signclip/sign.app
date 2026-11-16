@@ -9,7 +9,8 @@
 // Limits:    waits 300–10,000 ms; pre-roll 0–3,000 ms (kept in memory while ready).
 
 import { KINDS } from '../1-model/symbols.js';
-import { formOf } from './view/shape.js';
+/** The window's form (kept from the old view/shape.js): round 0…1, aspect 0.5…2. */
+const formOf = (x) => (x && typeof x === 'object' ? { round: Math.max(0, Math.min(1, Number(x.round ?? 1))), aspect: Math.max(0.5, Math.min(2, Number(x.aspect ?? 1))) } : { round: 1, aspect: 1 });
 
 const STRANDS = ['v', 'a', 'x', 'l'].filter((k) => k in KINDS);
 
