@@ -3,7 +3,9 @@
 //
 //   button   tap: start · pause · go on (photo: one picture; on an earlier take: play) · ← keep / the next · → the one
 //            before · ↑ sharing menu (a line chosen: onto that line) · ↓ a little: context away · ↓ far: take anew
-//            (a line chosen: off that line) · spread: the button across, slide = the moment, past its widest = cut there
+//            (a line chosen: off that line) · spread on a take: the button across as its clip, slide = the moment, past
+//            its widest = cut there · spread on the empty button: left = a new take by itself (a little: at once,
+//            past the catch: after a countdown), right past the catch = stillness until the take ends (calm.js)
 //   arcs     tap = that strand on/off · the dot on the visual arc = photo on/off
 //   line     tap the line or an older line's small arc = chosen (outlined) · tap a take = look at it ·
 //            squeeze two takes together = joined
@@ -21,7 +23,7 @@
 import { buttonMeaning, live, count } from './take-state.js';
 import { joinTakes, cutTake, withContext } from './line.js';
 import { nowWords } from './chips.js';
-import { slotPx, onTake } from './layout.js';
+import { slotPx, onTake, timeline, wideButton } from './layout.js';
 import { zoomed, tapFilter, turnOrder, setFilter } from './similar-view.js';
 import { insertGesture, fromField } from '../1-model/context.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
@@ -37,6 +39,7 @@ const inRow = (r) => r === 'context' || r === 'under' || r.startsWith('gap:') ||
 export function gesturesOf(A) {
   const say = document.querySelector('#say');
   let wide = null, facing = A.settings.facing, shaping = null; // shaping: two fingers on the picture, the form at their start (20.11.)
+  let zooming = null; // the zoom in time at the start of a pinch on one side of the mark (20.11.)
 
   function onEvent(ev, e) {
     if (A.st.share) return sharing(ev, e);
@@ -47,6 +50,7 @@ export function gesturesOf(A) {
     if (r === 'button') return button(ev);
     if (ev.type === 'tap') {
       if (r.startsWith('strand:')) return A.dispatch({ type: 'strand', kind: r.slice(7) });
+      if (r.startsWith('dstrand:')) { navigator.vibrate?.(8); return A.dispatch({ type: 'dstrand', kind: r.slice(8) }); } // the double view: what one sees and hears (20.11.)
       if (r === 'photo') return A.dispatch({ type: 'photo' });
       if (r === 'line') return A.dispatch({ type: 'select-line', n: A.st.lines.length - 1 });
       if (r.startsWith('old:')) return A.dispatch({ type: 'select-line', n: Number(r.slice(4)) });
@@ -187,12 +191,21 @@ export function gesturesOf(A) {
       return A.dispatch({ type: 'similar', level });
     }
     if (a?.startsWith('take:') && b?.startsWith('take:')) return ev.phase === 'end' && ev.scale < 0.75 ? join(Number(a.slice(5)), Number(b.slice(5))) : null; // two takes squeezed: before the button (20.11.: near it, the button took it)
-    if (!shaping && (a === 'button' || b === 'button' || nearButton) && A.st.similar !== 'full' && A.st.rec === 'idle' && count(A.st)) {
-      if (live(A.st)) A.dispatch({ type: 'at', at: count(A.st) - 1 }); // the button holds no take yet: the newest one opens
+    const onButton = !shaping && (a === 'button' || b === 'button' || nearButton) && A.st.similar !== 'full' && A.st.rec === 'idle';
+    const emptyButton = !shaping && (a === 'button' || b === 'button' || nearButton) && A.st.similar !== 'full' && live(A.st); // also while it records: a series is switched off there
+    if (A.calm && (A.calm.setting || (emptyButton && !wide && !zooming && A.st.wide < 0.02)) && A.calm.pinch(ev)) return null; // the empty button: its two times (calm.js)
+    if (onButton && count(A.st) && !live(A.st)) { // the button holds a take: it opens as its clip
+      // open, both fingers on one side of the mark (20.11.): finer or coarser in time; on both sides: cut or close
+      const at = ev.at ?? [], oneSide = A.st.wide > 0.5 && !wide?.parting && at.length === 2 && (at[0].x - L.button.x) * (at[1].x - L.button.x) > 0;
+      if (oneSide || zooming) {
+        if (ev.phase === 'move') { zooming ??= A.st.wideZoom ?? 1; return A.dispatch({ type: 'wide', spread: A.st.wide, zoom: Math.max(0.25, Math.min(40, zooming * ev.scale)) }); }
+        zooming = null; return null;
+      }
       const spread = Math.max(0, Math.min(1.4, (ev.scale - 1) / 1.2 + (wide?.base ?? 0)));
       if (ev.phase === 'move') {
         if (!wide) { wide = { base: A.st.wide, fresh: A.st.wide < 0.1 }; if (wide.fresh) { A.player.pause(); A.dispatch({ type: 'wide', spread, ms: 0 }); } } // it opens at the take's beginning: the whole take lies to the right
         A.data.cut = spread > 1 ? Math.min(1, (spread - 1) / (CUT - 1)) : 0;
+        if (spread > 1 && !wide.fresh) wide.parting = true; // it is a cut now, whatever the fingers do next
         return A.dispatch({ type: 'wide', spread });
       }
       const was = wide; wide = null; A.data.cut = 0;
@@ -209,9 +222,11 @@ export function gesturesOf(A) {
   /**
    * Two fingers on the picture = the window's form, by how they lie (form.js formBy): side by side = width, one above
    * the other = height, slanted = corners, smoothly between rectangle and circle. Always from the form at the start;
-   * the aspect snaps to the picture's own format and to 1:1. The camera stays at 1× (20.11.).
+   * the aspect snaps to the picture's own format and to 1:1. The camera stays at 1× (20.11.). While the fingers are
+   * down the window follows at once (body.shaping: no easing), so box and clip never part and no corner peeks out.
    */
   function shape(ev) {
+    document.body.classList.toggle('shaping', ev.phase !== 'end');
     if (ev.phase === 'end') { shaping = null; return null; }
     shaping ??= { ...A.st.form };
     const f = formBy(shaping, ev.scale, ev), aspect = snap(f.aspect, A.pictureAspect());
@@ -236,8 +251,8 @@ export function gesturesOf(A) {
     const take = takeNow();
     if (!take) return null;
     if (scrubFrom == null || ev.fresh) { scrubFrom = A.st.wideMs; A.player.pause(); }
-    const span = Math.max(2000, Math.min(6000, (take.ms ?? 0) * 1.4)), w = (2 * A.L.rx) / 1.618;
-    const ms = Math.max(0, Math.min(take.ms ?? 0, scrubFrom - (ev.dx * span) / w));
+    const { px } = timeline(A.L, take, 0, A.st.wideZoom ?? 1); // the pill moves under the finger: a finger to the left = later
+    const ms = Math.max(0, Math.min(take.ms ?? 0, scrubFrom - ev.dx / px));
     A.player.show(take, ms);
     return A.dispatch({ type: 'wide', spread: A.st.wide, ms });
   }
@@ -246,6 +261,10 @@ export function gesturesOf(A) {
     const lines = cutTake(A.st.lines, n, i, A.st.wideMs);
     if (lines === A.st.lines) { A.shake('button'); return A.dispatch({ type: 'wide', spread: 1 }); } // too near an end (< 200 ms): it stays open
     navigator.vibrate?.([10, 30, 10]);
+    const w = wideButton(A.L, 1, takeNow(), A.st.wideMs, A.st.wideZoom ?? 1), mark = A.L.button.x; // the pill parts here into two bubbles (paint.js splitSvg)
+    A.data.split = { t0: performance.now(), at: mark, y: w.y, h: w.h, left: Math.max(w.h / 2, mark - w.x), right: Math.max(w.h / 2, w.x + w.w - mark) };
+    const step = () => { if (!A.data.split) return; if (performance.now() - A.data.split.t0 > 400) { A.data.split = null; A.paint(); return; } A.paint(); requestAnimationFrame(step); };
+    requestAnimationFrame(step);
     A.player.stop();
     A.dispatch({ type: 'lines', lines });
     A.dispatch({ type: 'wide', spread: 0 });

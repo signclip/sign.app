@@ -1,8 +1,8 @@
 // ready.js — always ready in the browser: is there motion or sound right now? Every 100 ms one event.
 //
-// Purpose:   feeds settings.readyStep(): a take starts after waitStartMs of activity and stops after
-//            waitStopMs of quiet. Motion = share of changed pixels in a 32×32 copy of the picture;
-//            sound = loudness (RMS) of the microphone.
+// Purpose:   feeds settings.readyStep() (a take starts after waitStartMs of activity and stops after
+//            waitStopMs of quiet) and calm.js (the button's calm start, 20.11.). Motion = share of changed
+//            pixels in a 32×32 copy of the picture; sound = loudness (RMS) of the microphone.
 // Depends:   browser (canvas, AudioContext)
 // Test:      not in node (needs a camera); readyStep is tested in tests/ui.test.mjs.
 // Limits:    ~1 % CPU on a phone; thresholds: motion > 4 % of pixels, sound > RMS 0.02 (to tune on the
@@ -10,7 +10,7 @@
 
 const EVERY_MS = 100, SIDE = 32, MOTION = 0.04, SOUND = 0.02;
 
-/** watch(stream, onEvent) → stop(). onEvent({ at, active, motion, sound }). */
+/** watch(stream, onEvent) → stop(). onEvent({ at, active, moving, loud, motion, sound }). */
 export function watch(stream, onEvent, { video } = {}) {
   const canvas = Object.assign(document.createElement('canvas'), { width: SIDE, height: SIDE });
   const g = canvas.getContext('2d', { willReadFrequently: true });
@@ -27,9 +27,10 @@ export function watch(stream, onEvent, { video } = {}) {
       if (last) { let changed = 0; for (let i = 0; i < px.length; i += 4) if (Math.abs(px[i] - last[i]) + Math.abs(px[i + 1] - last[i + 1]) > 40) changed++; motion = changed / (SIDE * SIDE); }
       last = px.slice();
     }
+    if (audio.state === 'suspended') audio.resume().catch(() => {}); // the browser lets it run after the first touch
     analyser.getFloatTimeDomainData(samples);
     const sound = Math.sqrt(samples.reduce((n, v) => n + v * v, 0) / samples.length);
-    onEvent({ at: performance.now(), active: motion > MOTION || sound > SOUND, motion, sound });
+    onEvent({ at: performance.now(), active: motion > MOTION || sound > SOUND, moving: motion > MOTION, loud: sound > SOUND, motion, sound });
   }, EVERY_MS);
   return () => { clearInterval(timer); audio.close(); };
 }

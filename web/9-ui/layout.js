@@ -122,17 +122,39 @@ export const slotPx = (L) => ((L.ry + L.lineOff) * 13 * Math.PI) / 180;
  * The timeline inside the spread button (17.11.). take: { ms } · ms: the moment in the middle · → { span (ms across the
  * widest button), px (per ms), x(t) }: a short take fills the button, a long one runs through it.
  */
-export function timeline(L, take, ms) {
-  const span = Math.max(2000, Math.min(6000, (take?.ms ?? 0) * 1.4));
-  const px = ((2 * L.rx) / PHI) / span;
-  return { span, px, x: (t) => L.button.x + (t - ms) * px };
+export function timeline(L, take, ms, zoom = 1) {
+  const len = take?.ms ?? 0, base = ((2 * L.rx) / PHI) / Math.max(1500, len); // the whole clip as wide as the window ÷ φ (a short one: less)
+  const px = base * Math.max(0.25, zoom);
+  return { span: len, px, x: (t) => L.button.x + (t - ms) * px };
 }
 
-/** The button spread across (16.11.): a pill as high as the button, as wide as the window ÷ φ at most. → { x, y, w, h } */
-export function wideButton(L, spread) {
-  const h = 2 * L.button.r, max = Math.max(h, (2 * L.rx) / PHI);
-  const w = h + (max - h) * Math.max(0, Math.min(1, spread));
-  return { x: L.button.x - w / 2, y: L.button.y - h / 2, w, h, max };
+/**
+ * The button spread across = the clip itself (20.11., user): as high as the button, as long as the clip at the time
+ * scale (zoom = finer in time). The mark is the button's middle; the clip runs through it: at its beginning the pill's
+ * left end lies where the button's left edge was (it grew to the right only), at its end its right end lies where the
+ * button's right edge was. spread 0…1 = opening or closing (always back onto the button). → { x, y, w, h, full }
+ */
+/**
+ * The empty button spread for its two times (calm.js, 20.11., user). Left: a little = a new take at once after each
+ * one (the button gets a coloured ring), past the first catch = plus a countdown; right: past the catch = the stillness
+ * after which a take ends. The same px per second on both sides (≤ 10 s each, fits beside the button).
+ * times { restartMs (null = off, 0 = at once), stillEndMs (0 = off) } · f 0…1 = opening or closing
+ * → { x, y, w, h, S (px per s), left, right, off (below = off), at (the catch), px(t, side), times(leftPx, rightPx) }
+ */
+export function timerPill(L, { restartMs = null, stillEndMs = 0 } = {}, f = 1) {
+  const r = L.button.r, k = L.k, off = 6 * k, at = 26 * k, S = Math.max(4, Math.min(15 * k, (L.button.x - r - at - 8 * k) / 10));
+  const px = (t, left) => (t == null || (!left && !t) ? 0 : left && !t ? (off + at) / 2 : at + (t / 1000) * S);
+  const timeAt = (d) => Math.min(10000, Math.max(500, Math.round(((d - at) / S) * 2) * 500));
+  const times = (lp, rp) => ({ restartMs: lp < off ? null : lp < at ? 0 : timeAt(lp), stillEndMs: rp < at ? 0 : timeAt(rp) });
+  const left = px(restartMs, true) * f, right = px(stillEndMs, false) * f;
+  return { x: L.button.x - r - left, y: L.button.y - r, w: 2 * r + left + right, h: 2 * r, S, left, right, off, at, px, times };
+}
+
+export function wideButton(L, spread, take = null, ms = 0, zoom = 1) {
+  const r = L.button.r, h = 2 * r, f = Math.max(0, Math.min(1, spread));
+  const tl = timeline(L, take, ms, zoom), full = (take?.ms ?? 0) * tl.px + h;
+  const w = h + (full - h) * f;
+  return { x: L.button.x - r - ms * tl.px * f, y: L.button.y - r, w, h, full };
 }
 
 /** The chips of the take now, along the bottom edge inside the window: a chip of width cw at index i of n. */

@@ -7,17 +7,20 @@
 //            Size (20.11., user): never larger than the 1:1 window, the greatest square the room between the button
 //            above and the row below allows; one side can get narrower (aspect < 1: narrower, > 1: lower).
 //            A picture inside (the live camera, always 1:1; a take; an imported file of any format) is placed as
-//            large as needed to fill the window completely and no larger (cover): the least of it lies outside the
-//            window, and that part stays visible, greyed (the camera's 1:1 picture never reaches past the 1:1 window).
-//            The form by hand (14.11., again 20.11.): two fingers on the picture, by how they lie — side by side =
-//            width, one above the other = height, slanted = corners (apart = squarer, together = rounder: a smooth
-//            way between rectangle and circle). The aspect snaps to the picture's own format and to 1:1 within SNAP.
-//            The same form frames the result in Similar's double view and the takes on the line.
+//            large as needed to fill the window completely and no larger (cover). Only what lies inside the window
+//            is seen (20.11., user): everything around it is hidden, never greyed or cut off at a corner.
+//            The form by hand (20.11., user): standard is the 1:1 rectangle. Two fingers slanted = corners only
+//            (together rounder up to the circle, apart back to the rectangle); side by side = width, one above the
+//            other = height (narrower and back to full). One side always keeps the full 1:1 size; the aspect snaps
+//            to the picture's own format and to 1:1 within SNAP. The same form frames the result in Similar's
+//            double view and the takes on the line.
+//            No visible corners (20.11., user): the outline is sampled along the curve's own parameter, so its
+//            points crowd where it bends (the corners of a rounded rectangle) and lie wide where it is straight.
 // Depends:   nothing
 // Test:      tests/ui.test.mjs
-// Limits:    aspect 0.4 … 2.5 (9:16 = 0.56 and 16:9 = 1.78 inside, 21:9 = 2.33 too); 96 points per outline;
-//            the boundary at an angle is exact for the superellipse, the offset curve (arcs) is approximated by
-//            growing both half-axes by the offset (error < 1 px for offsets ≤ 40 px).
+// Limits:    aspect 0.4 … 2.5 (9:16 = 0.56 and 16:9 = 1.78 inside, 21:9 = 2.33 too); 96 points per outline,
+//            chord error < 0.3 px for a window of 800 px at every roundness (test); the offset curve (arcs) is
+//            approximated by growing both half-axes by the offset (error < 1 px for offsets ≤ 40 px).
 
 export const ASPECT = Object.freeze([0.4, 2.5]);
 export const SNAP = 0.06;
@@ -43,26 +46,22 @@ export function shapeIn(box, form = {}) {
 }
 
 /**
- * Two fingers change the form, in proportion to how they lie (14.11.): side by side = width, one above the other =
- * height, slanted = corners (apart = squarer, together = rounder; already round and still together = narrower).
- * Never past 1:1 (20.11.): across moves the width between 40 % and full (the height stays full), up-down the height
- * (the width stays full); spread back, it rests at 1:1. form: at the start of the gesture · factor = the fingers'
- * distance now ÷ at the start · fx, fy = the same across and up-down · angle = how steep the fingers lay at the start
- * (0 side by side … 90 one above the other) → { round, aspect }
+ * Two fingers change the form, in proportion to how they lie (20.11., user). Slanted = corners only: together rounder
+ * up to the circle, apart back to the rectangle; the aspect stays. Side by side = the width, one above the other =
+ * the height, each between 40 % and full. One side always keeps the full 1:1 size: only the narrow side moves (at 1:1
+ * the one pulled more); spread back it rests at 1:1, and from there the other side can get narrower.
+ * form: at the start of the gesture · factor = the fingers' distance now ÷ at the start · fx, fy = the same across
+ * and up-down · angle = how steep the fingers lay at the start (0 side by side … 90 one above the other)
+ * → { round, aspect }
  */
 export function formBy(form, factor, { fx = 1, fy = 1, angle = 45 } = {}) {
   const t = (angle * Math.PI) / 180, diag = 1 - Math.abs(Math.cos(2 * t)); // 1 at 45°, 0 side by side or one above the other
   const a0 = clampAspect(form.aspect ?? 1), r0 = Math.max(0, Math.min(1, form.round ?? 1));
+  const round = Math.max(0, Math.min(1, r0 - Math.log(factor) * diag * 1.8)); // together (factor < 1) = rounder
   const lx = Math.cos(t) ** 2 * (1 - diag) * Math.log(fx), ly = Math.sin(t) ** 2 * (1 - diag) * Math.log(fy);
-  let wf = Math.min(1, a0), hf = Math.min(1, 1 / a0); // width and height as shares of the 1:1 window
-  const pull = -Math.log(factor) * diag; // slanted: > 0 together (rounder), < 0 apart (squarer)
-  const round = Math.max(0, Math.min(1, r0 + pull * 1.8));
-  const beyond = Math.max(0, pull - (1 - r0) / 1.8); // round already and still together: on towards an upright ellipse
-  if (Math.abs(lx) >= Math.abs(ly)) wf = Math.max(ASPECT[0], Math.min(1, wf * Math.exp(lx - beyond)));
-  else hf = Math.max(1 / ASPECT[1], Math.min(1, hf * Math.exp(ly)));
-  if (beyond > 0 && Math.abs(lx) < Math.abs(ly)) wf = Math.max(ASPECT[0], Math.min(1, wf * Math.exp(-beyond)));
-  const aspect = Math.abs(lx) >= Math.abs(ly) || beyond > 0 ? (wf < 1 ? wf : 1 / hf) : (hf < 1 ? 1 / hf : wf);
-  return { round, aspect: clampAspect(aspect) };
+  const share = (s0, l) => Math.max(1 / ASPECT[1], Math.min(1, s0 * Math.exp(l))); // one side: 40 % … full
+  const across = a0 < 1 || (a0 === 1 && Math.abs(lx) >= Math.abs(ly)); // the width moves (else the height)
+  return { round, aspect: clampAspect(across ? share(a0, lx) : 1 / share(1 / a0, ly)) };
 }
 
 /** The point of the outline at angle deg (0 = top, clockwise), off px outside it. → [x, y] */
@@ -74,10 +73,26 @@ export function edge(F, deg, off = 0) {
   return [F.cx + r * dx, F.cy + r * dy];
 }
 
-/** Points of the outline from deg a to deg b (clockwise), off px outside. → [[x, y]] */
-export function curve(F, a, b, off = 0, steps = Math.max(8, Math.round((Math.abs(b - a) / 360) * STEPS))) {
+/**
+ * The curve's own parameter φ (degrees, 0 = top, clockwise) of the point seen at angle deg from the middle:
+ * x = A·sin φ^(2/n), y = −B·cos φ^(2/n) (signed powers). Even steps in φ crowd where the outline bends.
+ */
+function phiOf(A, B, n, deg) {
+  const t = (deg * Math.PI) / 180, M = Math.max(A, B), s = Math.sin(t), c = Math.cos(t);
+  const p = (Math.atan2(Math.sign(s) * ((B / M) * Math.abs(s)) ** (n / 2), Math.sign(c) * ((A / M) * Math.abs(c)) ** (n / 2)) * 180) / Math.PI;
+  return p + 360 * Math.round((deg - p) / 360); // continuous with deg (360 stays 360)
+}
+
+/** Points of the outline from deg a to deg b (clockwise), off px outside, sampled along φ. → [[x, y]] */
+export function curve(F, a, b, off = 0, steps) {
+  const A = F.rx + off, B = F.ry + off, n = F.n ?? 2;
+  if (A <= 0 || B <= 0) return [[F.cx, F.cy], [F.cx, F.cy]];
+  const p0 = phiOf(A, B, n, a), p1 = phiOf(A, B, n, b), k = steps ?? Math.max(8, Math.round((Math.abs(p1 - p0) / 360) * STEPS));
   const out = [];
-  for (let i = 0; i <= steps; i++) out.push(edge(F, a + ((b - a) * i) / steps, off));
+  for (let i = 0; i <= k; i++) {
+    const r = ((p0 + ((p1 - p0) * i) / k) * Math.PI) / 180, s = Math.sin(r), c = Math.cos(r);
+    out.push([F.cx + A * Math.sign(s) * Math.abs(s) ** (2 / n), F.cy - B * Math.sign(c) * Math.abs(c) ** (2 / n)]);
+  }
   return out;
 }
 

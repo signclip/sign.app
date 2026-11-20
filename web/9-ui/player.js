@@ -12,6 +12,9 @@
 import { partsOf, locate } from './line.js';
 import { note as debugNote } from './debug.js';
 
+/** A black picture of 1 × 1 px: without any poster the Android WebView draws its own grey one with a play button. */
+export const BLACK = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
 export function playerOf(A, video) {
   const files = new Map(); // take chain path → Promise({ url, picture } | null)
   let cur = null;
@@ -52,13 +55,18 @@ export function playerOf(A, video) {
     const open = !(take.ms > 0); // length not known (a guest from Similar): it plays to its own end
     const parts = partsOf(take), where = open ? { i: 0, id: take.id, at: 0, start: 0 } : locate(take, Math.max(0, Math.min(take.ms ?? 0, ms)));
     const me = cur = { take, i: where.i, raf: 0, onTime, onEnd, rate, playing: play };
+    const still = A.data.thumbs?.[take.id] || BLACK;
+    if (video.dataset.take !== take.id) { // another take (20.11.): its small picture at once, while its file is read – never the grey placeholder
+      video.poster = still;
+      if (video.getAttribute('src')) { video.removeAttribute('src'); delete video.dataset.file; video.load(); }
+      video.dataset.take = take.id;
+      video.hidden = false;
+    }
     const f = await fileOf(where.id);
     if (cur !== me) return false; // another call came meanwhile
     if (!f) { stop(); return false; }
-    video.dataset.take = take.id;
-    video.hidden = false;
     if (f.picture) { video.removeAttribute('src'); video.poster = f.url; video.dataset.file = ''; video.load(); return true; }
-    if (video.dataset.file !== where.id) { video.removeAttribute('poster'); video.src = f.url; video.dataset.file = where.id; await ready(); if (cur !== me) return false; }
+    if (video.dataset.file !== where.id) { video.poster = still; video.src = f.url; video.dataset.file = where.id; await ready(); if (cur !== me) return false; }
     video.muted = muted; video.loop = false; video.playbackRate = rate;
     try { video.currentTime = where.at / 1000; } catch { /* not seekable yet */ }
     if (!play) { if (!video.paused) video.pause(); return true; }

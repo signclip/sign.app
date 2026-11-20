@@ -9,7 +9,7 @@
 // Limits:    one SVG of ≈ 40 shapes per paint (< 1 ms); the SVG is only replaced when its text changed, so running
 //            CSS animations (pulse, dots) keep their phase.
 
-import { arcsOf, lineSlots, wideButton, nowChipSpot, timeline } from './layout.js';
+import { timerPill, arcsOf, lineSlots, wideButton, nowChipSpot, timeline } from './layout.js';
 import { edge, curve, outline, pathOf } from './form.js';
 import { partsOf, contextTimes } from './line.js';
 import { chipWidth, NEST_COLORS } from './chips.js';
@@ -32,9 +32,9 @@ function symbol(st, x, y, r, live) {
  * second, a longer one every second; where two joined takes meet, a line through all rows. A strand the take does not
  * have is a thin grey line: seen at the mark, which rows a cut divides.
  */
-export function timelineSvg(take, ms, L, w, pic) {
+export function timelineSvg(take, ms, L, w, pic, zoom = 1) {
   if (!take) return '';
-  const tl = timeline(L, take, ms), len = take.ms ?? 0, out = [];
+  const tl = timeline(L, take, ms, zoom), len = take.ms ?? 0, out = [];
   const x0 = tl.x(0), x1 = tl.x(len), has = (k) => !take.kinds || take.kinds.includes(k);
   const row = { v: [w.y, w.h * 0.5], a: [w.y + w.h * 0.5, w.h * 0.2], x: [w.y + w.h * 0.7, w.h * 0.3] };
   out.push(`<rect class="tl-band" x="${f1(x0)}" y="${f1(w.y)}" width="${f1(Math.max(1, x1 - x0))}" height="${f1(w.h)}"/>`);
@@ -57,14 +57,50 @@ export function timelineSvg(take, ms, L, w, pic) {
   return out.join('');
 }
 
-/** The SVG text of the take. data: { thumbs: { id: url }, buttonPic, cut (0…1 past the widest), wideTicks: [x] } */
+/**
+ * The cut (20.11.): the pill parts at the mark into two, they move apart and round into two bubbles, which then lie on
+ * the line as two takes. split: { t0, left, right (px of each part), y, h, at (the mark) } · 380 ms.
+ */
+export function splitSvg(split, L) {
+  const f = Math.max(0, Math.min(1, (performance.now() - split.t0) / 380)), e = 1 - (1 - f) ** 3, r = split.h / 2;
+  const pill = (x, w) => `<rect class="button wide split" x="${f1(x)}" y="${f1(split.y)}" width="${f1(w)}" height="${f1(split.h)}" rx="${f1(r)}" style="opacity:${(1 - f * 0.6).toFixed(2)}"/>`;
+  const gap = e * 26 * L.k, lw = split.left + (split.h - split.left) * e, rw = split.right + (split.h - split.right) * e;
+  return pill(split.at - gap / 2 - lw, lw) + pill(split.at + gap / 2, rw);
+}
+
+/** The button's time (calm.js): a thin arc on its ring from the top, clockwise; f 0…1 of the calm or of the take's run. */
+function timerArc(b, R, { kind, f }) {
+  const a = Math.min(0.999, Math.max(0, f)) * 2 * Math.PI, x = b.x + R * Math.sin(a), y = b.y - R * Math.cos(a);
+  return `<path class="button-timer ${kind}" d="M${f1(b.x)} ${f1(b.y - R)}A${f1(R)} ${f1(R)} 0 ${a > Math.PI ? 1 : 0} 1 ${f1(x)} ${f1(y)}"/>`;
+}
+/**
+ * The empty button spread for its times (calm.js): a pill like the clip; left = a new take by itself (to the first
+ * catch: at once, beyond: the countdown), right beyond its catch = the stillness until the end; a tick per second, the
+ * catches as short bars (shown faintly where the pill has not reached yet), the values above each side.
+ */
+function timerSvg(t, L) {
+  const p = timerPill(L, t, t.f), b = L.button, r = p.h / 2, k = L.k, f = Math.max(0, t.f);
+  const d = `M${f1(p.x + r)} ${f1(p.y)}H${f1(p.x + p.w - r)}A${f1(r)} ${f1(r)} 0 0 1 ${f1(p.x + p.w - r)} ${f1(p.y + p.h)}H${f1(p.x + r)}A${f1(r)} ${f1(r)} 0 0 1 ${f1(p.x + r)} ${f1(p.y)}Z`;
+  const out = [`<path class="button wide${t.restartMs != null ? ' auto' : ''}" d="${d}"/>`];
+  const bar = (x, cls, a = 0.3) => out.push(`<line class="${cls}" x1="${f1(x)}" x2="${f1(x)}" y1="${f1(p.y + p.h * a)}" y2="${f1(p.y + p.h * (1 - a))}"/>`);
+  for (let i = 1; i * 1000 <= (t.restartMs ?? 0); i++) bar(b.x - b.r - (p.at + i * p.S) * f, 'timer-tick');
+  for (let i = 1; i * 1000 <= t.stillEndMs; i++) bar(b.x + b.r + (p.at + i * p.S) * f, 'timer-tick');
+  for (const side of [-1, 1]) { const x = b.x + side * (b.r + p.at * f), inside = (side < 0 ? p.left : p.right) >= p.at * f - 0.5; bar(x, `timer-catch${inside ? '' : ' ahead'}`, 0.18); }
+  out.push(`<path class="button wide-edge${t.restartMs != null ? ' auto' : ''}" d="${d}"/><path class="hit" data-role="button" d="${d}"/>`);
+  if (f > 0.6) {
+    const sec = (ms) => ` ${(ms / 1000).toLocaleString()} s`, y = p.y - 16 * k, h = 22 * k;
+    const one = (text, x, anchor) => { const w = (text.length * 7.5 + 16) * k, x0 = anchor === 'end' ? x - w : x; return `<g class="timer-label"><rect x="${f1(x0)}" y="${f1(y - h / 2)}" width="${f1(w)}" height="${f1(h)}" rx="${f1(h / 2)}"/><text x="${f1(x0 + w / 2)}" y="${f1(y)}">${text}</text></g>`; };
+    if (t.restartMs != null) out.push(one(`↻${t.restartMs ? sec(t.restartMs) : ''}`, b.x - 4 * k, 'end'));
+    if (t.stillEndMs) out.push(one(`■${sec(t.stillEndMs)}`, b.x + 4 * k, 'start'));
+  }
+  return out.join('');
+}
+
+/** The SVG text of the take. data: { thumbs: { id: url }, buttonPic, cut (0…1 past the widest), split, calm, timers, auto (calm.js: it starts anew by itself) } */
 export function takeSvg(st, L, data = {}) {
   const out = [];
   const line = st.lines.at(-1), older = st.lines.length - 1;
-  if (L.scale) { // the picture outside the window stays visible, greyed (20.11.): a veil over the picture with the window cut out
-    const m = L.media, box = `M${f1(m.x)} ${f1(m.y)}H${f1(m.x + m.w)}V${f1(m.y + m.h)}H${f1(m.x)}Z`;
-    out.push(`<path class="veil" fill-rule="evenodd" d="${box}${outline(L)}"/><path class="focus-edge" d="${outline(L)}"/>`);
-  }
+  if (L.scale) out.push(`<path class="focus-edge" d="${outline(L)}"/>`); // only the inside is seen (20.11., user): the picture itself is clipped to the window (app.js)
   // a line chosen (20.11.): a border around it, as wide as its takes — the stroke itself keeps its colour
   const border = (d, w, id) => `<mask id="${id}" maskUnits="userSpaceOnUse"><rect x="-9999" y="-9999" width="99999" height="99999" fill="white"/><path d="${d}" fill="none" stroke="black" stroke-width="${f1(w)}" stroke-linecap="round"/></mask><path class="line-border" d="${d}" stroke-width="${f1(w + 6)}" mask="url(#${id})"/>`;
   const sc = L.scale || 1;
@@ -98,17 +134,21 @@ export function takeSvg(st, L, data = {}) {
   const near = Math.max(0, Math.min(line.takes.length, Math.round(st.at - (data.lineShift ?? 0)))); // the take the pulled line would rest on
   const b = L.button, pic = (data.lineShift ? near >= line.takes.length : live) ? data.buttonPic : data.thumbs?.[line.takes[data.lineShift ? near : st.at]?.id];
   if (st.wide > 0.02) {
-    const w = wideButton(L, st.wide), r = w.h / 2;
+    const w = wideButton(L, st.wide, line.takes[st.at], st.wideMs, st.wideZoom ?? 1), r = w.h / 2;
     const d = `M${f1(w.x + r)} ${f1(w.y)}H${f1(w.x + w.w - r)}A${f1(r)} ${f1(r)} 0 0 1 ${f1(w.x + w.w - r)} ${f1(w.y + w.h)}H${f1(w.x + r)}A${f1(r)} ${f1(r)} 0 0 1 ${f1(w.x + r)} ${f1(w.y)}Z`;
-    out.push(`<clipPath id="cw"><path d="${d}"/></clipPath><path class="button wide" d="${d}"/><g clip-path="url(#cw)">${timelineSvg(line.takes[st.at], st.wideMs, L, w, pic)}</g>`);
+    out.push(`<clipPath id="cw"><path d="${d}"/></clipPath><path class="button wide" d="${d}"/><g clip-path="url(#cw)">${timelineSvg(line.takes[st.at], st.wideMs, L, w, pic, st.wideZoom ?? 1)}</g>`);
     const gap = Math.max(0, Math.min(1, data.cut ?? 0)) * 7 * L.k; // spread past the widest: the take opens at the mark
     if (gap > 0) out.push(`<line class="cut" x1="${f1(b.x - gap)}" x2="${f1(b.x - gap)}" y1="${f1(w.y - 4)}" y2="${f1(w.y + w.h + 4)}"/><line class="cut" x1="${f1(b.x + gap)}" x2="${f1(b.x + gap)}" y1="${f1(w.y - 4)}" y2="${f1(w.y + w.h + 4)}"/>`);
     else out.push(`<line class="playhead" x1="${f1(b.x)}" x2="${f1(b.x)}" y1="${f1(w.y - 4)}" y2="${f1(w.y + w.h + 4)}"/>`);
     out.push(`<path class="button wide-edge" d="${d}"/><path class="hit" data-role="button" d="${d}"/>`);
+  } else if (data.split) {
+    out.push(splitSvg(data.split, L));
+  } else if (data.timers) {
+    out.push(timerSvg(data.timers, L), `<g data-role="button" class="button-g idle">${symbol(st, b.x, b.y, b.r, true)}</g>`);
   } else {
-    out.push(`<g data-role="button" class="button-g ${st.rec}${st.mode === 'photo' ? ' photo' : ''}"><circle class="button" cx="${f1(b.x)}" cy="${f1(b.y)}" r="${f1(b.r)}"/>`);
+    out.push(`<g data-role="button" class="button-g ${st.rec}${st.mode === 'photo' ? ' photo' : ''}${data.auto && live ? ' auto' : ''}"><circle class="button" cx="${f1(b.x)}" cy="${f1(b.y)}" r="${f1(b.r)}"/>`);
     if (pic && (st.rec !== 'idle' || !live)) out.push(`<image href="${esc(pic)}" x="${f1(b.x - b.r)}" y="${f1(b.y - b.r)}" width="${f1(2 * b.r)}" height="${f1(2 * b.r)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#cb)" class="button-pic"/>`);
-    out.push(`${symbol(st, b.x, b.y, b.r, live)}<circle class="button-ring" cx="${f1(b.x)}" cy="${f1(b.y)}" r="${f1(b.r + 5 * L.k)}"/></g>`);
+    out.push(`${symbol(st, b.x, b.y, b.r, live)}<circle class="button-ring" cx="${f1(b.x)}" cy="${f1(b.y)}" r="${f1(b.r + 5 * L.k)}"/>${data.calm ? timerArc(b, b.r + 5 * L.k, data.calm) : ''}</g>`);
   }
   return out.join('');
 }

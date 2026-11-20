@@ -22,7 +22,7 @@ export const TAP_PX = 10, SWIPE_PX = 28, HOLD_MS = 450, DOUBLE_MS = 320, FAR = 0
 function pinchOf(p, a, b, phase) {
   const x0 = Math.abs(p.at[0].x - p.at[1].x), y0 = Math.abs(p.at[0].y - p.at[1].y);
   const ratio = (now, then) => (then < 24 ? 1 : Math.max(0.2, now / then)); // too close in that direction to say
-  return { type: 'pinch', phase, scale: Math.hypot(a.x - b.x, a.y - b.y) / p.d0, centre: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, roles: p.roles, at: p.at, // at: where the two fingers went down (20.11.: free space or the take)
+  return { type: 'pinch', phase, scale: Math.hypot(a.x - b.x, a.y - b.y) / p.d0, centre: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, roles: p.roles, at: p.at, now: [{ x: a.x, y: a.y }, { x: b.x, y: b.y }], // at: where the two fingers went down (20.11.: free space or the take), now: where they are
     fx: ratio(Math.abs(a.x - b.x), x0), fy: ratio(Math.abs(a.y - b.y), y0), angle: (Math.atan2(y0, x0) * 180) / Math.PI };
 }
 

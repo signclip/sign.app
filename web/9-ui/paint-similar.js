@@ -10,7 +10,8 @@
 // Limits:    ≤ 40 tiles; ≤ 30 initials; ≤ 12 names / sharing points / spots shown (the rest by scrolling the strip).
 
 import { cloudSpots, initialsOf } from './similar-view.js';
-import { outline } from './form.js';
+import { outline, curve, pathOf } from './form.js';
+import { ARCS, GAP } from './layout.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const px = (n) => `${Number(n).toFixed(1)}px`;
@@ -28,7 +29,8 @@ export function similarHtml(st, entries, L, { names = [], sharing = [], spots = 
   if (st.similar === 'double' && L.doubleBox) {
     const d = L.doubleBox, e = (picked?.key === st.pick ? picked : null) ?? entries.find((x) => x.key === st.pick); // picked: still there when typing filters it out
     const clip = outline(L.double, 0, d.x, d.y); // the take's form (20.11.)
-    out.push(`<div class="double" style="left:${px(d.x)};top:${px(d.y)};width:${px(d.w)};height:${px(d.h)};clip-path:path('${clip}')" data-role="double"><svg class="double-edge" viewBox="0 0 ${d.w.toFixed(1)} ${d.h.toFixed(1)}"><path d="${clip}"/></svg>${compare ? `<div class="who"><b>${esc(compare.label)}</b><small>${esc(compare.id)}</small>${compare.n > 1 ? `<i>${Array.from({ length: compare.n }, (_, k) => (k === compare.i ? '●' : '○')).join('')}</i>` : ''}</div>` : ''}<div class="tags">${(e?.words ?? []).slice(0, 4).map((w) => `<span class="chip tag">${esc(w)}</span>`).join('')}</div></div>`);
+    out.push(`<div class="double" style="left:${px(d.x)};top:${px(d.y)};width:${px(d.w)};height:${px(d.h)};clip-path:path('${clip}')" data-role="double"><svg class="double-edge" viewBox="0 0 ${d.w.toFixed(1)} ${d.h.toFixed(1)}"><path d="${clip}"/></svg>${compare ? `<div class="who"><b>${esc(compare.label)}</b><small>${esc(compare.id)}</small>${compare.n > 1 ? `<i>${Array.from({ length: compare.n }, (_, k) => (k === compare.i ? '●' : '○')).join('')}</i>` : ''}</div>` : ''}<div class="tags"${st.dstrands?.x === false ? ' hidden' : ''}>${(e?.words ?? []).slice(0, 4).map((w) => `<span class="chip tag">${esc(w)}</span>`).join('')}</div></div>`);
+    out.push(doubleStrands(L, st.dstrands ?? {}, { v: Boolean(e?.at || e?.thumb || e?.pieces), x: Boolean(e?.words?.length), a: Boolean(e?.sound) }));
   } else {
     const spotsOf = cloudSpots(entries.length, inner, { beside: L.wide, k: L.k });
     for (const s of spotsOf) {
@@ -52,4 +54,20 @@ export function similarHtml(st, entries, L, { names = [], sharing = [], spots = 
   const list = { name: names, sharing, spot: spots }[f.open];
   if (list) out.push(`<div class="strip" style="left:${px(box.x + 8 * L.k)};width:${px(box.w - 16 * L.k)};top:${px(bottom + 34 * L.k)}">${list.slice(0, 12).map((x) => `<span class="chip pick${(f.value[f.open] ?? []).includes(x.id) ? ' on' : ''}" data-role="value:${f.open}:${esc(x.id)}">${esc(x.label)}</span>`).join('')}</div>`);
   return out.join('');
+}
+
+/**
+ * The strands around the double view (20.11.), as around the take: picture left, context below, sound right. A tap
+ * switches what one sees and hears of the result; a strand the result does not have is a faint dashed arc.
+ * on: { v, x, a } · has: { v, x, a } → SVG over the screen (only the arcs take a finger)
+ */
+export function doubleStrands(L, on, has) {
+  const F = L.double, off = 9 * L.k;
+  if (!F) return '';
+  const arcs = ['v', 'x', 'a'].map((k) => {
+    const d = pathOf(curve(F, ARCS[k][0] + GAP, ARCS[k][1] - GAP, off));
+    const cls = !has[k] ? 'none' : on[k] ? 'on' : 'off';
+    return `<path class="strand ${cls}" d="${d}"/><path class="hit" data-role="dstrand:${k}" d="${d}"/>`;
+  }).join('');
+  return `<svg class="dstrands" width="100%" height="100%">${arcs}</svg>`;
 }

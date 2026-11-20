@@ -25,8 +25,9 @@ import { noFilters } from './similar-view.js';
 import { afterOne } from './chips.js';
 
 export const initial = () => Object.freeze({
-  mode: 'video', rec: 'idle', form: { round: 1, aspect: 1 }, // the window's form (form.js); a take is always recorded 1:1
+  mode: 'video', rec: 'idle', form: { round: 0, aspect: 1 }, // the window's form (form.js), standard the 1:1 rectangle (20.11., user); a take is always recorded 1:1
   strands: { v: true, a: true, x: true },
+  dstrands: { v: true, x: true, a: false }, // what the double view shows and plays (20.11.): picture, context; sound only when chosen (two pictures at once)
   lines: noLines(), at: 0, chosenLine: null,
   wide: 0, wideMs: 0,
   context: '', sticky: '', typing: false, caret: null, keyboard: 0,
@@ -44,6 +45,7 @@ export const live = (s) => s.at >= count(s);
 export function next(s, e) {
   switch (e.type) {
     case 'strand': return { ...s, strands: { ...s.strands, [e.kind]: !s.strands[e.kind] } };
+    case 'dstrand': return { ...s, dstrands: { ...s.dstrands, [e.kind]: !s.dstrands[e.kind] } };
     case 'form': return { ...s, form: { round: e.round ?? s.form.round, aspect: e.aspect ?? s.form.aspect } };
     case 'photo': return s.rec === 'idle' ? { ...s, mode: s.mode === 'photo' ? 'video' : 'photo' } : s;
     case 'rec': return { ...s, rec: e.to, ...(e.to === 'recording' ? { at: count(s), wide: 0 } : {}) };
@@ -61,7 +63,7 @@ export function next(s, e) {
     case 'at': return { ...s, at: Math.max(0, Math.min(count(s), e.at)), wide: 0 };
     case 'select-line': return { ...s, chosenLine: s.chosenLine === e.n ? null : e.n };
     case 'lines': return { ...s, lines: e.lines, at: Math.min(s.at, e.lines.at(-1).takes.length) };
-    case 'wide': return { ...s, wide: Math.max(0, e.spread), wideMs: e.ms ?? s.wideMs };
+    case 'wide': return { ...s, wide: Math.max(0, e.spread), wideMs: e.ms ?? s.wideMs, wideZoom: e.spread > 0 ? e.zoom ?? s.wideZoom ?? 1 : 1 }; // zoom: finer in time (20.11.), back to 1 when closed
     case 'context': return { ...s, context: e.text ?? '' };
     case 'sticky': return { ...s, sticky: e.text ?? '' };
     case 'typing': return { ...s, typing: Boolean(e.on), ...(e.on ? {} : { caret: null }) };

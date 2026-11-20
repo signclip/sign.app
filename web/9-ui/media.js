@@ -35,6 +35,12 @@ export function mediaOf(store, now) {
       ?? refs.filter((d) => d.kind === 'chain' && d.name !== 'chain.1').map((d) => index.chain(writeId(d.id))).flatMap((c) => (c ? [...c.defs.values()] : [])).find((d) => d.kind === 'v' && !d.echo);
     return visual ? at(index.sharingPoints(writeId(visual.id)).find((x) => /\.v\.(mp4|png)$/.test(x))) : null;
   }
+  /** The sound of a take chain (its :a strand, a .a.wav beside the picture, 20.11.): { store, path } or null. */
+  function soundOf(chain) {
+    const { index } = now();
+    const a = chain && [...chain.defs.values()].find((d) => d.kind === 'a' && d.id && !d.echo);
+    return a ? at(index.sharingPoints(writeId(a.id)).find((p) => /\.a\.wav$/.test(p))) : null;
+  }
   /** The context text of a take chain (its :x strand), or ''. */
   async function contextTextOf(chain) {
     const { index } = now();
@@ -74,14 +80,15 @@ export function mediaOf(store, now) {
     if (pics.has(p.path)) return pics.get(p.path);
     const job = (p.path.endsWith('.png') ? p.store.read(p.path).then((b) => URL.createObjectURL(new Blob([b], { type: 'image/png' }))) : previewOf(p)).catch(() => null);
     pics.set(p.path, job);
+    job.then((url) => { if (!url) pics.delete(p.path); }); // no picture (not written yet, far away): asked again next time (20.11.)
     return job;
   }
   /** The playable file of a picture or video: { url, picture } */
   async function playable(p) {
     const bytes = await p.store.read(p.path);
     const picture = p.path.endsWith('.png');
-    const type = picture ? 'image/png' : p.path.endsWith('.webm') ? 'video/webm' : 'video/mp4'; // as recorded (settings.js pickVideoType)
+    const type = picture ? 'image/png' : p.path.endsWith('.wav') ? 'audio/wav' : p.path.endsWith('.webm') ? 'video/webm' : 'video/mp4'; // as recorded (settings.js pickVideoType)
     return { url: URL.createObjectURL(new Blob([bytes], { type })), picture };
   }
-  return { visualOf, contextTextOf, picOf, playable, at };
+  return { visualOf, soundOf, contextTextOf, picOf, playable, at };
 }

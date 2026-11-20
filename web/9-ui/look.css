@@ -18,14 +18,16 @@ svg#take [data-role], svg#take .hit, svg#take .hit-dot { pointer-events: all; cu
 svg#hint { pointer-events: none; }
 
 /* start (15.11.): background, then the shapes appear, then the picture fades in inside the window */
-#take, #now, #row, #window, #focus { opacity: 0; transition: opacity .45s ease-out .1s, transform .35s ease, left .35s ease, top .35s ease, width .35s ease, height .35s ease; }
+#take, #now, #row, #window, #focus { opacity: 0; transition: opacity .45s ease-out .1s, transform .35s ease, left .35s ease, top .35s ease, width .35s ease, height .35s ease, clip-path .35s ease; }
 body.ready #take, body.ready #now, body.ready #row, body.ready #window, body.ready #focus { opacity: 1; }
+body.shaping #window, body.shaping #focus { transition: opacity .45s ease-out .1s; } /* two fingers form the window: box and clip follow at once, no corner peeks out (20.11.) */
 .gone { opacity: 0 !important; pointer-events: none !important; }
 
 /* the take window */
 #focus { background: var(--bg); } /* the empty window, before a picture: its form is a clip path (form.js outline) */
-#window { overflow: hidden; } /* the picture, as large as it covers the window; outside the window the SVG veils it */
-.veil { fill: var(--rest); opacity: .8; pointer-events: none; } .focus-edge { fill: none; stroke: var(--line); stroke-width: 1; pointer-events: none; }
+#window { overflow: hidden; } /* the picture, as large as it covers the window, clipped to the window's form: around it nothing is seen (20.11., user) */
+#replay { background: #000; } /* a take of the line: its small picture as poster, black at most – never the WebView's grey placeholder (20.11.) */
+.focus-edge { fill: none; stroke: var(--line); stroke-width: 1; pointer-events: none; }
 #window video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity .4s ease, transform .5s ease; }
 #window #live { transform: scaleX(-1); }
 #window.off video { opacity: 0; transform: scale(.35); } /* visual off: the picture fades out into the middle */
@@ -48,6 +50,9 @@ video::-webkit-media-controls { display: none !important; }
 /* the button */
 .button { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 3; }
 .button-ring { fill: none; stroke: var(--rc-stroke); stroke-width: 1.5; opacity: .5; }
+.button-timer { fill: none; stroke: var(--b-now); stroke-width: 3.5; stroke-linecap: round; } .button-timer.start { stroke: var(--hold); }
+.timer-tick { stroke: var(--b-later); stroke-width: 1.5; stroke-linecap: round; pointer-events: none; } .timer-catch { stroke: var(--b-now); stroke-width: 3; stroke-linecap: round; pointer-events: none; } .timer-catch.ahead { opacity: .35; }
+.button-g.auto .button-ring, .button-g.auto.recording .button-ring { stroke: var(--hold); stroke-width: 3; opacity: 1; } .button.wide-edge.auto { stroke: var(--hold); } /* it starts anew by itself (20.11.) */ .timer-label { pointer-events: none; } .timer-label rect { fill: rgba(40, 20, 12, .72); } .timer-label text { fill: #fff; font: 600 13px Inter, system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
 .button-g.recording .button-ring { stroke: var(--b-now); stroke-width: 3; opacity: 1; stroke-dasharray: 6 5; animation: run 1.2s linear infinite; }
 .button-g.paused .button-ring { stroke-dasharray: 3 5; opacity: .9; }
 .sym { fill: var(--b-now); } .sym.rec { fill: var(--rc-stroke); } .sym-ring { fill: none; stroke: var(--mut); stroke-width: 2.5; }
@@ -211,3 +216,8 @@ video::-webkit-media-controls { display: none !important; }
 .strip .chip.pick { flex: none; background: var(--card); border: 1.5px solid var(--sc-stroke); color: #0C447C; }
 .strip .chip.pick.on { background: var(--sc); border-width: 2.5px; font-weight: 600; }
 #carry { width: 68px; height: 68px; border-radius: 16px; background: var(--sc) center / cover; border: 3px solid var(--hold); box-shadow: 0 6px 18px rgba(0,0,0,.25); pointer-events: none; z-index: 5; }
+/* the strands of the double view (20.11.) */
+#similar > svg.dstrands { left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.dstrands .hit { fill: none; stroke: transparent; stroke-width: 30; pointer-events: stroke; cursor: pointer; }
+.strand.none { stroke: var(--mut); stroke-width: 2; opacity: .3; stroke-dasharray: 3 6; }
+.double .tags[hidden] { display: none; }

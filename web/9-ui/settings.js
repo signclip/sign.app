@@ -2,11 +2,12 @@
 //
 // Purpose:   ready (always ready) on/off · which strands record by themselves · wait times for quick
 //            automatic takes · which strands feed the combined Similar · camera front/back ·
-//            onboarding shown or not. No settings area (14.11.): each is set by a gesture where it acts, kept on the device.
+//            onboarding shown or not · the button's two times (start anew by itself, end when still). No settings area (14.11.): each is set by a gesture where it acts, kept on the device.
 //            Settings live on the device only; they are no data and never shared.
 // Depends:   1-model/symbols (KINDS)
 // Test:      tests/ui.test.mjs
-// Limits:    waits 300–10,000 ms; pre-roll 0–3,000 ms (kept in memory while ready).
+// Limits:    waits 300–10,000 ms; pre-roll 0–3,000 ms (kept in memory while ready); the button's times: 0–10 s each,
+//            in half seconds (0 = off).
 
 import { KINDS } from '../1-model/symbols.js';
 import { clampAspect } from './form.js';
@@ -26,12 +27,16 @@ export const DEFAULTS = Object.freeze({
   similarFrom: ['x', 'a'], // strands that feed the combined Similar (a via its text)
   facing: 'user', // camera: 'user' (front) or 'environment' (back)
   onboarding: true,
-  shape: { round: 1, aspect: 1 }, // the window by hand: round 0 rectangle … 1 ellipse · aspect width/height (form.js)
+  shape: { round: 0, aspect: 1 }, // the window by hand: standard the 1:1 rectangle (20.11., user); round 0 rectangle … 1 circle/ellipse · aspect width/height (form.js)
   flows: [], // connections drawn between sides: 'a>x' audio → context (Whisper), 'v>x' visual → context (later)
+  restartMs: null, // the button starts a take by itself so long after it is free again (sound, motion: no matter); null = off, 0 = at once (20.11.)
+  stillEndMs: 0, // no motion so long while a take runs → it ends; 0 = off (20.11.)
 });
 export const FLOW_KINDS = ['a>x', 'v>x'];
 
 const clamp = (n, lo, hi, d) => (Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d);
+/** The button's times (calm.js): 0…10 s in steps of half a second. */
+export const timeOf = (n, d = 0) => (Number.isFinite(n) ? Math.min(10000, Math.max(0, Math.round(n / 500) * 500)) : d);
 const subset = (list, allowed, d) => (Array.isArray(list) ? [...new Set(list.filter((k) => allowed.includes(k)))] : d);
 
 /** Any input → valid settings (unknown keys dropped, numbers clamped, lists filtered). */
@@ -49,6 +54,8 @@ export function normalize(input = {}) {
     onboarding: typeof input.onboarding === 'boolean' ? input.onboarding : d.onboarding,
     flows: subset(input.flows, FLOW_KINDS, d.flows),
     shape: formOf(input.shape ?? d.shape),
+    restartMs: Number.isFinite(input.restartMs) ? timeOf(input.restartMs) : null,
+    stillEndMs: timeOf(input.stillEndMs, d.stillEndMs),
   };
 }
 
@@ -60,6 +67,20 @@ export const CHOICES = {
   facing: ['user', 'environment'],
   shape: ['circle', 'ellipse', 'rounded'],
 };
+
+/**
+ * The button's two times (calm.js): → 'start' | 'keep' | 'pause' | 'drop' | null.
+ * now: { idle (the button is free on the newest spot), freeMs (free for so long; typing and touches begin it anew),
+ * armed (motion or a touch since the last drop or photo by itself), recording, stillMs (no motion for so long in the
+ * running take), moved (motion in it at all), auto (it started by itself) }. A take that went still is kept when the
+ * button starts anew by itself (a series without hands), else it waits for ←; one that started by itself and saw no
+ * motion at all is dropped (nobody was there), and the next start then waits for motion or a touch.
+ */
+export function calmStep(settings, now) {
+  if (now.recording && settings.stillEndMs > 0 && now.stillMs >= settings.stillEndMs) return now.auto && !now.moved ? 'drop' : settings.restartMs != null ? 'keep' : 'pause';
+  if (now.idle && now.armed && settings.restartMs != null && now.freeMs >= settings.restartMs) return 'start';
+  return null;
+}
 
 /** One tap on a chip: set that value (or toggle a strand in auto / similarFrom). */
 export function choose(settings, key, value) {

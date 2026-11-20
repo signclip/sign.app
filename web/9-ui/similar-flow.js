@@ -18,6 +18,7 @@ import { passes, ordered, byPerson, MANY } from './similar-view.js';
 import { nowWords } from './chips.js';
 import { readContext } from '../1-model/context.js';
 import { msOf } from '../1-model/time.js';
+import { BLACK } from './player.js';
 import { accountTakes } from '../8-join/known.js';
 import { note as debugNote } from './debug.js';
 
@@ -26,7 +27,8 @@ export function similarFlow(A) {
   // 20.11.: what a tile shows (picture, chips) is kept per take, not per result: while one types, the results change
   // with every letter (and are empty in between); a take that comes back gets its picture and chips at once. Before,
   // a key loaded once was never loaded again, and a take that came back stayed empty.
-  const got = new Map(), loading = new Map(); // take → { thumb, words, at } · take → Promise while it loads
+  const got = new Map(), loading = new Map(); // take → { thumb, words, at } · take → true while it loads
+  const WAIT_MS = 8000, AT_ONCE = 4;
   const takeKey = (e) => e.chain?.key ?? e.pieces?.[0]?.path ?? e.key;
   const dress = (e) => { const g = got.get(takeKey(e)); if (g) Object.assign(e, g); return e; };
 
@@ -66,28 +68,41 @@ export function similarFlow(A) {
     A.data.similarLists = { ...(A.data.similarLists ?? {}), names: uniq(all.map((e) => e.person)), sharing: uniq([...stores, ...all.flatMap((e) => e.sharing ?? [])]), spots: uniq(all.map((e) => e.spot)) };
   }
 
-  /** Picture and chips of one take (read once, then kept in got). → { thumb, words, at } */
-  async function load(e) {
+  /**
+   * Picture and chips of one take (20.11.), each as soon as it is there. Each read has its own time limit, so one
+   * slow or hanging file (a sharing point far away) no longer keeps every other tile empty; what is missing is asked
+   * again at the next change. → { at, words?, thumb?, sound }
+   */
+  const limit = (job, ms) => Promise.race([job, new Promise((done) => setTimeout(() => done(null), ms))]);
+  async function load(e, put) {
     if (e.chain) {
       const at = A.media.visualOf(e.chain);
-      const thumb = await A.media.picOf(at).catch(() => null);
-      const text = await A.media.contextTextOf(e.chain).catch(() => '');
-      return { at, thumb, words: readContext(text).gestures.flatMap((g) => g.chips.map((c) => c.text)).slice(0, 6) };
+      await Promise.all([ // chips and picture each on their own: one that hangs does not hold the other
+        limit(A.media.contextTextOf(e.chain).catch(() => null), WAIT_MS).then((text) => { if (text != null) put({ at, sound: A.media.soundOf?.(e.chain) ?? null, words: readContext(text).gestures.flatMap((g) => g.chips.map((c) => c.text)).slice(0, 6) }); }),
+        limit(A.media.picOf(at).catch(() => null), WAIT_MS).then((thumb) => { if (thumb) put({ at, thumb }); }),
+      ]);
+      return;
     }
-    if (e.pieces) return { thumb: await A.media.picOf({ store: e.pieces[0].from, path: e.pieces[0].path }).catch(() => null) };
-    return {};
+    if (e.pieces) { const thumb = await limit(A.media.picOf({ store: e.pieces[0].from, path: e.pieces[0].path }).catch(() => null), WAIT_MS); if (thumb) put({ thumb }); }
   }
+  /** Fill the tiles, AT_ONCE takes at a time (before: one after another, and a hanging one stopped all). */
   async function fill(list) {
-    for (const e of list) {
-      const k = takeKey(e);
-      if (got.has(k)) { dress(e); continue; }
-      if (!loading.has(k)) loading.set(k, load(e).finally(() => loading.delete(k)));
-      const g = await loading.get(k).catch(() => null);
-      if (!g) continue;
-      if (g.thumb) got.set(k, g); // no picture yet (a take still being written): asked again at the next change
-      for (const x of [e, ...s.entries, ...(s.look ?? [])]) if (takeKey(x) === k) Object.assign(x, x.pieces ? { thumb: g.thumb } : g); // every tile of this take, also the one shown now
+    const todo = list.filter((e) => { const g = got.get(takeKey(e)); if (g) dress(e); return !(g?.thumb && g?.words) && !loading.has(takeKey(e)); });
+    const put = (k) => (g) => {
+      got.set(k, { ...got.get(k), ...g });
+      for (const x of [...s.entries, ...(s.look ?? [])]) if (takeKey(x) === k) Object.assign(x, x.pieces ? { thumb: g.thumb ?? x.thumb } : g); // every tile of this take, also the one shown now
+      if (A.data.picked && takeKey(A.data.picked) === k) { Object.assign(A.data.picked, A.data.picked.pieces ? { thumb: g.thumb ?? A.data.picked.thumb } : g); sound(); }
       A.paint();
-    }
+    };
+    const next = async () => {
+      for (let e = todo.shift(); e; e = todo.shift()) {
+        const k = takeKey(e);
+        if (loading.has(k)) continue;
+        loading.set(k, true);
+        try { await load(e, put(k)); } finally { loading.delete(k); }
+      }
+    };
+    await Promise.all(Array.from({ length: AT_ONCE }, next));
   }
 
   /** Refresh after the take or the filters changed. */
@@ -188,6 +203,7 @@ export function similarFlow(A) {
     if (s.playing !== p) return;
     if (!f?.url) return;
     if (f.picture) { v.removeAttribute('src'); v.poster = f.url; v.load(); if (p.queue.length > 1) setTimeout(() => { if (s.playing === p) { p.i += 1; play(); } }, 1500); return; }
+    v.poster = A.data.picked?.thumb || BLACK; // its picture, or black, until the first frame (20.11.: no grey placeholder)
     v.hidden = false; v.src = f.url; v.loop = p.queue.length === 1;
     v.onended = () => { p.i += 1; play(); };
     start(v, one.path);
@@ -258,6 +274,36 @@ export function similarFlow(A) {
     refresh();
   }
 
+  /**
+   * The sound of the result in the double view (20.11.): its own .a.wav, playing along with the picture when the sound
+   * strand is on — started, paused and moved with the video, put back in step when they drift (> 0.3 s).
+   */
+  let soundFor = null, mirrored = false;
+  async function sound() {
+    const a = document.querySelector('#pickaudio'), v = document.querySelector('#pickvideo'), e = A.data.picked;
+    if (!a || !v) return;
+    if (!mirrored) {
+      mirrored = true;
+      const on = () => a.dataset.on === '1';
+      v.addEventListener('play', () => { if (on()) { a.currentTime = v.currentTime; a.play().catch(() => {}); } });
+      v.addEventListener('pause', () => a.pause());
+      v.addEventListener('ended', () => a.pause());
+      v.addEventListener('seeked', () => { if (on()) a.currentTime = v.currentTime; });
+      v.addEventListener('timeupdate', () => { if (on() && Math.abs(a.currentTime - v.currentTime) > 0.3) a.currentTime = v.currentTime; if (on() && a.paused && !v.paused) a.play().catch(() => {}); });
+    }
+    const want = A.st.similar === 'double' && A.st.dstrands?.a && e?.sound;
+    a.dataset.on = want ? '1' : '';
+    if (!want) { a.pause(); return; }
+    if (soundFor !== e.sound.path) {
+      soundFor = e.sound.path;
+      const f = await A.media.playable(e.sound).catch((err) => { debugNote({ method: 'play', where: e.sound.path, error: `sound: ${err?.message ?? err}`, ms: 0 }); return null; });
+      if (!f?.url || soundFor !== e.sound.path) return;
+      a.src = f.url;
+    }
+    a.currentTime = v.currentTime || 0;
+    if (!v.paused) a.play().catch((err) => debugNote({ method: 'play', where: e.sound.path, error: String(err?.message ?? err).slice(0, 200), ms: 0 }));
+  }
+
   const close = () => { if (s.carried) return; s.look = null; s.playing = null; s.cmp = null; A.data.picked = null; stopBelow(); tell(); }; // someone lies in the window: her pile stays until she is decided
-  return { refresh, lookAt, pick, decide, close, step, toLine, dropGuest, get carried() { return Boolean(s.carried); }, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
+  return { refresh, lookAt, pick, decide, close, step, toLine, dropGuest, sound, get carried() { return Boolean(s.carried); }, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
 }
