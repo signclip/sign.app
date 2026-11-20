@@ -54,10 +54,11 @@ export function locate(take, ms) {
 }
 
 /** The words of a context with their times, for the timeline: [{ text, from, to }] (from null = the whole take). */
+const labelOf = (n) => (n.text ?? (n.letters ?? []).join('') ?? '') || write([{ ...n, meta: [] }]).replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim();
 export function contextTimes(text) {
   let nodes = [];
   try { nodes = parse(text ?? '').filter((n) => n.t !== 'sym'); } catch { return text ? [{ text: String(text), from: null, to: null }] : []; }
-  const label = (n) => (n.text ?? (n.letters ?? []).join('') ?? '') || write([{ ...n, meta: [] }]).replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim();
+  const label = labelOf;
   return nodes.map((n) => {
     const m = /^(\d+)_(\d+)$/.exec((n.meta ?? []).find((x) => x.sym === "'t")?.value ?? '');
     return { text: label(n), from: m ? Number(m[1]) : null, to: m ? Number(m[2]) : null };
@@ -126,4 +127,30 @@ export function step(at, count, dir) {
   if (dir === 'left') return Math.min(count, at + 1);
   if (dir === 'right') return Math.max(0, at - 1);
   return at;
+}
+
+/**
+ * The words written now, onto every take of line n or out of it (20.11., user: line chosen, ← = to every take, ↓ = out
+ * of every take that has it). Adding skips a take that has the word already; removing touches only takes that have it.
+ * Words compare without case. → lines (the same object when no take changed)
+ */
+export function withContext(lines, n, words, { without = false } = {}) {
+  const line = lines[n], want = new Set(words.map((w) => String(w).toLowerCase()).filter(Boolean));
+  if (!line?.takes.length || !want.size) return lines;
+  let changed = false;
+  const takes = line.takes.map((t) => {
+    const has = contextTimes(t.context).map((x) => x.text.toLowerCase());
+    if (without) {
+      if (!has.some((h) => want.has(h))) return t;
+      let nodes;
+      try { nodes = parse(t.context ?? ''); } catch { return t; }
+      changed = true;
+      return { ...t, context: write(nodes.filter((x) => x.t === 'sym' || !want.has(labelOf(x).toLowerCase()))).trim() };
+    }
+    const add = words.filter((w, i) => w && !has.includes(String(w).toLowerCase()) && words.findIndex((x) => String(x).toLowerCase() === String(w).toLowerCase()) === i);
+    if (!add.length) return t;
+    changed = true;
+    return { ...t, context: [t.context, ...add.map((w) => `(${w})`)].filter(Boolean).join(' ') };
+  });
+  return changed ? lines.map((l, j) => (j === n ? { ...l, takes } : l)) : lines;
 }

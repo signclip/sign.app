@@ -35,7 +35,7 @@ async function snapshot(video, side = 1080) {
 export function takeFlow(A) {
   const live = document.querySelector('#live');
   const here = createWhere();
-  const t = { camera: null, recorder: null, began: 0, preview: null, lineChain: null };
+  const t = { camera: null, recorder: null, began: 0, preview: null, lineChain: A.st.lines.at(-1)?.chain ?? null }; // the line's chain is kept with the line (20.11.): it survives a restart
 
   async function openCamera() {
     if (t.camera) return t.camera;
@@ -116,8 +116,8 @@ export function takeFlow(A) {
     A.dispatch({ type: 'took', take });
     A.data.buttonPic = null;
     // the series in the chain: the first take of a line is its own chain; the next ones lay onto the line (add-line.js)
-    if (A.st.lines.length !== before || count(A.st) === 1) t.lineChain = saved.chain.path;
-    else t.lineChain = (await addLine({ own: A.store, chainPath: t.lineChain, elements: [{ bytes: await A.store.read(saved.chain.path) }], device: A.device, person: A.person, deviceKey: await sealKey() }).catch(() => ({ chain: t.lineChain }))).chain;
+    if (A.st.lines.length !== before || count(A.st) === 1) remember(A.st.lines.length - 1, saved.chain.path);
+    else remember(A.st.lines.length - 1, (await addLine({ own: A.store, chainPath: t.lineChain, elements: [{ bytes: await A.store.read(saved.chain.path) }], device: A.device, person: A.person, deviceKey: await sealKey() }).catch(() => ({ chain: t.lineChain }))).chain);
     A.keepLines();
     await A.onboardTook(saved.paths, take);
     A.engine?.afterTake(saved.paths).catch(() => {});
@@ -132,19 +132,62 @@ export function takeFlow(A) {
     const line = A.st.lines.at(-1);
     if (!line?.takes.length || !t.lineChain) return null;
     try {
-      const elements = [];
-      for (const take of line.takes) for (const p of (take.parts ?? [{ id: take.id, from: 0, to: take.ms, len: take.ms }])) {
-        elements.push({ bytes: await A.store.read(p.id), ...(p.from > 0 || p.to < (p.len ?? p.to) ? { part: [p.from, p.to] } : {}) });
-      }
+      const elements = await elementsOf(line);
       if (elements.length > 64) return null;
-      t.lineChain = (await addLine({ own: A.store, chainPath: t.lineChain, elements, device: A.device, person: A.person, deviceKey: await sealKey() })).chain;
+      remember(A.st.lines.length - 1, (await addLine({ own: A.store, chainPath: t.lineChain, elements, device: A.device, person: A.person, deviceKey: await sealKey() })).chain);
       A.reindex();
       return t.lineChain;
     } catch (err) { console.warn('line', err); return null; }
   }
+  /** Every take of a line as an element (a cut: its part '(from_to)). */
+  async function elementsOf(line) {
+    const elements = [];
+    for (const take of line.takes) for (const p of (take.parts ?? [{ id: take.id, from: 0, to: take.ms, len: take.ms }])) {
+      elements.push({ bytes: await A.store.read(p.id), ...(p.from > 0 || p.to < (p.len ?? p.to) ? { part: [p.from, p.to] } : {}) });
+    }
+    return elements;
+  }
+  /** The chain of line n now (20.11.): kept on the line itself, so a chosen older line and a restart find it. */
+  function remember(n, chain) {
+    if (!chain) return;
+    if (n === A.st.lines.length - 1) t.lineChain = chain;
+    if (A.st.lines[n] && A.st.lines[n].chain !== chain) A.dispatch({ type: 'lines', lines: A.st.lines.map((l, j) => (j === n ? { ...l, chain } : l)) });
+    A.keepLines();
+  }
+  /**
+   * The words written now onto every take of line n, or out of them (20.11.): a new line on top of its chain —
+   * ((Essen))({:chain.2} {:chain.3}) or -((Essen))(…). A line without a chain yet (older, from before 20.11.) gets one.
+   */
+  async function lineWith(n, words, without) {
+    const line = A.st.lines[n];
+    if (!line?.takes.length || !words.length) return null;
+    try {
+      const elements = await elementsOf(line);
+      if (elements.length > 64) return null;
+      const context = words.length === 1 ? `(${words[0]})` : `(${words.map((w) => `(${w})`).join(' ')})`; // the whole group in front: multiplied with every take
+      const chainPath = line.chain ?? (n === A.st.lines.length - 1 ? t.lineChain : null);
+      const chain = (await addLine({ own: A.store, chainPath, elements, context, without, device: A.device, person: A.person, deviceKey: await sealKey() })).chain;
+      remember(n, chain);
+      A.reindex();
+      return chain;
+    } catch (err) { console.warn('line context', err); return null; }
+  }
+  /** The chosen line's chain (↑ shares its make-up); one without a chain yet gets one first. → path or null */
+  async function chosenChain() {
+    const n = A.st.chosenLine, line = n == null ? null : A.st.lines[n];
+    if (!line?.takes.length) return null;
+    const have = line.chain ?? (n === A.st.lines.length - 1 ? t.lineChain : null);
+    if (have) return have;
+    try {
+      const elements = await elementsOf(line);
+      const chain = (await addLine({ own: A.store, elements, device: A.device, person: A.person, deviceKey: await sealKey() })).chain;
+      remember(n, chain);
+      return chain;
+    } catch { return null; }
+  }
 
   /** The chain of the line in force (↑ on the button shares it). */
-  const lastChain = () => A.chosenChain?.() ?? t.lineChain;
+  const lastChain = async () => (await chosenChain()) ?? t.lineChain; // a chosen line: that one (20.11.)
 
-  return { saveLine, setCamera: (stream) => { t.camera = stream; }, openCamera, start, pause, resume, keep, anew, photo, lastChain, get camera() { return t.camera; } };
+  return { saveLine, lineWith, setCamera: (stream) => { t.camera = stream; }, openCamera, start, pause, resume, keep, anew, photo, lastChain, get camera() { return t.camera; } };
 }

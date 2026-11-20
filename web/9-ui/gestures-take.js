@@ -19,7 +19,8 @@
 // Limits:    the moment slides ± 3 s across the spread button; a cut needs ≥ 200 ms on both sides (line.js).
 
 import { buttonMeaning, live, count } from './take-state.js';
-import { joinTakes, cutTake, putOnLine, removeTake } from './line.js';
+import { joinTakes, cutTake, withContext } from './line.js';
+import { nowWords } from './chips.js';
 import { slotPx, onTake } from './layout.js';
 import { zoomed, tapFilter, turnOrder, setFilter } from './similar-view.js';
 import { insertGesture, fromField } from '../1-model/context.js';
@@ -99,7 +100,7 @@ export function gesturesOf(A) {
     if (ev.type === 'swipe' && (ev.dir === 'up' || ev.dir === 'down') && (A.similar.carried || (A.similar.looking && st.pick))) return A.similar.decide(ev.dir);
     if (ev.type === 'tap' && A.similar.carried && !live(st)) return play(); // the guest in the window: tap = it stops / plays on
     const across = Math.abs(ev.dx ?? 0) > Math.abs(ev.dy ?? 0);
-    if (st.rec === 'idle' && count(st) && ((ev.type === 'drag' && (across || pulled)) || ((ev.type === 'swipe' || ev.type === 'drag-end') && pulled))) return pull(ev);
+    if (st.rec === 'idle' && count(st) && st.chosenLine == null && ((ev.type === 'drag' && (across || pulled)) || ((ev.type === 'swipe' || ev.type === 'drag-end') && pulled))) return pull(ev);
     const m = buttonMeaning(st, ev);
     if (st.onboard.on && !st.onboard.name && !st.onboard.nameSign && ['start', 'photo'].includes(m?.do)) { A.shake('context'); return openTyping('context'); } // first the name, then its sign (17.11.: a hello without a name went out)
     switch (m?.do) {
@@ -114,27 +115,28 @@ export function gesturesOf(A) {
       case 'before': return A.dispatch({ type: 'step', dir: 'right' });
       case 'play': return play();
       case 'share': A.engine?.show(true); return A.dispatch({ type: 'share', open: true });
-      case 'to-line': return toLine();
-      case 'off-line': return offLine();
+      case 'share-line': A.engine?.show(true); return A.dispatch({ type: 'share', open: true }); // what is shared: the chosen line (take-flow lastChain)
+      case 'line-with': return lineContext(false);
+      case 'line-without': return lineContext(true);
       default: return null;
     }
   }
   const takeNow = () => A.st.lines.at(-1).takes[Math.min(A.st.at, count(A.st) - 1)];
-  function toLine() {
-    const take = takeNow();
-    if (!take || A.st.chosenLine == null) return A.shake('button');
-    navigator.vibrate?.(20);
-    A.dispatch({ type: 'lines', lines: putOnLine(A.st.lines, A.st.chosenLine, take) });
+  /**
+   * A line chosen (20.11.): the words written now (the take that comes next, without the sticky words) onto every take
+   * of it (←) or out of every take that has them (↓). Saved as a new line on top of its chain (add-line.js context /
+   * without); the field is free again after.
+   */
+  function lineContext(without) {
+    const n = A.st.chosenLine, words = nowWords(A.st.context, '').map((w) => w.text);
+    if (n == null || !words.length) return A.shake('button'); // nothing written: nothing to add or take out
+    const lines = withContext(A.st.lines, n, words, { without });
+    if (lines === A.st.lines) return A.shake('button'); // every take has it already / none has it
+    navigator.vibrate?.(without ? [12, 50, 12] : 20);
+    A.dispatch({ type: 'lines', lines });
+    A.dispatch({ type: 'context', text: '' });
     A.keepLines();
-    return A.dispatch({ type: 'select-line', n: A.st.chosenLine });
-  }
-  function offLine() {
-    const n = A.st.chosenLine, line = A.st.lines[n];
-    if (!line?.takes.length) return A.shake('button');
-    const i = n === A.st.lines.length - 1 ? Math.min(A.st.at, line.takes.length - 1) : line.takes.length - 1;
-    navigator.vibrate?.([12, 50, 12]);
-    A.dispatch({ type: 'lines', lines: removeTake(A.st.lines, n, i) });
-    A.keepLines();
+    A.take.lineWith(n, words, without);
     return null;
   }
   /** Tap on an earlier take: it plays in the window (what it really is: its parts, one after another), tap again = pause. */

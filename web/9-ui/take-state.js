@@ -78,8 +78,9 @@ export function next(s, e) {
 
 /**
  * What a gesture on the button means now (the user's table, 16.11.). g: swipe.js event on role 'button'.
- * → { do } with do one of: 'photo' 'start' 'pause' 'resume' 'play' 'keep' 'next' 'before' 'share' 'to-line'
- *   'off-line' 'clear-context' 'anew' 'spread' or null
+ * → { do } with do one of: 'photo' 'start' 'pause' 'resume' 'play' 'keep' 'next' 'before' 'share' 'share-line'
+ *   'line-with' 'line-without' 'clear-context' 'anew' 'spread' or null. A line chosen (20.11.): ↑ = share its make-up,
+ *   ← = the words written now onto every take of it, ↓ = out of every take that has them.
  */
 export function buttonMeaning(s, g) {
   if (g.type === 'tap') {
@@ -88,9 +89,9 @@ export function buttonMeaning(s, g) {
     return { do: s.rec === 'idle' ? 'start' : s.rec === 'recording' ? 'pause' : 'resume' };
   }
   if (g.type !== 'swipe') return null;
-  if (g.dir === 'up') return { do: s.chosenLine != null ? 'to-line' : 'share' };
-  if (g.dir === 'down') return { do: s.chosenLine != null ? 'off-line' : g.far ? 'anew' : 'clear-context' };
-  if (g.dir === 'left') return { do: live(s) && s.rec !== 'idle' ? 'keep' : 'next' };
+  if (g.dir === 'up') return { do: s.chosenLine != null ? 'share-line' : 'share' };
+  if (g.dir === 'down') return { do: s.chosenLine != null ? 'line-without' : g.far ? 'anew' : 'clear-context' };
+  if (g.dir === 'left') return { do: live(s) && s.rec !== 'idle' ? 'keep' : s.chosenLine != null ? 'line-with' : 'next' };
   if (g.dir === 'right') return { do: 'before' };
   return null;
 }
