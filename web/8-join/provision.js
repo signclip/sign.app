@@ -27,7 +27,8 @@ export const GROUP = 'Sign'; // the Nextcloud group of every Sign account (14.11
 /** OCS answers HTTP 200 also when it refused (16.11.): v1 says yes only with 100, v2 with 200; 101–107 = no (102 = exists, 104 = no such group). */
 export const okCode = (c) => c == null || c === 100 || c === 200;
 
-export async function createAccount(admin, person, { groups = [GROUP], quota = QUOTA, fetch = globalThis.fetch, user = person.id.toLowerCase() } = {}) { // user: a role account keeps its name as written (roles.js)
+export async function createAccount(admin, person, { groups = [GROUP], quota = QUOTA, fetch = globalThis.fetch } = {}) {
+  const user = person.id.toLowerCase();
   const password = newPassword() + newPassword(); // 52 chars, never shown, never stored
   const body = new URLSearchParams({ userid: user, password, displayName: person.label });
   for (const g of groups) body.append('groups[]', g);

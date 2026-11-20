@@ -59,7 +59,6 @@ import { findPeople, isAdmin, doorFolder, listAccounts, setQuota, nextQuota, sha
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { confirmAdmin } from './confirm-admin.js';
-import { setupRoles, roleNames } from '../8-join/roles.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
 import { newSource } from '../1-model/ids.js';
 
@@ -652,7 +651,6 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       if (!askedAdmin.has(key)) { const yes = await isAdmin(login, { group: project?.group ?? undefined }); if (yes !== null) askedAdmin.set(key, yes); }
       if (askedAdmin.get(key) || roleOf(login.user, project ?? {}) === 'admin') { // the Admin login of project.json owns the door even without account rights (then welcome says why)
         ctx.admin = login; s.adminN = n; await setRole('admin', n).catch(() => {});
-        setTimeout(() => rolesNow({ ask: true }).catch(() => {}), 0); // after this load: Atlas and Groups made directly (20.11.), not awaited here (rolesNow loads anew)
         const at = await doorFolder(login, project?.doors ?? []).catch(() => null); // where hello/ and join/ really lie (15.11.)
         ctx.door = at == null ? null : connect({ kind: 'nextcloud', label: 'door', id: 'door', server: login.server, user: login.user, folder: at }, { secret: login.password }).store;
         debugNote({ method: 'door', where: user, ...(at == null ? { error: 'not found among the shares of this login' } : { status: `at ${at || '/'}` }), ms: 0 }); // in sign-debug.txt
@@ -679,51 +677,21 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     askPassword();
     return true;
   }
-  /** The browser opens with one field for the Admin password (20.11.: it is not on the phone to copy); copied, + still takes it. */
+  /** The browser opens with one field for the Admin password (20.11.: it is not on the phone to copy); copied, + still takes it. Only when Nextcloud asks for it. */
   function askPassword() {
     s.waitSecret = confirmId(ctx.admin); s.waitSecretAlso = null; s.clip = 'ready';
     confirm.ask({ id: confirmId(ctx.admin), server: ctx.admin.server, user: ctx.admin.user }).catch(() => {});
   }
   const confirm = confirmAdmin({ web: project?.web || 'https://signclip.github.io/sign.app/', keychain, open: openPage, onDone: () => confirmed() });
-  /** The password came back from the browser: kept; Atlas and Groups now; then the tap that asked goes on by itself. */
+  /** The password came back from the browser: kept; the tap that asked goes on by itself. */
   async function confirmed() {
     s.waitSecret = null; s.clip = null; s.note = ''; navigator.vibrate?.(20);
     await load();
-    await rolesNow().catch(() => {});
+    const real = ctx.admin && await keychain.get(confirmId(ctx.admin)).catch(() => null);
+    if (real) ctx.admin = { ...ctx.admin, password: real }; // before the tap goes on (20.11.: it went on with the app password and was refused again)
     const again = s.retry; s.retry = null;
     if (again) return again();
     return draw();
-  }
-  /**
-   * Atlas and Groups made by the app (20.11., roles.js): every role account of project.json this device holds no key
-   * for. Needs the Admin account's own password; without it: ask (once per device after the admin login, else not).
-   */
-  let rolesRunning = null;
-  const rolesNow = (opts) => (rolesRunning ??= rolesOnce(opts).finally(() => { rolesRunning = null; }));
-  async function rolesOnce({ ask = false } = {}) {
-    if (!ctx.admin || !project) return;
-    const have = logins().map((l) => l.user);
-    if (!roleNames(project).some((r) => !have.some((u) => u.toLowerCase() === r.user.toLowerCase()))) return;
-    const real = await keychain.get(confirmId(ctx.admin)).catch(() => null);
-    if (!real) {
-      const once = `sign.rolesAsked ${ctx.admin.server} ${ctx.admin.user}`;
-      if (ask && !localStorage.getItem(once)) { localStorage.setItem(once, '1'); s.note = t('menu.confirm'); askPassword(); draw(); }
-      return;
-    }
-    try {
-      const got = await setupRoles({ ...ctx.admin, password: real }, project, { have, group: project.group || undefined });
-      for (const g of got) {
-        const id = newSource();
-        await keychain.set(id, g.appPassword); // opens and writes its files
-        await keychain.set(confirmId({ server: ctx.admin.server, user: g.user }), g.password); // its own password: the app manages it later
-        await write({ add: { label: g.user, path: webdavUrl(ctx.admin.server, g.user, ''), id } });
-        debugNote({ method: 'role', where: g.user, status: g.made ? 'made' : 'key renewed', ms: 0 });
-      }
-      if (got.length) { await load(); s.note = got.map((g) => g.user).join(' · '); s.fresh.add('add:new'); draw(); }
-    } catch (err) {
-      debugNote({ method: 'role', where: 'Atlas/Groups', error: String(err?.message ?? err).slice(0, 200), ms: 0 });
-      if (await needsConfirm(err)) { s.note = t('menu.confirm'); draw(); }
-    }
   }
   /** The other persons on this device (persons.js), with how each starts. */
   /** The other persons on this device (persons.js), with their roles. */

@@ -20,7 +20,7 @@ import { Nextcloud, webdavUrl } from '../2-storage/nextcloud.js';
 import { giveStrands, giveAll } from '../2-storage/routes.js';
 import { connect, takeIn, acceptPage, pendingPage, myCloudId, cloudIdParts } from '../2-storage/connect.js';
 import { newSource } from '../1-model/ids.js';
-import { userId } from '../8-join/provision.js';
+import { userId, appPasswordFor } from '../8-join/provision.js';
 import { roleOf } from '../8-join/flow.js';
 import { timeLabel } from '../1-model/filename.js';
 import { describeNew } from '../2-storage/sharing-points.js';
@@ -129,6 +129,7 @@ export async function bringIn(ctx, given = null) { // given: a text instead of t
     const host = what.cloudId.slice(what.cloudId.lastIndexOf('@') + 1);
     return edit({ add: { label: host, path: `cloud:${what.cloudId}`, id: newSource() } });
   }
+  if (what.kind === 'nextcloud' && !what.folder && secret && roleOf(what.user, ctx.project ?? {})) return bringRole(ctx, what, secret); // Atlas, Groups: made in the browser, brought in with their own password (20.11.)
   const id = newSource();
   if (secret) await keychain.set(id, secret); // came with the link: the folder opens at once
   if (what.kind === 'login') return loginAt(ctx, what.server, id);
@@ -136,6 +137,23 @@ export async function bringIn(ctx, given = null) { // given: a text instead of t
   const sp = [...s.open.values()].find((x) => x.entry.id === id);
   try { await sp.store.list('chain/'); } catch { s.waitSecret = id; return say(t('menu.secret')); }
   await makeSharingPoint(ctx, id); // a new, writable folder becomes a sharing point (sealed by this device)
+}
+
+/**
+ * Atlas or Groups (20.11., user: made by hand in the browser, brought in with the password they already have): the
+ * account link and its password copied together, then +. The password only asks Nextcloud for an app password for this
+ * device; that one opens and writes the files, the password itself is not kept. The account shows as its circle upper
+ * left, as after the one-click login. Nothing about the account changes.
+ */
+async function bringRole(ctx, what, password) {
+  const { keychain, edit, say, t } = ctx;
+  let appPassword;
+  try { appPassword = await appPasswordFor({ server: what.server, user: what.user, password }); } catch { return say(t('notReachable')); } // wrong password or no network: nothing kept
+  const id = newSource();
+  await keychain.set(id, appPassword);
+  await edit({ add: { label: what.user, path: webdavUrl(what.server, what.user, ''), id } });
+  ctx.show?.(true);
+  return say(t('menu.account'));
 }
 
 /**
