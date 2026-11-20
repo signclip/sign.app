@@ -112,9 +112,11 @@ export async function bringIn(ctx, given = null) { // given: a text instead of t
   if (text.includes('\n') && await bringInvitation(ctx, text, secret)) return say(t('share')); // a group invitation: name, read link, drop link
   if (s.waitSecret) { // the password a sharing point asked for (given privately): straight into the keychain, never shown
     for (const id of [s.waitSecret, ...(s.waitSecretAlso ?? [])]) await keychain.set(id, text.trim());
+    s.lastSecret = s.waitSecret;
     s.waitSecret = null;
     s.waitSecretAlso = null;
     await ctx.load(); // a door waiting for its password: the hello goes out now (joinProject)
+    if (ctx.confirmed && /^confirm /.test(String(ctx.s.lastSecret ?? ''))) return ctx.confirmed(); // the Admin password (20.11.): Atlas, Groups, the waiting join go on
     return say(t('copied'));
   }
   if (s.giveTo) return giveOut(ctx, s.giveTo, text.trim());

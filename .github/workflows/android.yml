@@ -26,6 +26,11 @@ jobs:
           printf '\ndependencies {\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n}\n' >> android/app/build.gradle
           ls "$d"
           tail -4 android/app/build.gradle
+      - name: the app's own link org.signclip.signapp:// (20.11.; back from the browser with the Admin password, confirm.html)
+        run: |
+          sed -i 's#</activity>#    <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="org.signclip.signapp" /></intent-filter>\n        </activity>#' android/app/src/main/AndroidManifest.xml
+          grep -c 'android:scheme="org.signclip.signapp"' android/app/src/main/AndroidManifest.xml
+          grep -o 'launchMode="[a-zA-Z]*"' android/app/src/main/AndroidManifest.xml
       - name: the app icon (native/android/res, drawn by native/icon.py)
         run: cp -R native/android/res/. android/app/src/main/res/ && ls android/app/src/main/res/mipmap-xxxhdpi
       - name: camera and microphone

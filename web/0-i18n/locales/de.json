@@ -28,7 +28,7 @@
   "mark.write": "schreiben",
   "mark.backup": "backup",
   "menu.paste": "zuerst kopieren",
-  "menu.confirm": "Admin-Passwort kopieren, dann +",
+  "menu.confirm": "Admin-Passwort im Browser eingeben",
   "menu.secret": "Passwort einfügen",
   "menu.native": "geht in der App",
   "give.link": "WebDAV-Adresse kopieren",

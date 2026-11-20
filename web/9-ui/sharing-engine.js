@@ -58,6 +58,8 @@ import { nameSignOf } from '../8-join/join.js';
 import { findPeople, isAdmin, doorFolder, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled, deleteAccount, groupsOf, setGroup, matchAccounts } from '../8-join/provision.js';
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
 import { WebDavStore } from '../2-storage/webdav.js';
+import { confirmAdmin } from './confirm-admin.js';
+import { setupRoles, roleNames } from '../8-join/roles.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
 import { newSource } from '../1-model/ids.js';
 
@@ -309,7 +311,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     draw();
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { every: () => every(), project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on), newPerson: () => onOwnHold() };
+  const ctx = { every: () => every(), confirmed: () => confirmed(), project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on), newPerson: () => onOwnHold() };
   // the admin's door and what Admin, Atlas, Groups do: their own files (15.11., share-door.js, share-accounts.js)
   const { refreshDoor, lookPile, pileList, adminStore } = doorPart(ctx, { panel, onLookAll });
   const { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, showGroups, groupTiles, addToGroup } = accountPart(ctx, { words, onLookAll, project });
@@ -595,7 +597,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
         s.held = null; s.pulse = null; draw();
         return go().then(() => { navigator.vibrate?.(20); return refreshDoor(); }, async (err) => {
           navigator.vibrate?.([40, 40, 40]);
-          if (await needsConfirm(err)) { s.held = h; s.pulse = `hello:${a}`; return say(t('menu.confirm')); } // the Admin password once (copied, +), then the same tap again
+          if (await needsConfirm(err)) { s.held = h; s.pulse = `hello:${a}`; s.retry = () => tapped(`hello:${a}`); return say(t('menu.confirm')); } // the Admin password once, in the browser; then this tap goes on by itself
           const why = String(err?.message ?? err).slice(0, 60);
           debugNote({ method: 'door', where: `${h.pile} → ${pile}`, error: why, ms: 0 });
           say(why);
@@ -650,6 +652,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       if (!askedAdmin.has(key)) { const yes = await isAdmin(login, { group: project?.group ?? undefined }); if (yes !== null) askedAdmin.set(key, yes); }
       if (askedAdmin.get(key) || roleOf(login.user, project ?? {}) === 'admin') { // the Admin login of project.json owns the door even without account rights (then welcome says why)
         ctx.admin = login; s.adminN = n; await setRole('admin', n).catch(() => {});
+        setTimeout(() => rolesNow({ ask: true }).catch(() => {}), 0); // after this load: Atlas and Groups made directly (20.11.), not awaited here (rolesNow loads anew)
         const at = await doorFolder(login, project?.doors ?? []).catch(() => null); // where hello/ and join/ really lie (15.11.)
         ctx.door = at == null ? null : connect({ kind: 'nextcloud', label: 'door', id: 'door', server: login.server, user: login.user, folder: at }, { secret: login.password }).store;
         debugNote({ method: 'door', where: user, ...(at == null ? { error: 'not found among the shares of this login' } : { status: `at ${at || '/'}` }), ms: 0 }); // in sign-debug.txt
@@ -673,8 +676,54 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     if (had && /confirm/i.test(why)) return false; // it was sent and still refused: said as it is
     if (had) await keychain.remove?.(confirmId(ctx.admin)); // a wrong one: asked anew
     if (!had && !/confirm/i.test(why)) return false;
-    s.waitSecret = confirmId(ctx.admin); s.waitSecretAlso = null; s.clip = 'ready';
+    askPassword();
     return true;
+  }
+  /** The browser opens with one field for the Admin password (20.11.: it is not on the phone to copy); copied, + still takes it. */
+  function askPassword() {
+    s.waitSecret = confirmId(ctx.admin); s.waitSecretAlso = null; s.clip = 'ready';
+    confirm.ask({ id: confirmId(ctx.admin), server: ctx.admin.server, user: ctx.admin.user }).catch(() => {});
+  }
+  const confirm = confirmAdmin({ web: project?.web || 'https://signclip.github.io/sign.app/', keychain, open: openPage, onDone: () => confirmed() });
+  /** The password came back from the browser: kept; Atlas and Groups now; then the tap that asked goes on by itself. */
+  async function confirmed() {
+    s.waitSecret = null; s.clip = null; s.note = ''; navigator.vibrate?.(20);
+    await load();
+    await rolesNow().catch(() => {});
+    const again = s.retry; s.retry = null;
+    if (again) return again();
+    return draw();
+  }
+  /**
+   * Atlas and Groups made by the app (20.11., roles.js): every role account of project.json this device holds no key
+   * for. Needs the Admin account's own password; without it: ask (once per device after the admin login, else not).
+   */
+  let rolesRunning = null;
+  const rolesNow = (opts) => (rolesRunning ??= rolesOnce(opts).finally(() => { rolesRunning = null; }));
+  async function rolesOnce({ ask = false } = {}) {
+    if (!ctx.admin || !project) return;
+    const have = logins().map((l) => l.user);
+    if (!roleNames(project).some((r) => !have.some((u) => u.toLowerCase() === r.user.toLowerCase()))) return;
+    const real = await keychain.get(confirmId(ctx.admin)).catch(() => null);
+    if (!real) {
+      const once = `sign.rolesAsked ${ctx.admin.server} ${ctx.admin.user}`;
+      if (ask && !localStorage.getItem(once)) { localStorage.setItem(once, '1'); s.note = t('menu.confirm'); askPassword(); draw(); }
+      return;
+    }
+    try {
+      const got = await setupRoles({ ...ctx.admin, password: real }, project, { have, group: project.group || undefined });
+      for (const g of got) {
+        const id = newSource();
+        await keychain.set(id, g.appPassword); // opens and writes its files
+        await keychain.set(confirmId({ server: ctx.admin.server, user: g.user }), g.password); // its own password: the app manages it later
+        await write({ add: { label: g.user, path: webdavUrl(ctx.admin.server, g.user, ''), id } });
+        debugNote({ method: 'role', where: g.user, status: g.made ? 'made' : 'key renewed', ms: 0 });
+      }
+      if (got.length) { await load(); s.note = got.map((g) => g.user).join(' · '); s.fresh.add('add:new'); draw(); }
+    } catch (err) {
+      debugNote({ method: 'role', where: 'Atlas/Groups', error: String(err?.message ?? err).slice(0, 200), ms: 0 });
+      if (await needsConfirm(err)) { s.note = t('menu.confirm'); draw(); }
+    }
   }
   /** The other persons on this device (persons.js), with how each starts. */
   /** The other persons on this device (persons.js), with their roles. */
@@ -817,11 +866,11 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
 
   // ---------- touch: the role is read when the finger goes down ----------
   let role = null, pinched = 1;
-  const roleOf = (el) => el?.closest?.('[data-role]')?.dataset.role ?? null;
+  const roleAt = (el) => el?.closest?.('[data-role]')?.dataset.role ?? null; // 20.11.: was named roleOf and hid flow.js roleOf — Admin, Atlas, Groups never had a role
   const circleOf = (r) => (r?.startsWith('sp:') ? Number(r.split(':')[1]) : null);
   const handlers = {
     down: (e) => {
-      role = roleOf(e.target);
+      role = roleAt(e.target);
       return role; // touch.js lets the share row slide by it
     },
     slide: (r, dx) => { // the share row follows the finger (14.11.): moved by CSS on every frame, drawn anew only at the end
@@ -922,13 +971,13 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       if (!moved && from === 0) return null; // my own tile held still: nothing (16.11.: a new person only by tapping + with nothing fitting on the clipboard)
       if (!moved && ctx.tileOf(from)?.service) return null; // nothing goes into Admin or Atlas
       if (!moved) return from ? apply(gestureOn(targetFor(ctx.tileOf(from), 'hold'), 'hold', s.rules, { selection: selection(), private: ctx.tileOf(from)?.private })) : null; // held still: new goes there
-      const onto = circleOf(roleOf(el));
+      const onto = circleOf(roleAt(el));
       if (from === 0 && onto && s.joinStates.get(ctx.tileOf(onto)?.label) === 'door') { // me onto the door's hello bubble = hello
         const label = ctx.tileOf(onto).label;
         return helloToDoor(ctx, label).then((m) => { if (m) s.joinStates.set(label, m.state); onHello(); draw(); });
       }
       if (from && onto === 0) return home(from); // onto this device: bring its files here (a backup is restored)
-      if (from && ctx.tileOf(from)?.canGive && roleOf(el) === 'add:new') return makeOrRenew(ctx, from); // my Nextcloud onto + = a group (read + drop link)
+      if (from && ctx.tileOf(from)?.canGive && roleAt(el) === 'add:new') return makeOrRenew(ctx, from); // my Nextcloud onto + = a group (read + drop link)
       const target = onto ? ctx.tileOf(onto) : null;
       const give = Boolean(from && ctx.tileOf(from)?.canGive && target && (target.state === 'cloud' || s.open.get(onto)?.spec?.kind === 'nextcloud')); // my Nextcloud onto another account
       if (give) return apply(gestureOn(onto, 'drop-point', s.rules, { from, give: true }));

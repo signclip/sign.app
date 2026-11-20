@@ -39,7 +39,7 @@ export function sharingView(snap, size, { drag = null } = {}) {
       ...(snap.acceptThere ? [{ label: snap.acceptThere.label, role: 'accept-there', waitsForMe: true }] : [])];
   const self = snap.self ?? { id: 'me', label: snap.own };
   const accounts = [{ ...self, current: true, roleKey: `person:${self.id}` }, ...(snap.persons ?? []).map((p) => ({ ...p, roleKey: `person:${p.id}` })),
-    ...(snap.accounts ?? []).map((a, i) => ({ ...a, roleKey: `account:${i}` })).filter((a) => a.role)]; // Admin, Atlas, Groups: square; my own login is my person
+    ...(snap.accounts ?? []).map((a, i) => ({ ...a, roleKey: `account:${i}` })).filter((a) => a.role && !a.current)]; // Admin, Atlas, Groups: square; my own login is my person (20.11.: not a second time beside it)
   const piles = snap.hellos?.length && !snap.browse ? Object.fromEntries(snap.hellos.map((p) => [p.pile, p.count ?? 0])) : null;
   const native = snap.apps?.length ? snap.apps.slice(0, 5).map((a, i) => ({ id: a.glyph ?? (/mail|gm/i.test(a.pkg ?? '') ? 'mail' : /bluetooth/.test(a.pkg ?? '') ? 'bluetooth' : 'messenger'), label: a.label ?? a.glyph, i, role: `app:${i}` }))
     : [{ id: 'save', role: 'web:save' }, { id: 'more', role: 'out:system' }]; // the web: save as download, the system's share sheet
