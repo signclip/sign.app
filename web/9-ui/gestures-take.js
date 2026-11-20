@@ -55,6 +55,17 @@ export function gesturesOf(A) {
       if (r === 'screen' && A.L && A.st.similar === 'closed' && A.st.strands.x && ev.y > A.L.cy + A.L.R + 10 * A.L.k) return openTyping('context'); // anywhere under the bottom arc = write (17.11.)
       if (inRow(r)) return openTyping(r);
     }
+    if (r.startsWith('tile:') || r === 'double') { // a result carried into the take window = it lies there as a line (17.11.)
+      const key = r === 'double' ? A.st.pick : A.data.entries[Number(r.slice(5))]?.key;
+      if (ev.type === 'drag' && Math.abs(ev.dy) > 14) { A.data.carry = { x: ev.x, y: ev.y, pic: (A.data.entries ?? []).find((x) => x.key === key)?.thumb ?? null }; return A.paint(); }
+      if ((ev.type === 'swipe' || ev.type === 'drag-end') && A.data.carry) {
+        const c = A.data.carry, L = A.L; A.data.carry = null; A.paint();
+        const inWindow = Math.hypot(c.x - L.cx, c.y - L.cy) < L.R + L.ring * 2 || Math.hypot(c.x - L.button.x, c.y - L.button.y) < L.ring * 2;
+        if (inWindow && key) return A.similar.toLine(key);
+        if (r === 'double' && (ev.dir === 'left' || ev.dir === 'right')) return A.similar.step(ev.dir) || nextResult(ev.dir);
+        return null;
+      }
+    }
     if (ev.type === 'hold' && r.startsWith('filter:')) return A.dispatch({ type: 'filters', filters: turnOrder(A.st.filters, r.slice(7)) });
     if (ev.type === 'drag' && r === 'datebar') return dateSpan(ev);
     if (ev.type === 'swipe') {
@@ -82,13 +93,14 @@ export function gesturesOf(A) {
       if (ev.type === 'swipe' || ev.type === 'drag-end') { scrubFrom = null; return null; }
       return null;
     }
-    if (A.similar.looking && st.pick && ev.type === 'swipe' && (ev.dir === 'up' || ev.dir === 'down')) return A.similar.decide(ev.dir);
+    if (ev.type === 'swipe' && (ev.dir === 'up' || ev.dir === 'down') && (A.similar.carried || (A.similar.looking && st.pick))) return A.similar.decide(ev.dir);
+    if (ev.type === 'tap' && A.similar.carried && !live(st)) return play(); // the guest in the window: tap = it stops / plays on
     const across = Math.abs(ev.dx ?? 0) > Math.abs(ev.dy ?? 0);
     if (st.rec === 'idle' && count(st) && ((ev.type === 'drag' && (across || pulled)) || ((ev.type === 'swipe' || ev.type === 'drag-end') && pulled))) return pull(ev);
     const m = buttonMeaning(st, ev);
     if (st.onboard.on && !st.onboard.name && !st.onboard.nameSign && ['start', 'photo'].includes(m?.do)) { A.shake('context'); return openTyping('context'); } // first the name, then its sign (17.11.: a hello without a name went out)
     switch (m?.do) {
-      case 'start': return A.take.start();
+      case 'start': A.similar.dropGuest(); return A.take.start();
       case 'pause': return A.take.pause();
       case 'resume': return A.take.resume();
       case 'photo': return A.take.photo();

@@ -70,7 +70,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   st = { ...st, onboard: { ...st.onboard, on: settings.onboarding && (!nameSign || gestures < PASSWORD_PARTS.length), name: person.label, nameSign, gestures, words } };
   if (st.onboard.on) st = { ...st, context: onboardingSeries({ ...st.onboard, own: '' }) };
   A.st = st;
-  A.keepLines = () => keep('sign.lines', A.st.lines.map((l) => ({ ...l, takes: l.takes.map(({ thumb, ...x }) => x) })));
+  A.keepLines = () => keep('sign.lines', A.st.lines.filter((l) => !l.guest).map((l) => ({ ...l, takes: l.takes.map(({ thumb, ...x }) => x) })));
 
   let frame = 0;
   A.paint = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; paint(); }); };
@@ -171,6 +171,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     rowEl.innerHTML = rowHtml(row, { waiting: st.onboard.on && st.onboard.nameSign && st.onboard.gestures === PASSWORD_PARTS.length - 1 && !st.onboard.ownTyped && !st.typing, all: st.typing, on: st.typing, caret: st.caret, typing: st.typing ? A.data.typing : '', offers: st.onboard.on ? ['Name', ...st.onboard.words] : [] });
     const sim = similarHtml(st, A.data.entries ?? [], L, A.data.similarLists ?? {});
     if ($('#similar').dataset.text !== sim) { $('#similar').innerHTML = sim; $('#similar').dataset.text = sim; }
+    const cg = $('#carry'), c = A.data.carry; // what is carried follows the finger
+    cg.hidden = !c;
+    if (c) Object.assign(cg.style, { left: `${c.x - 34}px`, top: `${c.y - 34}px`, backgroundImage: c.pic ? `url("${c.pic}")` : 'none' });
     const pv = $('#pickvideo'), db = st.similar === 'double' ? L.doubleBox : null; // the picked result plays in its own element (17.11.): a repaint no longer stops it
     pv.hidden = !db;
     if (db) { Object.assign(pv.style, { left: `${db.x}px`, top: `${db.y}px`, width: `${db.w}px`, height: `${db.h}px` }); const e = (A.data.entries ?? []).find((x) => x.key === st.pick); if (e?.thumb && pv.poster !== e.thumb) pv.poster = e.thumb; }

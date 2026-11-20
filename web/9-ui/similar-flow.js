@@ -19,9 +19,10 @@ import { nowWords } from './chips.js';
 import { readContext } from '../1-model/context.js';
 import { msOf } from '../1-model/time.js';
 import { accountTakes } from '../8-join/known.js';
+import { note as debugNote } from './debug.js';
 
 export function similarFlow(A) {
-  const s = { look: null, entries: [], loading: new Set(), playing: null, cmp: null };
+  const s = { look: null, entries: [], loading: new Set(), playing: null, cmp: null, carried: null };
 
   /** The take chain that holds a strand (x) key, from the index. */
   const chainOf = (key) => {
@@ -157,37 +158,92 @@ export function similarFlow(A) {
     const v = below();
     if (v?.dataset.take === 'compare') { v.onended = null; v.pause(); v.hidden = true; delete v.dataset.take; }
   }
+  /** Start a video and say why if it does not run (17.11.: into sign-debug.txt as 'play', a phone showed nothing). */
+  function start(v, where) {
+    v.muted = true; v.setAttribute('playsinline', ''); v.autoplay = true;
+    v.onerror = () => debugNote({ method: 'play', where, error: `media error ${v.error?.code ?? '?'} ${v.error?.message ?? ''}`.trim(), ms: 0 });
+    const go = () => v.play().catch((err) => debugNote({ method: 'play', where, error: String(err?.message ?? err).slice(0, 200), ms: 0 }));
+    if (v.readyState >= 2) go(); else { v.onloadeddata = go; v.load(); }
+  }
   async function play() {
     const v = document.querySelector('#pickvideo'), p = s.playing;
     if (!v || !p?.queue.length) return;
     const one = p.queue[p.i % p.queue.length];
-    const { url, picture } = await A.media.playable(one).catch(() => ({}));
+    let f = null;
+    try { f = await A.media.playable(one); } catch (err) { debugNote({ method: 'play', where: one.path, error: `read: ${err?.message ?? err}`, ms: 0 }); }
     if (s.playing !== p) return;
-    if (!url || picture) return;
-    v.src = url; v.loop = p.queue.length === 1;
+    if (!f?.url) return;
+    if (f.picture) { v.removeAttribute('src'); v.poster = f.url; v.load(); if (p.queue.length > 1) setTimeout(() => { if (s.playing === p) { p.i += 1; play(); } }, 1500); return; }
+    v.hidden = false; v.src = f.url; v.loop = p.queue.length === 1;
     v.onended = () => { p.i += 1; play(); };
-    v.play().catch(() => {});
+    start(v, one.path);
+  }
+
+  /**
+   * A result carried into the take window (17.11., user): it lies there as a line — each of its takes one element, the
+   * first in the button, the picture playing in the window, one after another. For a hello: name sign and password
+   * gestures. Then the button decides as before (↑ = on: the sharing menu, join pulses). The line is a guest: it is not
+   * kept on the device and goes when the person is decided or a new take starts.
+   */
+  async function toLine(key) {
+    const e = s.entries.find((x) => x.key === key);
+    const files = e?.pieces ? e.pieces.map((p) => ({ store: p.from, path: p.path })) : e?.at ? [e.at] : [];
+    if (!files.length) return false;
+    A.data.guestAt ??= {};
+    const takes = files.map((at, i) => { const id = `guest:${at.path}`; A.data.guestAt[id] = at; return { id, ms: 0, t: i, context: e.person ? `(${e.person})` : '', kinds: ['v'] }; });
+    for (const t of takes) A.media.picOf(A.data.guestAt[t.id]).then((url) => { if (url) { A.data.thumbs[t.id] = url; A.paint(); } }, () => {});
+    s.carried = e; s.cmp = null; stopBelow(); tell();
+    navigator.vibrate?.(15);
+    A.dispatch({ type: 'lines', lines: [...A.st.lines.filter((l) => !l.guest), { id: 'guest', guest: true, sticky: '', takes }] });
+    A.dispatch({ type: 'at', at: 0 });
+    if (A.st.similar === 'double') A.dispatch({ type: 'similar', level: 'many' });
+    runLine(0);
+    return true;
+  }
+  /** The guest line plays through, take after take, and begins again. */
+  function runLine(i) {
+    const line = A.st.lines.at(-1);
+    if (!line?.guest || !s.carried) return;
+    const take = line.takes[i % line.takes.length];
+    if (A.st.at !== i % line.takes.length) A.dispatch({ type: 'at', at: i % line.takes.length });
+    A.player.show(take, 0, { play: true, muted: true, onEnd: () => setTimeout(() => runLine(i + 1), 250) });
+  }
+  /** The guest line goes (decided, or a new take starts). */
+  function dropGuest() {
+    if (!s.carried && !A.st.lines.some((l) => l.guest)) return;
+    s.carried = null;
+    const rest = A.st.lines.filter((l) => !l.guest);
+    A.player.stop();
+    A.dispatch({ type: 'lines', lines: rest.length ? rest : [{ id: 'l0', takes: [], sticky: '' }] });
+    A.dispatch({ type: 'at', at: A.st.lines.at(-1).takes.length });
   }
 
   /** The button decides about the person looked at (admin). → true if it did something */
   async function decide(dir) {
-    const e = s.entries.find((x) => x.key === A.st.pick);
+    const e = s.carried ?? s.entries.find((x) => x.key === A.st.pick); // the one carried into the window, else the one picked
     const at = e?.pieces?.[0];
     if (!at) return false;
     const pile = at.pile;
     // whose account (16.11.): the one above confirmed by ↑ · the double view squeezed away = a new one · nobody known = by her ID
     const into = s.cmp?.key === e.key ? (A.st.similar === 'double' ? { into: s.cmp.folders[s.cmp.i] } : { into: null }) : {};
-    if (dir === 'up' && pile === 'hello') { A.engine.show(true); A.engine.hold({ pile, up: () => at.up(into), down: () => at.down({}) }); A.dispatch({ type: 'share', open: true }); return true; }
+    // ↑ on a hello: the sharing menu opens, join breathes; the account is made when join is tapped there. Only then is
+    // she decided (17.11.: the line carried into the window stayed after the account was made).
+    const decided = async (run) => { const r = await run(); done(e); return r; };
+    if (dir === 'up' && pile === 'hello') { A.engine.show(true); A.engine.hold({ pile, up: () => decided(() => at.up(into)), down: () => decided(() => at.down({})) }); A.dispatch({ type: 'share', open: true }); return true; }
     const go = dir === 'up' ? at.up : at.down;
     if (!go) return false;
     try { await go(dir === 'down' ? {} : undefined); navigator.vibrate?.(dir === 'up' ? 20 : [12, 50, 12]); } catch (err) { navigator.vibrate?.([40, 40, 40]); A.say(String(err?.message ?? err).slice(0, 60)); }
-    s.look = s.look.filter((x) => x !== e);
-    s.cmp = null; stopBelow(); tell();
-    A.dispatch({ type: 'pick', key: null });
-    refresh();
+    done(e);
     return true;
   }
+  /** A person decided: out of the pile looked at, the double view and the window empty again, the rest of the pile anew. */
+  function done(e) {
+    s.look = (s.look ?? []).filter((x) => x !== e);
+    s.cmp = null; stopBelow(); tell(); dropGuest();
+    A.dispatch({ type: 'pick', key: null });
+    refresh();
+  }
 
-  const close = () => { s.look = null; s.playing = null; s.cmp = null; stopBelow(); tell(); };
-  return { refresh, lookAt, pick, decide, close, step, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
+  const close = () => { if (s.carried) return; s.look = null; s.playing = null; s.cmp = null; stopBelow(); tell(); }; // someone lies in the window: her pile stays until she is decided
+  return { refresh, lookAt, pick, decide, close, step, toLine, dropGuest, get carried() { return Boolean(s.carried); }, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
 }

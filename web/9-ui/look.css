@@ -202,3 +202,4 @@ video::-webkit-media-controls { display: none !important; }
 .strip { padding: 4px 6px; border-radius: 16px; background: var(--card); border: 1.5px solid var(--sc-stroke); min-height: 38px; align-items: center; touch-action: pan-x; }
 .strip .chip.pick { flex: none; background: var(--card); border: 1.5px solid var(--sc-stroke); color: #0C447C; }
 .strip .chip.pick.on { background: var(--sc); border-width: 2.5px; font-weight: 600; }
+#carry { width: 68px; height: 68px; border-radius: 16px; background: var(--sc) center / cover; border: 3px solid var(--hold); box-shadow: 0 6px 18px rgba(0,0,0,.25); pointer-events: none; z-index: 5; }

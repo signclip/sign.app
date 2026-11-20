@@ -80,7 +80,8 @@ export function mediaOf(store, now) {
   async function playable(p) {
     const bytes = await p.store.read(p.path);
     const picture = p.path.endsWith('.png');
-    return { url: URL.createObjectURL(new Blob([bytes], { type: picture ? 'image/png' : 'video/mp4' })), picture };
+    const type = picture ? 'image/png' : p.path.endsWith('.webm') ? 'video/webm' : 'video/mp4'; // as recorded (settings.js pickVideoType)
+    return { url: URL.createObjectURL(new Blob([bytes], { type })), picture };
   }
   return { visualOf, contextTextOf, picOf, playable, at };
 }

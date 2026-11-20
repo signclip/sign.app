@@ -593,8 +593,9 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       const h = s.held, pile = s.piles?.[Number(a)]?.pile, go = pile === HELD_UP[h.pile] ? h.up : pile === HELD_DOWN[h.pile] ? h.down : null;
       if (go) {
         s.held = null; s.pulse = null; draw();
-        return go().then(() => { navigator.vibrate?.(20); return refreshDoor(); }, (err) => {
+        return go().then(() => { navigator.vibrate?.(20); return refreshDoor(); }, async (err) => {
           navigator.vibrate?.([40, 40, 40]);
+          if (await needsConfirm(err)) { s.held = h; s.pulse = `hello:${a}`; return say(t('menu.confirm')); } // the Admin password once (copied, +), then the same tap again
           const why = String(err?.message ?? err).slice(0, 60);
           debugNote({ method: 'door', where: `${h.pile} → ${pile}`, error: why, ms: 0 });
           say(why);
@@ -654,7 +655,26 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
         debugNote({ method: 'door', where: user, ...(at == null ? { error: 'not found among the shares of this login' } : { status: `at ${at || '/'}` }), ms: 0 }); // in sign-debug.txt
       }
     }
+    if (ctx.admin) { const real = await keychain.get(confirmId(ctx.admin)).catch(() => null); if (real && ctx.admin.password !== real) ctx.admin = { ...ctx.admin, password: real }; } // 17.11.: accounts are managed with the account's own password (below)
     return ctx.admin ?? null;
+  }
+  /**
+   * Nextcloud asks for the account's own password before it creates, changes or deletes an account ("Password
+   * confirmation is required"): the app password from the one-click login opens the files, not the user management.
+   * So the admin gives the Admin account's password once: copied, then + (never typed, never shown); it stays in this
+   * device's keychain and goes only to the project's Nextcloud, with each of those requests. Limits: an Admin account
+   * with a second factor cannot confirm this way.
+   */
+  const confirmId = (a) => `confirm ${a.server} ${String(a.user).toLowerCase()}`;
+  async function needsConfirm(err) {
+    const why = String(err?.message ?? err);
+    if (!ctx.admin || !/confirm|\b403\b|\b401\b|997/i.test(why)) return false;
+    const had = await keychain.get(confirmId(ctx.admin)).catch(() => null);
+    if (had && /confirm/i.test(why)) return false; // it was sent and still refused: said as it is
+    if (had) await keychain.remove?.(confirmId(ctx.admin)); // a wrong one: asked anew
+    if (!had && !/confirm/i.test(why)) return false;
+    s.waitSecret = confirmId(ctx.admin); s.waitSecretAlso = null; s.clip = 'ready';
+    return true;
   }
   /** The other persons on this device (persons.js), with how each starts. */
   /** The other persons on this device (persons.js), with their roles. */

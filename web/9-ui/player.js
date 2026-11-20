@@ -10,6 +10,7 @@
 //            the take) · files are read whole from the device once per take looked at (a 10 s take ≈ 3–10 MB).
 
 import { partsOf, locate } from './line.js';
+import { note as debugNote } from './debug.js';
 
 export function playerOf(A, video) {
   const files = new Map(); // take chain path → Promise({ url, picture } | null)
@@ -18,6 +19,7 @@ export function playerOf(A, video) {
   const fileOf = (id) => {
     if (!files.has(id)) {
       files.set(id, (async () => {
+        if (A.data.guestAt?.[id]) return A.media.playable(A.data.guestAt[id]); // a result carried into the window: its file, wherever it lies
         const chain = [...(A.index?.tables.chains.values() ?? [])].find((c) => c.from?.path === id);
         const at = chain && A.media.visualOf(chain);
         return at ? A.media.playable(at) : null;
@@ -47,7 +49,8 @@ export function playerOf(A, video) {
    */
   async function show(take, ms = 0, { play = false, rate = 1, onTime = null, onEnd = null, muted = false } = {}) {
     if (cur) cancelAnimationFrame(cur.raf);
-    const parts = partsOf(take), where = locate(take, Math.max(0, Math.min(take.ms ?? 0, ms)));
+    const open = !(take.ms > 0); // length not known (a guest from Similar): it plays to its own end
+    const parts = partsOf(take), where = open ? { i: 0, id: take.id, at: 0, start: 0 } : locate(take, Math.max(0, Math.min(take.ms ?? 0, ms)));
     const me = cur = { take, i: where.i, raf: 0, onTime, onEnd, rate, playing: play };
     const f = await fileOf(where.id);
     if (cur !== me) return false; // another call came meanwhile
@@ -59,13 +62,14 @@ export function playerOf(A, video) {
     video.muted = muted; video.loop = false; video.playbackRate = rate;
     try { video.currentTime = where.at / 1000; } catch { /* not seekable yet */ }
     if (!play) { if (!video.paused) video.pause(); return true; }
-    video.play().catch(() => {});
+    video.setAttribute('playsinline', '');
+    video.play().catch((err) => debugNote({ method: 'play', where: where.id, error: String(err?.message ?? err).slice(0, 200), ms: 0 }));
     const step = () => {
       if (cur !== me) return;
       const part = parts[me.i], start = parts.slice(0, me.i).reduce((n, p) => n + (p.to - p.from), 0);
       const t = video.currentTime * 1000;
-      me.onTime?.(Math.max(0, Math.min(take.ms ?? 0, start + t - part.from)));
-      if (t >= part.to - 8 || video.ended) { // this part is through: the next one, or the end
+      me.onTime?.(open ? t : Math.max(0, Math.min(take.ms ?? 0, start + t - part.from)));
+      if ((!open && t >= part.to - 8) || video.ended) { // this part is through: the next one, or the end
         if (me.i + 1 < parts.length) { show(take, start + (part.to - part.from) + 1, { play: true, rate, onTime, onEnd, muted }); return; }
         video.pause(); me.playing = false; me.onEnd?.(); return;
       }
