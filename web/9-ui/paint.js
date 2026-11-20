@@ -9,9 +9,10 @@
 // Limits:    one SVG of ≈ 40 shapes per paint (< 1 ms); the SVG is only replaced when its text changed, so running
 //            CSS animations (pulse, dots) keep their phase.
 
-import { arcsOf, lineSlots, wideButton, nowChipSpot, polar, arcPath, timeline } from './layout.js';
+import { arcsOf, lineSlots, wideButton, nowChipSpot, timeline } from './layout.js';
+import { edge, curve, outline, pathOf } from './form.js';
 import { partsOf, contextTimes } from './line.js';
-import { chipWidth } from './chips.js';
+import { chipWidth, NEST_COLORS } from './chips.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const f1 = (n) => Number(n).toFixed(1);
@@ -60,25 +61,36 @@ export function timelineSvg(take, ms, L, w, pic) {
 export function takeSvg(st, L, data = {}) {
   const out = [];
   const line = st.lines.at(-1), older = st.lines.length - 1;
+  if (L.scale) { // the picture outside the window stays visible, greyed (20.11.): a veil over the picture with the window cut out
+    const m = L.media, box = `M${f1(m.x)} ${f1(m.y)}H${f1(m.x + m.w)}V${f1(m.y + m.h)}H${f1(m.x)}Z`;
+    out.push(`<path class="veil" fill-rule="evenodd" d="${box}${outline(L)}"/><path class="focus-edge" d="${outline(L)}"/>`);
+  }
+  // a line chosen (20.11.): a border around it, as wide as its takes — the stroke itself keeps its colour
+  const border = (d, w, id) => `<mask id="${id}" maskUnits="userSpaceOnUse"><rect x="-9999" y="-9999" width="99999" height="99999" fill="white"/><path d="${d}" fill="none" stroke="black" stroke-width="${f1(w)}" stroke-linecap="round"/></mask><path class="line-border" d="${d}" stroke-width="${f1(w + 6)}" mask="url(#${id})"/>`;
+  const sc = L.scale || 1;
   for (const a of arcsOf(L, older)) {
     if (a.kind) {
       const on = st.strands[a.kind];
       out.push(`<path class="strand ${on ? 'on' : 'off'}${st.rec === 'recording' && on ? ' live' : ''}" d="${a.d}"/><path class="hit" data-role="${a.id}" d="${a.d}"/>`);
     } else if (a.id === 'line') {
-      out.push(`<path class="line${st.chosenLine === older ? ' chosen' : ''}" d="${a.d}"/><path class="hit" data-role="line" d="${a.d}"/>`);
+      if (st.chosenLine === older) out.push(border(a.d, 2 * 15 * L.k * sc + 10, 'b-line'));
+      out.push(`<path class="line" d="${a.d}"/><path class="hit" data-role="line" d="${a.d}"/>`);
     } else {
       const i = Number(a.id.split(':')[1]), n = older - 1 - i;
-      out.push(`<path class="old${st.chosenLine === n ? ' chosen' : ''}" d="${a.d}"/><path class="hit thin" data-role="old:${n}" d="${a.d}"/>`);
+      if (st.chosenLine === n) out.push(border(a.d, 10 * L.k * sc, `b-old${n}`));
+      out.push(`<path class="old" d="${a.d}"/><path class="hit thin" data-role="old:${n}" d="${a.d}"/>`);
     }
   }
-  if (older > 3) { const [x, y] = polar(L.cx, L.cy, L.lineR - 34 * L.k, 0); out.push(`<text class="more" x="${f1(x)}" y="${f1(y)}">+${older - 3}</text>`); }
+  if (older > 3) { const [x, y] = edge(L, 0, L.lineOff - 34 * L.k); out.push(`<text class="more" x="${f1(x)}" y="${f1(y)}">+${older - 3}</text>`); }
   out.push('<defs>');
   const slots = lineSlots(L, line.takes.length + (st.rec !== 'idle' ? 1 : 0), st.at, data.lineShift ?? 0);
-  for (const s of slots) out.push(`<clipPath id="c${s.i}"><circle cx="${f1(s.x)}" cy="${f1(s.y)}" r="${f1(s.r)}"/></clipPath>`);
+  const thumbOf = (t) => ({ cx: t.x, cy: t.y, rx: t.r * Math.min(1, L.aspect), ry: t.r * Math.min(1, 1 / L.aspect), n: L.n }); // a take on the line: the window's form (20.11.)
+  for (const s of slots) out.push(`<clipPath id="c${s.i}"><path d="${outline(thumbOf(s))}"/></clipPath>`);
   out.push(`<clipPath id="cb"><circle cx="${f1(L.button.x)}" cy="${f1(L.button.y)}" r="${f1(L.button.r - 3)}"/></clipPath></defs>`);
   for (const s of slots) {
     const take = line.takes[s.i], pic = take && data.thumbs?.[take.id];
-    out.push(`<g data-role="take:${s.i}"><circle class="thumb" cx="${f1(s.x)}" cy="${f1(s.y)}" r="${f1(s.r)}"/>${pic ? `<image href="${esc(pic)}" x="${f1(s.x - s.r)}" y="${f1(s.y - s.r)}" width="${f1(2 * s.r)}" height="${f1(2 * s.r)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#c${s.i})"/>` : ''}<circle class="thumb-edge" cx="${f1(s.x)}" cy="${f1(s.y)}" r="${f1(s.r)}"/></g>`);
+    const T = thumbOf(s), d = outline(T);
+    out.push(`<g data-role="take:${s.i}"><path class="thumb" d="${d}"/>${pic ? `<image href="${esc(pic)}" x="${f1(s.x - T.rx)}" y="${f1(s.y - T.ry)}" width="${f1(2 * T.rx)}" height="${f1(2 * T.ry)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#c${s.i})"/>` : ''}<path class="thumb-edge" d="${d}"/></g>`);
   }
   const p = L.photo;
   out.push(`<circle class="photo${st.mode === 'photo' ? ' on' : ''}" cx="${f1(p.x)}" cy="${f1(p.y)}" r="${f1(p.r)}"/><circle class="hit-dot" data-role="photo" cx="${f1(p.x)}" cy="${f1(p.y)}" r="${f1(p.r * 2.6)}"/>`);
@@ -121,18 +133,24 @@ export function rowHtml(row, { caret = null, typing = '', offers = [], all = fal
   const here = (at, how) => on && caret && caret.how === how && same(caret.at, at);
   const typed = `<span class="chip typing">${esc(typing) || '&nbsp;'}</span>`;
   const gap = (at, how = 'after') => `<i class="gap${here(at, how) ? ' caret' : ''}" data-role="gap:${how}:${(at ?? []).join('.')}"></i>${here(at, how) && typing ? typed : ''}`;
+  const hidden = (n) => !all && (n.take ? n.i === 0 : n.children.every(hidden)); // the take now shows inside the window; the row: what comes
+  const chip = (w) => `<span class="chip ${w.tone}${offers.includes(w.text) ? ' offer' : ''}">${esc(w.text)}</span>`;
+  const edge = (k) => (k == null ? '' : ` style="--nc:${NEST_COLORS[k % NEST_COLORS.length]}"`); // the edge says which nesting (20.11.)
   const node = (n) => {
-    if (n.take && n.tone === 'now' && !all) return ''; // the take now shows inside the window; the row: what comes
-    if (n.take) return `<span class="take ${n.tone}"${n.at ? ` data-role="gap:after:${n.at.join('.')}"` : ''}>${n.words.map((w) => `<span class="chip ${w.tone}${offers.includes(w.text) ? ' offer' : ''}">${esc(w.text)}</span>`).join('')}</span>`;
-    const inside = n.children.map((c) => node(c) + (c.at && !c.sticky && !(c.take && c.tone === 'now' && !all) ? gap(c.at) : '')).join('');
+    if (hidden(n)) return '';
+    if (n.take) {
+      const words = n.words.map(chip).join('');
+      return `<span class="take ${n.tone}"${n.at ? ` data-role="gap:after:${n.at.join('.')}"` : ''}>${n.nest != null ? `<span class="bubble inner"${edge(n.nest)}>${words}</span>` : words}</span>`;
+    }
+    const inside = n.children.map((c) => node(c) + (c.at && !hidden(c) ? gap(c.at) : '')).join('');
     const tail = here(n.at, 'in') ? `<i class="gap caret"></i>${typing ? typed : ''}` : '';
-    return `<span class="bubble d${Math.min(3, n.depth)}${n.sticky ? ' sticky' : ''}" data-role="bubble:${(n.at ?? []).join('.')}">${n.sticky ? '' : gap(n.at, 'first')}${inside}${tail}</span>`;
+    return `<span class="bubble d${Math.min(3, n.depth)}${n.sticky ? ' sticky' : ''}"${edge(n.nest)} data-role="bubble:${(n.at ?? []).join('.')}">${(n.head ?? []).map(chip).join('')}${n.sticky ? '' : gap(n.at, 'first')}${inside}${tail}</span>`;
   };
-  const parts = row.map((n) => node(n) + (n.at?.length && !(n.take && n.tone === 'now' && !all) ? gap(n.at) : ''));
+  const parts = row.map((n) => node(n) + (n.at?.length && !hidden(n) ? gap(n.at) : ''));
   const atEnd = on && !caret;
   const wait = waiting ? '<span class="chip offer wait" data-role="context"></span>' : ''; // one's own password word: empty, breathing
   return `${gap([], 'first')}${parts.join('')}${wait}<i class="gap end${atEnd ? ' caret' : ''}" data-role="gap:end:"></i>${atEnd && typing ? typed : ''}<i class="gap tail" data-role="gap:end:"></i>`;
 }
 
 /** An arc path for the hint layer (the gesture shown by a pale point). */
-export const hintArc = (L, a, b) => arcPath(L.cx, L.cy, L.R + 7 * L.k, a, b);
+export const hintArc = (L, a, b) => pathOf(curve(L, a, b, 7 * L.k));

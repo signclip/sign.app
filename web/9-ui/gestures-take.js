@@ -11,18 +11,21 @@
 //   above    spread above the take = Similar comes (then full), squeeze = it goes; a tile tapped = double view
 //   Similar  tap a selection view = on/off (date, initial, @, sharing point, spot open their choices) · hold date or
 //            initial = their order turns · drag over the date bar = the span
-//   picture  ← / → = the other camera · tap = focus there
+//   picture  ← / → = the other camera (at 1×) · tap = focus there · two fingers = the window's form: side by side =
+//            width, one above the other = height, slanted = corners (rectangle ↔ circle); at most 1:1, snaps to the
+//            picture's format
 // Depends:   browser; take-state.js, line.js, similar-view.js, chips.js, 1-model/context.js, 4-save/add-line.js
 // Test:      the meanings in tests/ui.test.mjs (buttonMeaning, zoomed, filters); the wiring on a phone.
 // Limits:    the moment slides ± 3 s across the spread button; a cut needs ≥ 200 ms on both sides (line.js).
 
 import { buttonMeaning, live, count } from './take-state.js';
 import { joinTakes, cutTake, putOnLine, removeTake } from './line.js';
-import { slotPx } from './layout.js';
+import { slotPx, onTake } from './layout.js';
 import { zoomed, tapFilter, turnOrder, setFilter } from './similar-view.js';
 import { insertGesture, fromField } from '../1-model/context.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
-import { flipPicture, focusAt } from './camera.js';
+import { flipPicture, focusAt, mainLens } from './camera.js';
+import { inside, formBy, snap } from './form.js';
 
 const CUT = 1.15, RUN_RATE = 0.5; // past the widest by 15 % = cut · the timeline runs through at half speed
 const onLine = (r) => r === 'line' || r.startsWith('take:') || r.startsWith('old:');
@@ -32,7 +35,7 @@ const inRow = (r) => r === 'context' || r === 'under' || r.startsWith('gap:') ||
 
 export function gesturesOf(A) {
   const say = document.querySelector('#say');
-  let wide = null, facing = A.settings.facing;
+  let wide = null, facing = A.settings.facing, shaping = null; // shaping: two fingers on the picture, the form at their start (20.11.)
 
   function onEvent(ev, e) {
     if (A.st.share) return sharing(ev, e);
@@ -60,7 +63,7 @@ export function gesturesOf(A) {
       if (ev.type === 'drag' && Math.abs(ev.dy) > 14) { A.data.carry = { x: ev.x, y: ev.y, pic: (A.data.entries ?? []).find((x) => x.key === key)?.thumb ?? null }; return A.paint(); }
       if ((ev.type === 'swipe' || ev.type === 'drag-end') && A.data.carry) {
         const c = A.data.carry, L = A.L; A.data.carry = null; A.paint();
-        const inWindow = Math.hypot(c.x - L.cx, c.y - L.cy) < L.R + L.ring * 2 || Math.hypot(c.x - L.button.x, c.y - L.button.y) < L.ring * 2;
+        const inWindow = inside(L, c.x, c.y, L.ring * 2) || Math.hypot(c.x - L.button.x, c.y - L.button.y) < L.ring * 2;
         if (inWindow && key) return A.similar.toLine(key);
         if (r === 'double' && (ev.dir === 'left' || ev.dir === 'right')) return A.similar.step(ev.dir) || nextResult(ev.dir);
         return null;
@@ -173,7 +176,16 @@ export function gesturesOf(A) {
   function pinch(ev) {
     const L = A.L, [a, b] = ev.roles ?? [];
     const nearButton = L && Math.hypot(ev.centre.x - L.button.x, ev.centre.y - L.button.y) < 70 * L.k;
-    if ((a === 'button' || b === 'button' || nearButton) && A.st.similar !== 'full' && A.st.rec === 'idle' && count(A.st)) {
+    // both fingers began off the take (20.11.): above, below, beside it on a tablet, on Similar — that zooms Similar open and shut
+    const free = !shaping && !wide && Boolean(ev.at) && ev.at.every((pt, i) => !onTake(L, pt, ev.roles?.[i]));
+    if (free) {
+      if (ev.phase !== 'end') return null;
+      const level = zoomed(A.st.similar, ev.scale);
+      if (level !== A.st.similar) { navigator.vibrate?.(8); if (level !== 'closed') location.hash = level; } // Android back = closes (hashchange in app.js)
+      return A.dispatch({ type: 'similar', level });
+    }
+    if (a?.startsWith('take:') && b?.startsWith('take:')) return ev.phase === 'end' && ev.scale < 0.75 ? join(Number(a.slice(5)), Number(b.slice(5))) : null; // two takes squeezed: before the button (20.11.: near it, the button took it)
+    if (!shaping && (a === 'button' || b === 'button' || nearButton) && A.st.similar !== 'full' && A.st.rec === 'idle' && count(A.st)) {
       if (live(A.st)) A.dispatch({ type: 'at', at: count(A.st) - 1 }); // the button holds no take yet: the newest one opens
       const spread = Math.max(0, Math.min(1.4, (ev.scale - 1) / 1.2 + (wide?.base ?? 0)));
       if (ev.phase === 'move') {
@@ -188,13 +200,21 @@ export function gesturesOf(A) {
       if (was?.fresh) run(); // just opened: it runs through slowly, the picture in the window runs along
       return null;
     }
+    if (shaping || (A.st.similar === 'closed' && L && !nearButton && inside(L, ev.centre.x, ev.centre.y) && ![a, b].some((x) => x?.startsWith('take:')))) return shape(ev); // two fingers on the picture = its form (20.11.), also where they touch an arc
     if (ev.phase !== 'end') return null;
-    if (a?.startsWith('take:') && b?.startsWith('take:') && ev.scale < 0.75) return join(Number(a.slice(5)), Number(b.slice(5)));
-    const L0 = A.L, above = L0 && ev.centre.y < L0.button.y + 30 * L0.k;
-    if (A.st.similar === 'closed' && !above) return null;
-    const level = zoomed(A.st.similar, ev.scale);
-    if (level !== A.st.similar) { navigator.vibrate?.(8); if (level !== 'closed') location.hash = level; } // Android back = closes (hashchange in app.js)
-    return A.dispatch({ type: 'similar', level });
+    return null; // a finger on the take: its own gestures above (Similar only from free space)
+  }
+  /**
+   * Two fingers on the picture = the window's form, by how they lie (form.js formBy): side by side = width, one above
+   * the other = height, slanted = corners, smoothly between rectangle and circle. Always from the form at the start;
+   * the aspect snaps to the picture's own format and to 1:1. The camera stays at 1× (20.11.).
+   */
+  function shape(ev) {
+    if (ev.phase === 'end') { shaping = null; return null; }
+    shaping ??= { ...A.st.form };
+    const f = formBy(shaping, ev.scale, ev), aspect = snap(f.aspect, A.pictureAspect());
+    if (Math.abs(aspect - A.st.form.aspect) < 0.004 && Math.abs(f.round - A.st.form.round) < 0.01) return null;
+    return A.dispatch({ type: 'form', round: f.round, aspect });
   }
   /** The timeline runs: the take plays in the window at half speed, the moment at the mark follows it. */
   function run() {
@@ -214,7 +234,7 @@ export function gesturesOf(A) {
     const take = takeNow();
     if (!take) return null;
     if (scrubFrom == null || ev.fresh) { scrubFrom = A.st.wideMs; A.player.pause(); }
-    const span = Math.max(2000, Math.min(6000, (take.ms ?? 0) * 1.4)), w = (2 * A.L.R) / 1.618;
+    const span = Math.max(2000, Math.min(6000, (take.ms ?? 0) * 1.4)), w = (2 * A.L.rx) / 1.618;
     const ms = Math.max(0, Math.min(take.ms ?? 0, scrubFrom - (ev.dx * span) / w));
     A.player.show(take, ms);
     return A.dispatch({ type: 'wide', spread: A.st.wide, ms });
@@ -269,7 +289,8 @@ export function gesturesOf(A) {
     }
     if (o.on && o.gestures === PASSWORD_PARTS.length - 1) { A.dispatch({ type: 'onboard', patch: { own: text, ownTyped: true } }); return A.syncOnboard(); }
     const c = A.st.caret;
-    const r = insertGesture(A.st.context, c?.at ?? null, c?.how ?? 'after', fromField(text));
+    const inBracket = (c?.at?.length ?? 0) >= 2 || ((c?.how === 'in' || c?.how === 'first') && (c?.at?.length ?? 0) >= 1); // written into a bubble: each word one take (20.11.)
+    const r = insertGesture(A.st.context, c?.at ?? null, c?.how ?? 'after', fromField(text, { list: inBracket }));
     A.dispatch({ type: 'context', text: r.text });
     return A.dispatch({ type: 'caret', at: c ? { how: 'after', at: r.at } : null }); // the next word goes behind this one
   }
@@ -294,7 +315,7 @@ export function gesturesOf(A) {
   // ---------- the picture ----------
   async function flip() {
     facing = facing === 'user' ? 'environment' : 'user';
-    const fresh = await flipPicture(A.take.camera, facing).catch(() => null);
+    const fresh = await flipPicture(A.take.camera, facing).then((x) => mainLens(x, facing)).catch(() => null);
     if (fresh) { document.querySelector('#live').srcObject = fresh; A.take.setCamera?.(fresh); }
   }
   function focusHere(ev) {

@@ -21,6 +21,7 @@ import { keychain } from './keychain.js';
 import { installDebug } from './debug.js';
 import { initial, next } from './take-state.js';
 import { takeLayout } from './layout.js';
+import { outline } from './form.js';
 import { takeSvg, nowHtml, rowHtml } from './paint.js';
 import { similarHtml } from './paint-similar.js';
 import { sharingView } from './paint-sharing.js';
@@ -60,7 +61,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   A.media = mediaOf(store, () => A);
 
   // ---------- state, kept on the device ----------
-  let st = { ...A.st, strands: { v: settings.auto.includes('v'), a: settings.auto.includes('a'), x: settings.auto.includes('x') } };
+  let st = { ...A.st, form: settings.shape, strands: { v: settings.auto.includes('v'), a: settings.auto.includes('a'), x: settings.auto.includes('x') } };
   const lines = read('sign.lines', null);
   if (lines?.length) st = { ...st, lines, at: lines.at(-1).takes.length };
   st = { ...st, context: localStorage.getItem('sign.series') ?? '', sticky: localStorage.getItem('sign.sticky') ?? '' };
@@ -77,7 +78,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   A.dispatch = (e) => {
     const before = A.st;
     A.st = next(A.st, e);
-    if (A.st.strands !== before.strands) keep('sign.settings', { ...settings, auto: Object.keys(A.st.strands).filter((k) => A.st.strands[k]) });
+    if (A.st.strands !== before.strands || A.st.form !== before.form) { settings.auto = Object.keys(A.st.strands).filter((k) => A.st.strands[k]); settings.shape = A.st.form; keep('sign.settings', settings); }
     if (A.st.context !== before.context && !A.st.onboard.on) keep('sign.series', A.st.context);
     if (A.st.similar !== before.similar || A.st.filters !== before.filters || A.st.context !== before.context) A.similar?.refresh();
     if (A.st.similar === 'closed' && before.similar !== 'closed') A.similar?.close();
@@ -153,10 +154,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   };
   const size = () => ({ w: innerWidth, h: full.h || innerHeight, keyboard: A.st.keyboard });
   function paint() {
-    const st = A.st, L = takeLayout(size(), st.similar);
+    const st = A.st, L = takeLayout(size(), st.similar, st.form, A.data.picture ?? 1);
     A.L = L;
-    const win = $('#window');
-    Object.assign(win.style, { left: `${L.cx - L.R}px`, top: `${L.cy - L.R}px`, width: `${2 * L.R}px`, height: `${2 * L.R}px` });
+    const win = $('#window'), m = L.media, focus = $('#focus'); // the picture covers the window (form.js cover); outside it is veiled in the SVG
+    Object.assign(win.style, { left: `${m.x}px`, top: `${m.y}px`, width: `${m.w}px`, height: `${m.h}px` });
+    Object.assign(focus.style, { left: `${L.cx - L.rx}px`, top: `${L.cy - L.ry}px`, width: `${2 * L.rx}px`, height: `${2 * L.ry}px`, clipPath: `path('${outline(L, 0, L.cx - L.rx, L.cy - L.ry)}')` });
+    focus.classList.toggle('gone', st.similar === 'full');
     win.classList.toggle('off', !st.strands.v);
     win.classList.toggle('gone', st.similar === 'full');
     const svg = takeSvg(st, L, { thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift });
@@ -169,14 +172,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     rowEl.classList.toggle('typing', st.typing);
     rowEl.classList.toggle('gone', st.similar === 'full' || !st.strands.x);
     rowEl.innerHTML = rowHtml(row, { waiting: st.onboard.on && st.onboard.nameSign && st.onboard.gestures === PASSWORD_PARTS.length - 1 && !st.onboard.ownTyped && !st.typing, all: st.typing, on: st.typing, caret: st.caret, typing: st.typing ? A.data.typing : '', offers: st.onboard.on ? ['Name', ...st.onboard.words] : [] });
-    const sim = similarHtml(st, A.data.entries ?? [], L, A.data.similarLists ?? {});
+    const sim = similarHtml(st, A.data.entries ?? [], L, { ...(A.data.similarLists ?? {}), picked: A.data.picked ?? null });
     if ($('#similar').dataset.text !== sim) { $('#similar').innerHTML = sim; $('#similar').dataset.text = sim; }
     const cg = $('#carry'), c = A.data.carry; // what is carried follows the finger
     cg.hidden = !c;
     if (c) Object.assign(cg.style, { left: `${c.x - 34}px`, top: `${c.y - 34}px`, backgroundImage: c.pic ? `url("${c.pic}")` : 'none' });
     const pv = $('#pickvideo'), db = st.similar === 'double' ? L.doubleBox : null; // the picked result plays in its own element (17.11.): a repaint no longer stops it
     pv.hidden = !db;
-    if (db) { Object.assign(pv.style, { left: `${db.x}px`, top: `${db.y}px`, width: `${db.w}px`, height: `${db.h}px` }); const e = (A.data.entries ?? []).find((x) => x.key === st.pick); if (e?.thumb && pv.poster !== e.thumb) pv.poster = e.thumb; }
+    if (db) { Object.assign(pv.style, { left: `${db.x}px`, top: `${db.y}px`, width: `${db.w}px`, height: `${db.h}px`, clipPath: `path('${outline(L.double, 0, db.x, db.y)}')` }); const e = (A.data.picked?.key === st.pick ? A.data.picked : null) ?? (A.data.entries ?? []).find((x) => x.key === st.pick); if (e?.thumb && pv.poster !== e.thumb) pv.poster = e.thumb; }
     else if (pv.src) { pv.pause(); pv.removeAttribute('src'); pv.removeAttribute('poster'); pv.load(); }
     $('#note').textContent = A.data.note ?? '';
     const o = st.onboard;
@@ -185,6 +188,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (st.share && h && h.role !== 'hello') h = null; // the menu is open: nothing of the take pulses through it
     const hint = hintSvg(h, { L, sharing: A.data.sharing?.layout ?? null, w: innerWidth, h: innerHeight });
     if ($('#hint').dataset.svg !== hint) { $('#hint').innerHTML = hint; $('#hint').dataset.svg = hint; }
+    if (!st.typing && A.data.wasTyping) rowEl.scrollLeft = 0; // done writing: a long row shows from its start again (20.11.)
+    A.data.wasTyping = st.typing;
     if (st.typing) { // the caret stays in sight in a long row (17.11.)
       const c = rowEl.querySelector('.chip.typing') ?? rowEl.querySelector('.gap.caret');
       if (c) { const a = c.getBoundingClientRect(), mid = a.left + a.width / 2; if (mid < 40 || mid > innerWidth - 40) rowEl.scrollLeft += mid - innerWidth / 2; }
@@ -206,6 +211,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
 
   // ---------- touches and keys ----------
   const g = gesturesOf(A);
+  // what the window shows decides how the picture covers it (20.11.): the camera (asked 1:1, the device decides), a take, a file
+  const picture = () => { const r = $('#replay'), v = r && !r.hidden && r.videoWidth ? r : $('#live'); const a = v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 1; if (Math.abs(a - (A.data.picture ?? 1)) > 0.01) { A.data.picture = a; A.paint(); } };
+  for (const v of [$('#live'), $('#replay')]) for (const e of ['loadedmetadata', 'resize', 'play']) v.addEventListener(e, picture);
+  new MutationObserver(picture).observe($('#replay'), { attributes: true, attributeFilter: ['hidden'] });
+  A.pictureAspect = () => A.data.picture ?? 1;
   listen($('#screen'), g.onEvent);
   const say = $('#say');
   say.addEventListener('input', () => { A.data.typing = say.value; A.similar.refresh(); A.paint(); });

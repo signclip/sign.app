@@ -9,8 +9,10 @@
 // Limits:    waits 300–10,000 ms; pre-roll 0–3,000 ms (kept in memory while ready).
 
 import { KINDS } from '../1-model/symbols.js';
-/** The window's form (kept from the old view/shape.js): round 0…1, aspect 0.5…2. */
-const formOf = (x) => (x && typeof x === 'object' ? { round: Math.max(0, Math.min(1, Number(x.round ?? 1))), aspect: Math.max(0.5, Math.min(2, Number(x.aspect ?? 1))) } : { round: 1, aspect: 1 });
+import { clampAspect } from './form.js';
+
+/** The window's form (form.js, 20.11.): round 0…1, aspect 0.4…2.5. */
+const formOf = (x) => (x && typeof x === 'object' ? { round: Math.max(0, Math.min(1, Number(x.round ?? 1))), aspect: clampAspect(Number(x.aspect ?? 1)) } : { round: 1, aspect: 1 });
 
 const STRANDS = ['v', 'a', 'x', 'l'].filter((k) => k in KINDS);
 
@@ -24,7 +26,7 @@ export const DEFAULTS = Object.freeze({
   similarFrom: ['x', 'a'], // strands that feed the combined Similar (a via its text)
   facing: 'user', // camera: 'user' (front) or 'environment' (back)
   onboarding: true,
-  shape: { round: 1, aspect: 1 }, // the window by hand: round 0 square … 1 ellipse · aspect width/height (view/shape.js)
+  shape: { round: 1, aspect: 1 }, // the window by hand: round 0 rectangle … 1 ellipse · aspect width/height (form.js)
   flows: [], // connections drawn between sides: 'a>x' audio → context (Whisper), 'v>x' visual → context (later)
 });
 export const FLOW_KINDS = ['a>x', 'v>x'];

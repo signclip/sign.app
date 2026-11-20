@@ -1,13 +1,13 @@
 // crypto.js — keys, signatures, sealing, secure randomness. Only what the platform has built in.
 //
 // Purpose:   device key (Ed25519): sign files, confirm other devices (join) ·
-//            pickup (ECIES): the admin APK seals a device password so only the asking device
+//            pickup (ECIES): the admin APK seals a device app password so only the asking device
 //            can open it: ECDH P-256 → HKDF-SHA-256 → AES-256-GCM ·
 //            secure randomness for codes and random draws (never Math.random).
 // Depends:   Web Crypto (every current browser, Node 20+). No library.
 // Test:      tests/model.test.mjs
 // Limits:    Ed25519 signature 64 bytes, public key 32 bytes, ~0.1 ms per signature ·
-//            sealed device password ~150 bytes · private keys are created non-extractable:
+//            sealed device app password ~150 bytes · private keys are created non-extractable:
 //            they never leave the device (browser storage or keychain holds the handle).
 // Witness:   y_ inside !( ) of the own head (decision 08.11.): signature over the whole file
 //            without its y_ token; copies keep it; checked with the public key of device q_.

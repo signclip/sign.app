@@ -22,7 +22,13 @@ import { accountTakes } from '../8-join/known.js';
 import { note as debugNote } from './debug.js';
 
 export function similarFlow(A) {
-  const s = { look: null, entries: [], loading: new Set(), playing: null, cmp: null, carried: null };
+  const s = { look: null, entries: [], playing: null, cmp: null, carried: null };
+  // 20.11.: what a tile shows (picture, chips) is kept per take, not per result: while one types, the results change
+  // with every letter (and are empty in between); a take that comes back gets its picture and chips at once. Before,
+  // a key loaded once was never loaded again, and a take that came back stayed empty.
+  const got = new Map(), loading = new Map(); // take → { thumb, words, at } · take → Promise while it loads
+  const takeKey = (e) => e.chain?.key ?? e.pieces?.[0]?.path ?? e.key;
+  const dress = (e) => { const g = got.get(takeKey(e)); if (g) Object.assign(e, g); return e; };
 
   /** The take chain that holds a strand (x) key, from the index. */
   const chainOf = (key) => {
@@ -41,7 +47,7 @@ export function similarFlow(A) {
     const list = hits.map((h) => {
       const head = h.entry.head ?? {};
       const old = s.entries.find((e) => e.key === h.key);
-      return old ?? { key: h.key, words: [], t: (() => { try { return msOf(String(head["'t"] ?? '')) || 0; } catch { return 0; } })(), person: head['@'] ?? '', sharing: [h.entry.from?.store].filter(Boolean), spot: head.o ?? null, thumb: null, chain: chainOf(h.key) };
+      return old ?? dress({ key: h.key, words: [], t: (() => { try { return msOf(String(head["'t"] ?? '')) || 0; } catch { return 0; } })(), person: head['@'] ?? '', sharing: [h.entry.from?.store].filter(Boolean), spot: head.o ?? null, thumb: null, chain: chainOf(h.key) });
     });
     const seen = new Set(), one = list.filter((e) => { const k = e.chain?.key ?? e.key; if (seen.has(k)) return false; seen.add(k); return true; }); // a take once, however many of its strands matched
     const own = (c) => !c || [...c.defs.values()].some((d) => ['v', 'a', 'x', 'l'].includes(d.kind)); // a line (only references to takes) is no result of its own (17.11.: every take showed twice)
@@ -60,19 +66,26 @@ export function similarFlow(A) {
     A.data.similarLists = { ...(A.data.similarLists ?? {}), names: uniq(all.map((e) => e.person)), sharing: uniq([...stores, ...all.flatMap((e) => e.sharing ?? [])]), spots: uniq(all.map((e) => e.spot)) };
   }
 
+  /** Picture and chips of one take (read once, then kept in got). → { thumb, words, at } */
+  async function load(e) {
+    if (e.chain) {
+      const at = A.media.visualOf(e.chain);
+      const thumb = await A.media.picOf(at).catch(() => null);
+      const text = await A.media.contextTextOf(e.chain).catch(() => '');
+      return { at, thumb, words: readContext(text).gestures.flatMap((g) => g.chips.map((c) => c.text)).slice(0, 6) };
+    }
+    if (e.pieces) return { thumb: await A.media.picOf({ store: e.pieces[0].from, path: e.pieces[0].path }).catch(() => null) };
+    return {};
+  }
   async function fill(list) {
     for (const e of list) {
-      if (s.loading.has(e.key) || (e.thumb && e.words.length)) continue;
-      s.loading.add(e.key);
-      if (e.chain) {
-        const v = A.media.visualOf(e.chain);
-        e.at = v;
-        e.thumb = await A.media.picOf(v).catch(() => null);
-        const text = await A.media.contextTextOf(e.chain).catch(() => '');
-        e.words = readContext(text).gestures.flatMap((g) => g.chips.map((c) => c.text)).slice(0, 6);
-      } else if (e.pieces) {
-        e.thumb = await A.media.picOf({ store: e.pieces[0].from, path: e.pieces[0].path }).catch(() => null);
-      }
+      const k = takeKey(e);
+      if (got.has(k)) { dress(e); continue; }
+      if (!loading.has(k)) loading.set(k, load(e).finally(() => loading.delete(k)));
+      const g = await loading.get(k).catch(() => null);
+      if (!g) continue;
+      if (g.thumb) got.set(k, g); // no picture yet (a take still being written): asked again at the next change
+      for (const x of [e, ...s.entries, ...(s.look ?? [])]) if (takeKey(x) === k) Object.assign(x, x.pieces ? { thumb: g.thumb } : g); // every tile of this take, also the one shown now
       A.paint();
     }
   }
@@ -106,6 +119,7 @@ export function similarFlow(A) {
   async function pick(key) {
     A.dispatch({ type: 'pick', key });
     const e = s.entries.find((x) => x.key === key);
+    A.data.picked = e ?? null; // the double view keeps its result while the results change (20.11.)
     const mine = e?.pieces ? e.pieces.map((p) => ({ store: p.from, path: p.path })) : e?.at ? [e.at] : [];
     const folders = e?.pieces?.[0]?.pile === 'hello' ? e.pieces[0].candidates ?? [] : [];
     s.cmp = folders.length ? { key, folders, i: 0, from: e.pieces[0].from, mine } : null;
@@ -239,11 +253,11 @@ export function similarFlow(A) {
   /** A person decided: out of the pile looked at, the double view and the window empty again, the rest of the pile anew. */
   function done(e) {
     s.look = (s.look ?? []).filter((x) => x !== e);
-    s.cmp = null; stopBelow(); tell(); dropGuest();
+    s.cmp = null; stopBelow(); tell(); dropGuest(); A.data.picked = null;
     A.dispatch({ type: 'pick', key: null });
     refresh();
   }
 
-  const close = () => { if (s.carried) return; s.look = null; s.playing = null; s.cmp = null; stopBelow(); tell(); }; // someone lies in the window: her pile stays until she is decided
+  const close = () => { if (s.carried) return; s.look = null; s.playing = null; s.cmp = null; A.data.picked = null; stopBelow(); tell(); }; // someone lies in the window: her pile stays until she is decided
   return { refresh, lookAt, pick, decide, close, step, toLine, dropGuest, get carried() { return Boolean(s.carried); }, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
 }

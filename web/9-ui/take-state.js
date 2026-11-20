@@ -5,6 +5,7 @@
 //            files) are app.js; it reads the state and does what changed. Events:
 //              strand {kind}        an arc tapped: that strand on/off (visual off = the picture fades out)
 //              photo                the dot on the visual arc: photo mode on/off (the button becomes a shutter)
+//              form {round, aspect} the window's form (double tap on the picture, two fingers with one still)
 //              rec {to}             'recording' | 'paused' | 'idle' (what the recorder did)
 //              took {take}          a take kept (← on the button): onto the line, left of the button; the series moves on
 //              discard              ↓ far on the button: the take is dropped, the button starts fresh
@@ -24,7 +25,7 @@ import { noFilters } from './similar-view.js';
 import { afterOne } from './chips.js';
 
 export const initial = () => Object.freeze({
-  mode: 'video', rec: 'idle',
+  mode: 'video', rec: 'idle', form: { round: 1, aspect: 1 }, // the window's form (form.js); a take is always recorded 1:1
   strands: { v: true, a: true, x: true },
   lines: noLines(), at: 0, chosenLine: null,
   wide: 0, wideMs: 0,
@@ -43,6 +44,7 @@ export const live = (s) => s.at >= count(s);
 export function next(s, e) {
   switch (e.type) {
     case 'strand': return { ...s, strands: { ...s.strands, [e.kind]: !s.strands[e.kind] } };
+    case 'form': return { ...s, form: { round: e.round ?? s.form.round, aspect: e.aspect ?? s.form.aspect } };
     case 'photo': return s.rec === 'idle' ? { ...s, mode: s.mode === 'photo' ? 'video' : 'photo' } : s;
     case 'rec': return { ...s, rec: e.to, ...(e.to === 'recording' ? { at: count(s), wide: 0 } : {}) };
     case 'took': {

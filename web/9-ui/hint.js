@@ -12,7 +12,7 @@ export function hintSvg(h, { L, sharing = null }) {
   let x, y;
   if (h.role === 'button') ({ x, y } = L.button);
   else if (h.role === 'hello' && sharing?.hello) ({ x, y } = sharing.hello);
-  else if (h.role === 'chip:offer') { x = L.cx; y = L.cy + L.nowR; }
+  else if (h.role === 'chip:offer') { x = L.cx; y = L.cy + L.ry + L.nowOff; }
   else if (h.role === 'context') { x = L.cx; y = L.queueY; }
   else return '';
   const d = 70 * L.k;

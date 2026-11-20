@@ -10,6 +10,7 @@
 // Limits:    ≤ 40 tiles; ≤ 30 initials; ≤ 12 names / sharing points / spots shown (the rest by scrolling the strip).
 
 import { cloudSpots, initialsOf } from './similar-view.js';
+import { outline } from './form.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const px = (n) => `${Number(n).toFixed(1)}px`;
@@ -17,7 +18,7 @@ const px = (n) => `${Number(n).toFixed(1)}px`;
 const ICON = { v: '◖', x: '◡', a: '◗', initial: 'A', date: '▮', name: '@', sharing: '●', spot: '◎' };
 
 /** HTML of Similar. entries: [{ key, thumb, words, t, person, sharing, spot }] (ordered, filtered) · L: take layout */
-export function similarHtml(st, entries, L, { names = [], sharing = [], spots = [], range = null, compare = null } = {}) {
+export function similarHtml(st, entries, L, { names = [], sharing = [], spots = [], range = null, compare = null, picked = null } = {}) {
   if (st.similar === 'closed' || !L.similarBox) return '';
   const box = L.similarBox, f = st.filters, out = [];
   // 17.11.: the selection views lie at the top; a tap on @, sharing point or spot opens its own strip right under them
@@ -25,8 +26,9 @@ export function similarHtml(st, entries, L, { names = [], sharing = [], spots = 
   const head = (['name', 'sharing', 'spot'].includes(f.open) ? 78 : 38) * L.k;
   const inner = { x: box.x + 30 * L.k, y: box.y + head, w: box.w - 60 * L.k, h: box.h - head - 8 * L.k };
   if (st.similar === 'double' && L.doubleBox) {
-    const d = L.doubleBox, e = entries.find((x) => x.key === st.pick);
-    out.push(`<div class="double" style="left:${px(d.x)};top:${px(d.y)};width:${px(d.w)};height:${px(d.h)}" data-role="double">${compare ? `<div class="who"><b>${esc(compare.label)}</b><small>${esc(compare.id)}</small>${compare.n > 1 ? `<i>${Array.from({ length: compare.n }, (_, k) => (k === compare.i ? '●' : '○')).join('')}</i>` : ''}</div>` : ''}<div class="tags">${(e?.words ?? []).slice(0, 4).map((w) => `<span class="chip tag">${esc(w)}</span>`).join('')}</div></div>`);
+    const d = L.doubleBox, e = (picked?.key === st.pick ? picked : null) ?? entries.find((x) => x.key === st.pick); // picked: still there when typing filters it out
+    const clip = outline(L.double, 0, d.x, d.y); // the take's form (20.11.)
+    out.push(`<div class="double" style="left:${px(d.x)};top:${px(d.y)};width:${px(d.w)};height:${px(d.h)};clip-path:path('${clip}')" data-role="double"><svg class="double-edge" viewBox="0 0 ${d.w.toFixed(1)} ${d.h.toFixed(1)}"><path d="${clip}"/></svg>${compare ? `<div class="who"><b>${esc(compare.label)}</b><small>${esc(compare.id)}</small>${compare.n > 1 ? `<i>${Array.from({ length: compare.n }, (_, k) => (k === compare.i ? '●' : '○')).join('')}</i>` : ''}</div>` : ''}<div class="tags">${(e?.words ?? []).slice(0, 4).map((w) => `<span class="chip tag">${esc(w)}</span>`).join('')}</div></div>`);
   } else {
     const spotsOf = cloudSpots(entries.length, inner, { beside: L.wide, k: L.k });
     for (const s of spotsOf) {

@@ -163,7 +163,7 @@ export async function welcome(ctx, { n, helloPath, store = null }, { into } = {}
     choices.set(helloPath, into); // join ↑ and the upkeep follow the same choice
     if (known) await welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: userOf(known) });
     else await welcomeWithAccount({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, quota: ctx.quota ?? QUOTA, atlas: ctx.atlasUser, group: ctx.group })
-      .catch(async (e) => { // the account is there already (welcomed once, sent back from join): only a new device password
+      .catch(async (e) => { // the account is there already (welcomed once, sent back from join): only a new device app password
         const { person } = readHello(new TextDecoder().decode(await sp.store.read(helloPath)));
         if (!/exist/i.test(e.message)) throw e;
         return welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: person.id.toLowerCase() });

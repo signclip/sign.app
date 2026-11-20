@@ -144,14 +144,58 @@ export function nextOfSeries(text) {
 }
 
 /**
- * What someone typed into the context field → gestures in our notation. Without "(" it is one gesture as
- * before; "[ ]" spells letters; brackets nest; a word without its bracket gets one; missing ")" or "]" at the
- * end are closed; a prefix gets its own bracket (G4). Unreadable → one gesture without brackets.
- * "Obst Banane" → (Obst Banane) · "[LISA]" → ([LISA]) · "(Obst (Banane" → ((Obst) (Banane)) · "Obst(Banane)" → ((Obst)(Banane))
+ * The typing form (20.11., user): how a person writes a series into the field, without our brackets everywhere.
+ *   words before a bracket hold for everything in it (a prefix, G4): "Obst (Banane Apfel)" = Obst Banane, then Obst Apfel
+ *   in that bracket each word is one take; a bracket inside is one take with all its words:
+ *   "Obst (Banane (Apfel Birne))" = Obst Banane, then Obst Apfel Birne
+ *   words without a bracket are one take together ("Obst Banane"); a bracket without words before it: its takes alone;
+ *   what follows a bracket starts anew ("Obst (Banane) Kaffee (heiß kalt)") · "[ ]" spells letters, a missing ")" is closed.
+ * list: true = written into a bracket of the series (a tap into a bubble): then each loose word is its own take.
+ * → our notation: ((Obst)((Banane) (Apfel))) · null if the text is not in the typing form (no word outside brackets)
  */
-export function fromField(text) {
+function typingForm(s, { list = false } = {}) {
+  const tokens = s.match(/\[[^\]]*\]?|\(|\)|[^\s()[\]]+/g) ?? [];
+  let d = 0;
+  const outside = tokens.some((t) => { if (t === '(') d++; else if (t === ')') d = Math.max(0, d - 1); else return d === 0; return false; });
+  if (!list && (!tokens.includes('(') || !outside)) return null; // no bracket, or all words in brackets: our notation
+  let i = 0;
+  const group = () => { const out = []; let d = 1; while (i < tokens.length && d > 0) { const t = tokens[i++]; if (t === '(') d++; else if (t === ')') d--; else out.push(t); } return out; }; // a bracket inside: one take, all its words
+  const takes = () => { const out = []; while (i < tokens.length) { const t = tokens[i++]; if (t === ')') break; if (t === '(') { const g = group(); if (g.length) out.push(g); } else out.push([t]); } return out; };
+  const g = (words) => (words.some((w) => w.startsWith('[')) ? ourForm(words.join(' ')) : `(${words.join(' ')})`); // spelled letters: as our notation writes them
+  if (list) return takes().map(g).join(' ');
+  const parts = [];
+  let loose = [];
+  while (i < tokens.length) {
+    const t = tokens[i++];
+    if (t === ')') continue;
+    if (t !== '(') { loose.push(t); continue; }
+    const inner = takes();
+    if (!inner.length) { if (loose.length) parts.push(g(loose)); }
+    else if (loose.length) parts.push(`(${g(loose)}(${inner.map(g).join(' ')}))`);
+    else parts.push(...inner.map(g));
+    loose = [];
+  }
+  if (loose.length) parts.push(g(loose));
+  return parts.join(' ');
+}
+
+/**
+ * What someone typed into the context field → gestures in our notation. In the typing form (a word outside brackets,
+ * 20.11.) see typingForm; all words in brackets = our notation, read as before: brackets nest, a word without its bracket
+ * gets one, missing ")" or "]" at the end are closed, a prefix gets its own bracket (G4). Unreadable → one gesture.
+ * "Obst Banane" → (Obst Banane) · "Obst (Banane Apfel)" → ((Obst)((Banane) (Apfel))) · "(Obst (Banane" → ((Obst) (Banane))
+ */
+export function fromField(text, { list = false } = {}) {
   const s = String(text ?? '').replace(/\s+/g, ' ').trim();
   if (!s) return '';
+  const plain = () => `(${s.replace(/[()[\]{}]/g, ' ').replace(/\s+/g, ' ').trim()})`;
+  const typed = typingForm(s, { list });
+  if (typed != null) { try { return typed && !readContext(typed).errors.length ? typed : plain(); } catch { return plain(); } }
+  return ourForm(s);
+}
+
+/** Our notation as typed (all words in brackets), read leniently; unreadable → one gesture without brackets. */
+function ourForm(s) {
   const plain = () => `(${s.replace(/[()[\]{}]/g, ' ').replace(/\s+/g, ' ').trim()})`;
   const open = s.includes('(') ? s : `(${s})`;
   const stack = [];

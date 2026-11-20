@@ -16,6 +16,7 @@ import { createWhere } from '../5-take/where.js';
 import { saveTake } from '../4-save/save-take.js';
 import { addLine } from '../4-save/add-line.js';
 import { stillOf } from './frame.js';
+import { mainLens } from './camera.js';
 import { deviceKeys } from './device-keys.js';
 import { contextForTake } from './chips.js';
 import { count } from './take-state.js';
@@ -38,9 +39,15 @@ export function takeFlow(A) {
 
   async function openCamera() {
     if (t.camera) return t.camera;
-    t.camera = await openDevices(navigator.mediaDevices, { facing: A.settings.facing }).catch(() => null);
-    if (t.camera) { live.srcObject = t.camera; live.play?.().catch(() => {}); }
-    return t.camera;
+    t.opening ??= (async () => { // once, even when the button is tapped while it opens
+      const facing = A.settings.facing;
+      const s = await openDevices(navigator.mediaDevices, { facing }).catch(() => null);
+      t.camera = s && await mainLens(s, facing).catch(() => s); // the main lens at 1×, never wide angle (20.11.)
+      if (t.camera) { live.srcObject = t.camera; live.play?.().catch(() => {}); }
+      t.opening = null;
+      return t.camera;
+    })();
+    return t.opening;
   }
 
   async function start() {

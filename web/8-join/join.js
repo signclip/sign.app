@@ -11,7 +11,7 @@
 //              3 join         swipe left: the device takes the access locally, drops ((join));
 //                             advance() moves the hello and the marker to join/ → hello/ is empty
 //              4 consent      {:x :l} {:sharing-point.1} (consent) dropped; advance() moves all, the temporary
-//                             answer too (kept in case the device password fails), to within/@(name)!(n_…)/
+//                             answer too (kept in case the device app password fails), to within/@(name)!(n_…)/
 //              5 quiet        the whole account folder moves to quiet/, nothing is deleted
 //            New device: steps 1–3 only (no consent; it joins an account that exists).
 // Depends:   1-model (file, ids, hash, crypto, filename)

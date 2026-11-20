@@ -8,13 +8,23 @@
 //              hold    still for HOLD_MS (once)           drag     every move of one finger after it left TAP_PX
 //              swipe   at the end, ≥ SWIPE_PX: dir 'up' | 'down' | 'left' | 'right', dist px, far = beyond FAR of
 //                      the way to the screen edge in that direction (↓ a little = context away, ↓ far = take anew)
-//              pinch   two fingers: scale (1 = start), centre, the roles under both; phase 'move' | 'end'
+//              pinch   two fingers: scale (1 = start), centre, the roles under both; phase 'move' | 'end';
+//                      fx / fy = how much further apart across / up-down than at the start, angle = how steep they
+//                      lay at the start (0 side by side … 90 one above the other) – the window's form (20.11.)
 // Depends:   nothing
 // Test:      tests/ui.test.mjs
 // Limits:    two fingers at most (a third is ignored); a double tap delays nothing: the first tap is reported at
 //            once, the second comes as 'double' instead of a second 'tap'.
 
 export const TAP_PX = 10, SWIPE_PX = 28, HOLD_MS = 450, DOUBLE_MS = 320, FAR = 0.45;
+
+/** The pinch between two fingers a, b (with their spots at the pinch's start in p). */
+function pinchOf(p, a, b, phase) {
+  const x0 = Math.abs(p.at[0].x - p.at[1].x), y0 = Math.abs(p.at[0].y - p.at[1].y);
+  const ratio = (now, then) => (then < 24 ? 1 : Math.max(0.2, now / then)); // too close in that direction to say
+  return { type: 'pinch', phase, scale: Math.hypot(a.x - b.x, a.y - b.y) / p.d0, centre: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, roles: p.roles, at: p.at, // at: where the two fingers went down (20.11.: free space or the take)
+    fx: ratio(Math.abs(a.x - b.x), x0), fy: ratio(Math.abs(a.y - b.y), y0), angle: (Math.atan2(y0, x0) * 180) / Math.PI };
+}
 
 export class Swipe {
   constructor({ w = 390, h = 844 } = {}) { this.size = { w, h }; this.fingers = new Map(); this.lastTap = null; this.pinch = null; }
@@ -28,7 +38,7 @@ export class Swipe {
     if (this.fingers.size === 2) {
       const [a, b] = [...this.fingers.values()];
       for (const f of [a, b]) f.moved = true; // no tap, no swipe from a pinch
-      this.pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, roles: [a.role, b.role] };
+      this.pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, roles: [a.role, b.role], at: [{ x: a.x, y: a.y }, { x: b.x, y: b.y }], ids: [...this.fingers.keys()] };
       return [];
     }
     return [];
@@ -40,9 +50,8 @@ export class Swipe {
     if (!f) return [];
     f.x = x; f.y = y;
     if (this.pinch && this.fingers.size === 2) {
-      const [a, b] = [...this.fingers.values()];
-      const d = Math.hypot(a.x - b.x, a.y - b.y);
-      return [{ type: 'pinch', phase: 'move', scale: d / this.pinch.d0, centre: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, roles: this.pinch.roles }];
+      const [a, b] = this.pinch.ids.map((k) => this.fingers.get(k));
+      return [pinchOf(this.pinch, a, b, 'move')];
     }
     if (!f.moved && Math.hypot(x - f.x0, y - f.y0) >= TAP_PX) f.moved = true;
     return f.moved && !this.pinch ? [{ type: 'drag', role: f.role, dx: x - f.x0, dy: y - f.y0, x, y, t }] : [];
@@ -64,8 +73,9 @@ export class Swipe {
     if (this.pinch) {
       const out = [];
       if (this.fingers.size === 1) {
-        const o = [...this.fingers.values()][0];
-        out.push({ type: 'pinch', phase: 'end', scale: Math.hypot(o.x - x, o.y - y) / this.pinch.d0, centre: { x: (o.x + x) / 2, y: (o.y + y) / 2 }, roles: this.pinch.roles });
+        const o = [...this.fingers.values()][0], gone = { x, y };
+        const [a, b] = this.pinch.ids[0] === id ? [gone, o] : [o, gone];
+        out.push(pinchOf(this.pinch, a, b, 'end'));
       }
       if (!this.fingers.size) this.pinch = null;
       return out;
