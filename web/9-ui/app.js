@@ -7,7 +7,8 @@
 // the onboarding (name, name sign, password gestures, the two drawn words).
 // Depends:   browser; 0-i18n, 2-storage/local, 3-index, 9-ui
 // Test:      every part without a screen in tests/ui.test.mjs; the whole in Chrome and on the phone.
-// Limits:    one paint per animation frame at most; the index is rebuilt after each take (≈ 5 ms per 100 files).
+// Limits:    one paint per animation frame at most; the index is rebuilt after each take (≈ 5 ms per 100 files) and every
+//            5 min while seen (21.11.).
 
 import './persons-boot.js';
 import { translator } from '../0-i18n/t.js';
@@ -58,7 +59,13 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const A = { t, settings, person, device, store, sources: [{ name: 'own', store, write: true }], index: null, engine: null,
     st: initial(), data: { thumbs: {}, buttonPic: null, entries: [], typing: '', hint: null, sharing: null, drag: null } };
   const ownKeys = await deviceKeys().then((k) => ({ [device]: k.device.public }), () => ({}));
-  A.reindex = async () => { A.index = await buildIndex(A.sources, { keys: ownKeys, cache: store }); A.similar?.refresh(); };
+  let indexedAt = Date.now();
+  A.reindex = async () => { indexedAt = Date.now(); A.index = await buildIndex(A.sources, { keys: ownKeys, cache: store }); A.similar?.refresh(); };
+  // New takes of others also while the app is open (21.11., user): every SYNC_MS when seen, at once when coming back
+  // (after ≥ 1 min away); never while recording. Cost: one listing per folder of each sharing point (parts.js).
+  const SYNC_MS = 5 * 60 * 1000, freshen = (after) => { if (document.visibilityState === 'visible' && A.st.rec === 'idle' && Date.now() - indexedAt > after) A.reindex().catch(() => {}); };
+  setInterval(() => freshen(SYNC_MS), 60 * 1000);
+  document.addEventListener('visibilitychange', () => freshen(60 * 1000));
   A.index = await buildIndex(A.sources, { keys: ownKeys, cache: store }).catch(() => null);
   A.media = mediaOf(store, () => A);
 
@@ -82,8 +89,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     A.st = next(A.st, e);
     if (A.st.strands !== before.strands || A.st.form !== before.form) { settings.auto = Object.keys(A.st.strands).filter((k) => A.st.strands[k]); settings.shape = A.st.form; keep('sign.settings', settings); }
     if (A.st.context !== before.context && !A.st.onboard.on) keep('sign.series', A.st.context);
-    if (A.st.similar !== before.similar || A.st.filters !== before.filters || A.st.context !== before.context) A.similar?.refresh();
-    if (A.st.similar === 'closed' && before.similar !== 'closed') { A.similar?.close(); A.data.ranging = false; }
+    if (A.st.similar !== before.similar || A.st.filters !== before.filters || A.st.context !== before.context || A.st.strands !== before.strands) A.similar?.refresh(); // strands on/off = what counts as similar (21.11.)
+    if (A.st.similar === 'closed' && before.similar !== 'closed') { A.similar?.close(); A.data.ranging = false; A.data.kindCloud = null; }
     if (!A.st.share && before.share) { A.data.shareChain = null; A.data.suggest = null; } // what was made to share is shared (or not): the next ↑ shares the line again
     if ((A.st.at !== before.at || A.st.rec !== before.rec) && A.st.wide < 0.02 && !A.similar?.comparing) A.showAt?.();
     if (A.st.dstrands !== before.dstrands || A.st.pick !== before.pick || A.st.similar !== before.similar) A.similar?.sound?.(); // the double view's sound (20.11.)
@@ -175,7 +182,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     focus.classList.toggle('gone', st.similar === 'full');
     win.classList.toggle('off', !st.strands.v);
     win.classList.toggle('gone', st.similar === 'full');
-    const svg = takeSvg(st, L, { playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, auto: A.settings.restartMs != null, range: st.filters.range ?? {}, ranging: A.data.ranging });
+    const svg = takeSvg(st, L, { playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, auto: A.settings.restartMs != null, range: st.filters.range ?? {}, ranging: A.data.ranging, series: isLive(st) && !st.typing ? A.data.kindCounts?.series ?? 0 : 0 });
     if ($('#take').dataset.svg !== svg) { $('#take').innerHTML = svg; $('#take').dataset.svg = svg; }
     $('#take').classList.toggle('gone', st.similar === 'full');
     const ob = st.onboard.on ? onboardingView(st.onboard, st.typing ? A.data.typing ?? '' : '') : null; // onboarding: typed into its green chip (21.11.)
@@ -193,8 +200,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     rowEl.classList.toggle('typing', st.typing);
     rowEl.classList.toggle('gone', st.similar === 'full' || !st.strands.x);
     const rowText = rowHtml(row, { waiting: ob?.slot === 'own' && !ob.series, all: st.typing, on: st.typing && !ob?.series, caret: st.caret, typing: st.typing && !ob?.series ? A.data.typing : '', offers: ob?.green ?? [], open: A.data.open?.caret });
-    if (rowEl.dataset.html !== rowText) { rowEl.innerHTML = rowText; rowEl.dataset.html = rowText; }
-    const sim = similarHtml(st, A.data.entries ?? [], L, { ...(A.data.similarLists ?? {}), picked: A.data.picked ?? null, search: A.data.search ?? null, me: A.person?.label ?? '' });
+    const nTemplates = A.data.kindCounts?.template ?? 0; // the templates' bubble at the end of the row (21.11.): spread or tap = their cloud
+    const rowAll = rowText + (!earlier && !ob && !st.typing && nTemplates ? `<span class="kind-bubble" data-role="kinds:template"><em>_</em><b>${nTemplates}</b></span>` : '');
+    if (rowEl.dataset.html !== rowAll) { rowEl.innerHTML = rowAll; rowEl.dataset.html = rowAll; }
+    const sim = similarHtml(st, A.data.entries ?? [], L, { ...(A.data.similarLists ?? {}), picked: A.data.picked ?? null, search: A.data.search ?? null, me: A.person?.label ?? '', kindCloud: A.data.kindCloud ?? null, searches: A.data.kindCounts?.search ?? 0 });
     if ($('#similar').dataset.text !== sim) { $('#similar').innerHTML = sim; $('#similar').dataset.text = sim; }
     const cg = $('#carry'), c = A.data.carry; // what is carried follows the finger
     cg.hidden = !c;

@@ -163,7 +163,11 @@ export function takeSvg(st, L, data = {}) {
   const out = [];
   const line = st.lines.at(-1), older = st.lines.length - 1;
   if (L.scale) out.push(`<path class="focus-edge" d="${outline(L)}"/>`);
-  if (st.similar !== 'closed' && st.similar !== 'full' && data.range) out.push(haloSvg(data.range, L)); // how far Similar looks, in each respect (21.11.) // only the inside is seen (20.11., user): the picture itself is clipped to the window (app.js)
+  if (st.similar !== 'closed' && st.similar !== 'full' && data.range) out.push(haloSvg(data.range, L)); // how far Similar looks, in each respect (21.11.)
+  if (data.series && st.similar !== 'full') { // the series' bubble at the end of the line (21.11.): spread or tap = their cloud
+    const [x, y] = edge(L, 25, L.lineOff), rr = 15 * L.k; // on the line, right of the button (where no take lies yet)
+    out.push(`<g class="kind-dot" data-role="kinds:series"><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(rr)}"/><text x="${f1(x)}" y="${f1(y - 3 * L.k)}">—</text><text class="n" x="${f1(x)}" y="${f1(y + 7 * L.k)}">${data.series}</text></g>`);
+  } // only the inside is seen (20.11., user): the picture itself is clipped to the window (app.js)
   // a line chosen (20.11.): a border around it, as wide as its takes — the stroke itself keeps its colour
   const border = (d, w, id) => `<mask id="${id}" maskUnits="userSpaceOnUse"><rect x="-9999" y="-9999" width="99999" height="99999" fill="white"/><path d="${d}" fill="none" stroke="black" stroke-width="${f1(w)}" stroke-linecap="round"/></mask><path class="line-border" d="${d}" stroke-width="${f1(w + 6)}" mask="url(#${id})"/>`;
   const sc = L.scale || 1;

@@ -66,12 +66,10 @@ export function gesturesOf(A) {
       if (r.startsWith('take:')) return A.dispatch({ type: 'at', at: Number(r.slice(5)) });
       if (r.startsWith('tile:')) { // what lies on top of a chain decides where it opens (21.11., user): ?( ) Similar · a line or _() the take window
         const e = A.data.entries[Number(r.slice(5))];
-        if (e?.kind === 'search') return A.similar.openSearch(e);
-        if (e?.kind === 'series') return A.similar.seriesToLine(e);
-        if (e?.kind === 'template') return A.similar.takeOver(e);
-        return A.similar.pick(e?.key);
+        if (e?.kind === 'search') return A.similar.openSearch(e); // a similar is a view: it opens
+        return A.similar.pick(e?.key); // a take, a series, a template: seen in the double view first; dragged into the take = taken over (similar-flow toLine)
       }
-      if (r === 'search-off') return A.similar.closeSearch();
+      if (r.startsWith('kinds:')) return A.similar.openKind(r.slice(6)); // the bubble of templates, series or saved similar: their own cloud (21.11.)
       if (r.startsWith('kind:')) { const k = r.slice(5), f = A.st.filters; return A.dispatch({ type: 'filters', filters: { ...f, on: { ...f.on, [k]: f.on[k] === false } } }); } // which chains the cloud shows
       if (r.startsWith('filter:')) return A.dispatch({ type: 'filters', filters: tapFilter(A.st.filters, r.slice(7)) });
       if (r.startsWith('bundle:')) return openBundleAt(Number(r.slice(7))); // a bundle: only it, one step finer (21.11.)
@@ -95,19 +93,13 @@ export function gesturesOf(A) {
         return null;
       }
     }
-    if (r.startsWith('strand:') && A.st.similar !== 'closed') { // an arc of the take dragged into Similar = this strand counts as similar, again = no more (21.11.)
-      if (ev.type === 'drag') { A.data.strandCarry = { kind: r.slice(7), x: ev.x, y: ev.y }; return null; }
-      if ((ev.type === 'swipe' || ev.type === 'drag-end') && A.data.strandCarry) {
-        const c = A.data.strandCarry, b = A.L.similarBox; A.data.strandCarry = null;
-        if (b && c.x > b.x && c.x < b.x + b.w && c.y > b.y && c.y < b.y + b.h) { navigator.vibrate?.(8); return A.dispatch({ type: 'filters', filters: tapFilter(A.st.filters, c.kind) }); }
-        return null;
-      }
-    }
     if (ev.type === 'hold' && r.startsWith('filter:')) return A.dispatch({ type: 'filters', filters: turnOrder(A.st.filters, r.slice(7)) });
     if (ev.type === 'drag' && r === 'datebar') return dateSpan(ev);
     if (ev.type === 'swipe') {
       if (r === 'double' && (ev.dir === 'left' || ev.dir === 'right')) return A.similar.step(ev.dir) || nextResult(ev.dir); // ← → above: the next account that may be hers, else the next result
       if (r.startsWith('chip:') && ev.dir === 'down' && r.slice(5) === 'Name' && A.st.onboard.on) { A.dispatch({ type: 'onboard', patch: { dropped: true } }); return A.syncOnboard(); }
+      if (ev.dir === 'down' && r === 'search-off') return A.similar.closeSearch(); // pulled down = away (21.11., user: no ✕)
+      if (ev.dir === 'down' && r === 'kinds-off') return A.similar.closeKind();
       if (inRow(r) && ev.dir === 'up' && live(A.st) && !A.st.onboard.on && A.st.context) { // the written series pushed up over the edge = shared as a template (21.11.)
         navigator.vibrate?.(12);
         return A.take.saveTemplate(A.st.context).then((p) => { if (!p) return A.shake('context'); A.engine?.show(true); return A.dispatch({ type: 'share', open: true }); });
@@ -218,6 +210,8 @@ export function gesturesOf(A) {
   // ---------- spread, squeeze ----------
   function pinch(ev) {
     const L = A.L, [a, b] = ev.roles ?? [];
+    const kindRole = [a, b].find((x) => x?.startsWith('kinds:'));
+    if (kindRole) return ev.phase === 'end' && ev.scale > 1.12 ? A.similar.openKind(kindRole.slice(6)) : null; // spread on a bubble = its cloud
     const nearButton = L && Math.hypot(ev.centre.x - L.button.x, ev.centre.y - L.button.y) < 70 * L.k;
     // both fingers began off the take (20.11.): above, below, beside it on a tablet, on Similar — that zooms Similar open and shut
     const free = !shaping && !wide && Boolean(ev.at) && ev.at.every((pt, i) => !onTake(L, pt, ev.roles?.[i]));

@@ -21,6 +21,7 @@ import { hashBytes, storedText } from '../1-model/hash.js';
 import { headLine, defLine, fileText, readFile } from '../1-model/file.js';
 import { encodeWav, wavSamples } from '../1-model/wav.js';
 import { headed, sealHead } from '../1-model/media-head.js';
+import { withDuration } from '../1-model/mp4-duration.js';
 import { flatWords, timeLabel } from '../1-model/filename.js';
 import { pathOf } from '../2-storage/layout.js';
 import { signed } from '../1-model/crypto.js';
@@ -56,7 +57,10 @@ export async function saveTake({ device, person, cell = null, where = null, now 
   };
 
   // every strand carries its own head with ID and seal (media-head.js); the chain then holds the hash of the whole file
-  if (video) { const id = make(), ext = video[4] === 0x66 && video[5] === 0x74 ? 'mp4' : 'webm'; await add('v', id, await headed(ext, video, head('v', id), deviceKey)); } // 'ftyp' = MP4
+  if (video) { // 'ftyp' = MP4; its real length goes into the moov before head and seal (21.11.: players that read only the moov)
+    const id = make(), ext = video[4] === 0x66 && video[5] === 0x74 ? 'mp4' : 'webm';
+    await add('v', id, await headed(ext, ext === 'mp4' ? withDuration(video) : video, head('v', id), deviceKey));
+  }
   else if (picture) { const id = make(); await add('v', id, await headed('png', picture, head('v', id), deviceKey), { ext: 'png' }); } // one picture (14.11.): the visual strand as .v.png, lossless
   if (audio) {
     const id = make(), samples = wavSamples(audio.channels);

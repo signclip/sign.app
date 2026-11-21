@@ -28,6 +28,7 @@ import { msOf } from '../1-model/time.js';
 import { BLACK } from './player.js';
 import { accountTakes } from '../8-join/known.js';
 import { note as debugNote } from './debug.js';
+import { firstOf, fadeOver, shown } from './ahead.js';
 
 export function similarFlow(A) {
   const s = { look: null, entries: [], playing: null, cmp: null, carried: null };
@@ -54,14 +55,14 @@ export function similarFlow(A) {
   const wordsOfSearch = (c) => (c?.defs.get('?.1')?.body?.items ?? []).filter((i) => i.t === 'value').map((i) => i.text);
   const timeOf = (c) => { try { return msOf(String(c?.head?.["'t"] ?? '')) || 0; } catch { return 0; } };
   /** The series holding the results, and the searches for these words (none typed: the newest six). */
-  function chainsBeside(takes, ws, f) {
+  function chainsBeside(takes, ws) {
     const { index } = A, out = [], seen = new Set(takes.map((e) => e.key));
-    const put = (c, kind, extra = {}) => { if (!c || seen.has(c.key) || f.on[kind] === false) return; seen.add(c.key); out.push(dress({ key: c.key, kind, chain: c, words: [], t: timeOf(c), person: c.head?.['@'] ?? '', sharing: [c.from?.store].filter(Boolean), thumb: null, ...extra })); };
+    const put = (c, kind, extra = {}) => { if (!c || seen.has(c.key)) return; seen.add(c.key); out.push(dress({ key: c.key, kind, chain: c, words: [], t: timeOf(c), person: c.head?.['@'] ?? '', sharing: [c.from?.store].filter(Boolean), thumb: null, ...extra })); };
     for (const e of takes) for (const k of index.tables.weave.get(e.chain?.key) ?? []) { const c = index.tables.chains.get(k); if (kindOf(c) === 'series') put(c, 'series'); }
     const want = new Set(ws.map((w) => w.toLowerCase()));
     const searches = [...index.tables.similar].map((k) => index.tables.chains.get(k)).filter(Boolean).sort((a, b) => timeOf(b) - timeOf(a));
     for (const c of want.size ? searches.filter((c) => wordsOfSearch(c).some((w) => want.has(w.toLowerCase()))) : searches.slice(0, 6)) put(c, 'search', { words: wordsOfSearch(c) });
-    return out.slice(0, 12);
+    return out.slice(0, 40);
   }
   /** A search tile: Similar shows that search (its words instead of the window's); tapped again on its sign = back. */
   function openSearch(e) {
@@ -71,6 +72,9 @@ export function similarFlow(A) {
     refresh();
   }
   function closeSearch() { s.search = null; A.data.search = null; refresh(); }
+  /** A kind's bubble spread or tapped: its own cloud in Similar (21.11.); pulled down = the cloud of takes again. */
+  function openKind(k) { A.data.kindCloud = k; navigator.vibrate?.(8); if (A.st.similar === 'closed') A.dispatch({ type: 'similar', level: 'many' }); refresh(); }
+  function closeKind() { A.data.kindCloud = null; refresh(); }
   /** Where a chain's file lies: { store, path } (the sharing point by its name). */
   const fileOf = (c) => { const f = c?.from; const src = (A.sources ?? []).find((x) => x.name === f?.store); return src && f?.path ? { store: src.store, path: f.path } : null; };
   /** A series tile: its takes into the line (an earlier sequence taken over, 21.11.), as someone else's (a guest line) until changed. */
@@ -110,8 +114,8 @@ export function similarFlow(A) {
   }
   /** ↑ in the cloud: what it shows now kept as a search chain (G4c), to share. → path */
   async function saveSearch() {
-    const f = A.st.filters, ws = s.search ? s.search.words : f.on.x ? words() : [];
-    const kinds = ['v', 'x', 'a'].filter((k) => f.on[k]);
+    const f = A.st.filters, ws = s.search ? s.search.words : A.st.strands.x ? words() : [];
+    const kinds = ['v', 'x', 'a'].filter((k) => A.st.strands[k]); // what counts: the strands that are on in the take (21.11.)
     const saved = await saveSimilar(A.store, { words: ws, kinds, persons: f.value.name ?? [] }, { device: A.device, person: A.person, deviceKey: await sealKey() }).catch(() => null);
     if (!saved) return null;
     A.data.shareChain = saved.path;
@@ -124,7 +128,7 @@ export function similarFlow(A) {
     const f = A.st.filters;
     if (s.look) { choices(s.look); const shown = s.look.filter((e) => passes(e, f) && inBundle(e, f.value.bundle, f)); return f.group ? sortedBy(shown, f) : ordered(shown, f); }
     const range = { ...wideOpen(), ...f.range }; // how far it looks in each respect (21.11., similar-range.js)
-    const written = s.search ? s.search.words : f.on.x ? words() : []; // a search chain opened (21.11.): its words, not the window's
+    const written = s.search ? s.search.words : A.st.strands.x ? words() : []; // the take's context strand on = its words count (21.11., user); a search chain opened: its words
     const ws = range.x > 0 && written.length ? widenWords(written, range.x, A.index.tables.context) : written;
     const hits = similar(A.index, { words: ws, limit: MANY });
     const list = hits.map((h) => {
@@ -137,8 +141,15 @@ export function similarFlow(A) {
     const earlier = A.st.at < (A.st.lines.at(-1)?.takes.length ?? 0) ? A.st.lines.at(-1).takes[A.st.at] : null;
     const focus = { t: earlier?.t ?? Date.now(), cell: A.take?.here?.() ?? null, person: A.person?.label ?? '' }; // round the take in the button, else now
     const reach = { own: ['own'], write: (A.sources ?? []).filter((x) => x.write && x.name !== 'own').map((x) => x.name) };
-    const takes = applyRange(one.filter((e) => own(e.chain)), range, focus, reach).map((e) => { const k = kindOf(e.chain); if (k) e.kind = k; return e; }).filter((e) => !e.kind || f.on[e.kind] !== false);
-    takes.push(...chainsBeside(takes, ws, f)); // 21.11.: the chains that hold them – series, searches – as tiles of their own
+    const found = applyRange(one.filter((e) => own(e.chain)), range, focus, reach).map((e) => { const k = kindOf(e.chain); if (k) e.kind = k; return e; });
+    const beside = chainsBeside(found, ws);
+    // 21.11. (user): the cloud holds takes only; templates, series and saved similar lie as a bubble where they are used
+    // (the row, the line, the top of Similar) – spread on it = their own cloud, to choose from
+    const kinds = { template: found.filter((e) => e.kind === 'template'), series: beside.filter((e) => e.kind === 'series'), search: beside.filter((e) => e.kind === 'search') };
+    A.data.kindCounts = Object.fromEntries(Object.entries(kinds).map(([k, list]) => [k, list.length]));
+    A.data.kindPics = Object.fromEntries(Object.entries(kinds).map(([k, list]) => [k, list.map((e) => e.thumb).filter(Boolean).slice(0, 4)]));
+    const only = A.data.kindCloud; // a kind's own cloud is open
+    const takes = only ? kinds[only] ?? [] : found.filter((e) => !e.kind);
     choices(takes);
     const shown = takes.filter((e) => passes(e, f) && inBundle(e, f.value.bundle, f));
     return f.group ? sortedBy(shown, f) : ordered(shown, f); // zoomed in a zone: sorted by it (21.11.)
@@ -196,10 +207,12 @@ export function similarFlow(A) {
 
   /** Refresh after the take or the filters changed. */
   function refresh() {
-    if (A.st.similar === 'closed') return;
+    if (A.st.similar === 'closed') { if (A.index) { try { compute(); } catch { /* not ready */ } A.paint(); } return; } // closed: only how many templates and series there are, for their bubbles (21.11.)
     s.entries = compute();
     A.data.entries = s.entries;
     fill(s.entries);
+    clearTimeout(s.aheadTimer); // the first results are read once they stay for 0.6 s (not at every typed letter), so a tap plays at once (21.11.)
+    s.aheadTimer = setTimeout(() => A.media.ahead?.(firstOf(s.entries)), 600);
     A.paint();
   }
 
@@ -292,10 +305,13 @@ export function similarFlow(A) {
     if (s.playing !== p) return;
     if (!f?.url) return;
     if (f.picture) { v.removeAttribute('src'); v.poster = f.url; v.load(); if (p.queue.length > 1) setTimeout(() => { if (s.playing === p) { p.i += 1; play(); } }, 1500); return; }
+    const release = fadeOver(v); // the last frame of the one before fades into this one (21.11.)
     v.poster = A.data.picked?.thumb || BLACK; // its picture, or black, until the first frame (20.11.: no grey placeholder)
     v.hidden = false; v.src = f.url; v.loop = p.queue.length === 1;
     v.onended = () => { p.i += 1; play(); };
     start(v, one.path);
+    shown(v).then(release);
+    A.media.ahead?.([p.queue[(p.i + 1) % p.queue.length]]); // and the next one is read meanwhile
   }
 
   /**
@@ -306,6 +322,9 @@ export function similarFlow(A) {
    */
   async function toLine(key) {
     const e = s.entries.find((x) => x.key === key);
+    if (e?.kind === 'template') return takeOver(e); // dragged into the take: a template becomes the series (21.11.)
+    if (e?.kind === 'series') return seriesToLine(e); // a series lies in the line
+    if (e?.kind === 'search') return openSearch(e);
     const files = e?.pieces ? e.pieces.map((p) => ({ store: p.from, path: p.path })) : e?.at ? [e.at] : [];
     if (!files.length) return false;
     A.data.guestAt ??= {};
@@ -395,5 +414,5 @@ export function similarFlow(A) {
   }
 
   const close = () => { if (s.carried) return; s.look = null; s.playing = null; s.cmp = null; A.data.picked = null; stopBelow(); tell(); }; // someone lies in the window: her pile stays until she is decided
-  return { refresh, lookAt, pick, decide, close, step, toLine, dropGuest, sound, openSearch, closeSearch, seriesToLine, takeOver, bundleBy, saveSearch, get carried() { return Boolean(s.carried); }, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
+  return { refresh, lookAt, pick, decide, close, step, toLine, dropGuest, sound, openSearch, closeSearch, openKind, closeKind, seriesToLine, takeOver, bundleBy, saveSearch, get carried() { return Boolean(s.carried); }, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
 }

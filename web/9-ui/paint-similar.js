@@ -30,13 +30,13 @@ export function tileForm(s, L) {
 }
 
 /** HTML of Similar. entries: [{ key, thumb, words, t, person, sharing, spot }] (ordered, filtered) · L: take layout */
-export function similarHtml(st, entries, L, { names = [], sharing = [], spots = [], range = null, compare = null, picked = null, search = null, reach = [], me = '' } = {}) {
+export function similarHtml(st, entries, L, { names = [], sharing = [], spots = [], range = null, compare = null, picked = null, search = null, reach = [], me = '', kindCloud = null, searches = 0 } = {}) {
   if (st.similar === 'closed' || !L.similarBox) return '';
   const box = L.similarBox, f = st.filters, out = [];
   // 21.11.: no row of signs at the top any more – each metadata is zoomed open where it lies (similar-zoom.js): a pale
   // grip at each edge shows the zone (a tap does the same); who and spot open a strip at the top to choose from.
   const head = (['who', 'spot'].includes(f.open) ? 52 : 12) * L.k;
-  const inner = { x: box.x + 30 * L.k, y: box.y + head, w: box.w - 60 * L.k, h: box.h - head - 26 * L.k };
+  const inner = { x: box.x + 30 * L.k, y: box.y + head, w: box.w - 60 * L.k, h: box.h - head - 8 * L.k };
   if (st.similar === 'double' && L.doubleBox) {
     const d = L.doubleBox, e = (picked?.key === st.pick ? picked : null) ?? entries.find((x) => x.key === st.pick); // picked: still there when typing filters it out
     const clip = outline(L.double, 0, d.x, d.y); // the take's form (20.11.)
@@ -58,11 +58,10 @@ export function similarHtml(st, entries, L, { names = [], sharing = [], spots = 
   const g = f.group, dots = (z) => (g?.by === z ? `<i>${LADDERS[z].map((_, i) => (i < g.level ? '●' : '○')).join('')}</i>` : '');
   const grip = (z, x, y, end = false) => `<span class="grip${f.open === z || g?.by === z ? ' on' : ''}" data-role="grip:${z}" style="left:${px(x)};top:${px(y)}${end ? ';transform:translateX(-100%)' : ''}">${ICON[z]}${dots(z)}</span>`;
   out.push(grip('initial', box.x + 2 * L.k, box.y + box.h / 2 - 14 * L.k), grip('date', box.x + box.w - 2 * L.k, box.y + box.h / 2 - 14 * L.k, true), grip('spot', box.x + box.w / 2 - 13 * L.k, box.y + 2 * L.k));
-  const low = box.y + box.h - 26 * L.k;
-  ['v', 'x', 'a'].forEach((n, i) => out.push(`<span class="sel strand-sel${f.on[n] ? ' on' : ''}" data-role="filter:${n}" style="left:${px(box.x + box.w / 2 + (i - 2) * 30 * L.k - 13 * L.k)};top:${px(low)}">${ICON[n]}</span>`)); // what counts as similar (also: an arc of the take dragged in)
-  out.push(grip('who', box.x + box.w / 2 + 1 * 30 * L.k - 13 * L.k, low));
-  ['series', 'search', 'template'].forEach((k, i) => out.push(`<span class="sel strand-sel kind${f.on[k] !== false ? ' on' : ''}" data-role="kind:${k}" style="left:${px(box.x + box.w / 2 + (i + 2) * 30 * L.k - 13 * L.k)};top:${px(low)}">${KIND_SIGN[k]}</span>`)); // which chains show (21.11.)
-  if (search) out.push(`<span class="chip pick on search-on" data-role="search-off" style="position:absolute;left:${px(box.x + 40 * L.k)};top:${px(box.y + 2 * L.k)}">? ${esc(search.words.join(' '))} ✕</span>`); // a search chain opened: its words, a tap = back to the window's
+  // 21.11. (user): what counts as similar = the strands that are on in the take; wer and the rest = the rings with sectors
+  if (search) out.push(`<span class="chip pick on search-on" data-role="search-off" style="position:absolute;left:${px(box.x + 40 * L.k)};top:${px(box.y + 2 * L.k)}">? ${esc(search.words.join(' '))}</span>`); // a similar opened: its words; pulled down = the window's again (21.11.)
+  else if (kindCloud) out.push(`<span class="chip pick on search-on" data-role="kinds-off" style="position:absolute;left:${px(box.x + 40 * L.k)};top:${px(box.y + 2 * L.k)}">${KIND_SIGN[kindCloud] ?? ''} · ${entries.length}</span>`); // a kind's own cloud; pulled down = the takes again
+  else if (searches && st.similar !== 'double') out.push(`<span class="kind-bubble in-similar" data-role="kinds:search" style="position:absolute;left:${px(box.x + 40 * L.k)};top:${px(box.y + 2 * L.k)}"><em>?</em><b>${searches}</b></span>`); // the saved similar: a bubble at the top, spread or tap = their cloud
   if (f.open === 'initial') {
     const letters = initialsOf(entries.length ? entries : [], f.order.initial).slice(0, 30);
     out.push(`<div class="letters" style="left:${px(box.x + 30 * L.k)};top:${px(box.y + 14 * L.k)};height:${px(box.h - 44 * L.k)}"><em data-role="order:initial">${f.order.initial === 'az' ? '↓' : '↑'}</em>${letters.map((c) => `<span class="${(f.value.initial ?? []).includes(c) ? 'on' : ''}" data-role="initial:${esc(c)}">${esc(c)}</span>`).join('')}</div>`);

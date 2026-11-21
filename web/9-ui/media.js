@@ -8,13 +8,15 @@
 //                       (echo/v/<month>/ or the same folder, e.g. hello/) · else drawn from the video (frame.js)
 // Depends:   1-model (ids, filename, file), 9-ui/frame.js, 9-ui/debug.js
 // Test:      needs a browser (pictures); the index it reads is tested in tests/index.test.mjs.
-// Limits:    one listing per folder per session; pictures kept as object URLs for the session (≈ 5 KB each).
+// Limits:    one listing per folder per session; pictures kept as object URLs for the session (≈ 5 KB each);
+//            playable files: the last 10 (ahead.js MAX), a take ≈ 3–10 MB.
 
 import { writeId } from '../1-model/ids.js';
 import { readName } from '../1-model/filename.js';
 import { readFile } from '../1-model/file.js';
 import { firstFrame } from './frame.js';
 import { note as debugNote } from './debug.js';
+import { filesOf, allowed } from './ahead.js';
 
 const dec = new TextDecoder();
 
@@ -83,12 +85,15 @@ export function mediaOf(store, now) {
     job.then((url) => { if (!url) pics.delete(p.path); }); // no picture (not written yet, far away): asked again next time (20.11.)
     return job;
   }
-  /** The playable file of a picture or video: { url, picture } */
-  async function playable(p) {
+  /** The playable file of a picture or video: { url, picture } — read once, kept among the last few (ahead.js). */
+  const files = filesOf(async (p) => {
     const bytes = await p.store.read(p.path);
     const picture = p.path.endsWith('.png');
     const type = picture ? 'image/png' : p.path.endsWith('.wav') ? 'audio/wav' : p.path.endsWith('.webm') ? 'video/webm' : 'video/mp4'; // as recorded (settings.js pickVideoType)
     return { url: URL.createObjectURL(new Blob([bytes], { type })), picture };
-  }
-  return { visualOf, soundOf, contextTextOf, picOf, playable, at };
+  });
+  const playable = (p) => files.get(p);
+  /** Read these files now, one after another, so a tap starts at once (21.11.; not when the phone saves data). */
+  const ahead = (list) => { if (allowed()) files.ahead(list); };
+  return { visualOf, soundOf, contextTextOf, picOf, playable, ahead, at };
 }
