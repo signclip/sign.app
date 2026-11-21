@@ -19,7 +19,7 @@ export const MANY = 40;
 export const FILTERS = ['v', 'x', 'a', 'date', 'initial', 'name', 'sharing', 'spot'];
 export const ORDERED = ['date', 'initial'];
 
-export const noFilters = () => ({ on: { x: true }, value: {}, open: null, order: { date: 'new', initial: 'az' } });
+export const noFilters = () => ({ on: { x: true }, value: {}, open: null, order: { date: 'new', initial: 'az' }, group: null }); // group: zoomed in a zone (similar-zoom.js)
 
 /** The next level after a pinch: scale > 1 = spread, < 1 = squeeze. */
 export function zoomed(level, scale) {

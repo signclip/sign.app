@@ -26,14 +26,15 @@ import { takeSvg, nowHtml, rowHtml } from './paint.js';
 import { similarHtml } from './paint-similar.js';
 import { sharingView } from './paint-sharing.js';
 import { seriesRow, nowWords } from './chips.js';
-import { hintOf, onboardingSeries } from './onboarding-steps.js';
+import { takeWords } from '../1-model/context-edit.js';
+import { hintOf, onboardingSeries, onboardingView } from './onboarding-steps.js';
 import { listen } from './touch.js';
 import { takeFlow } from './take-flow.js';
 import { similarFlow } from './similar-flow.js';
 import { mediaOf } from './media.js';
 import { playerOf } from './player.js';
 import { live as isLive, count as takesOn } from './take-state.js';
-import { gesturesOf } from './gestures-take.js';
+import { gesturesOf, ZW } from './gestures-take.js';
 import { calmOf } from './calm.js';
 import { mountSharing } from './sharing-engine.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
@@ -82,7 +83,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (A.st.strands !== before.strands || A.st.form !== before.form) { settings.auto = Object.keys(A.st.strands).filter((k) => A.st.strands[k]); settings.shape = A.st.form; keep('sign.settings', settings); }
     if (A.st.context !== before.context && !A.st.onboard.on) keep('sign.series', A.st.context);
     if (A.st.similar !== before.similar || A.st.filters !== before.filters || A.st.context !== before.context) A.similar?.refresh();
-    if (A.st.similar === 'closed' && before.similar !== 'closed') A.similar?.close();
+    if (A.st.similar === 'closed' && before.similar !== 'closed') { A.similar?.close(); A.data.ranging = false; }
+    if (!A.st.share && before.share) { A.data.shareChain = null; A.data.suggest = null; } // what was made to share is shared (or not): the next ↑ shares the line again
     if ((A.st.at !== before.at || A.st.rec !== before.rec) && A.st.wide < 0.02 && !A.similar?.comparing) A.showAt?.();
     if (A.st.dstrands !== before.dstrands || A.st.pick !== before.pick || A.st.similar !== before.similar) A.similar?.sound?.(); // the double view's sound (20.11.)
     A.paint();
@@ -162,6 +164,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   globalThis.Capacitor?.Plugins?.Keyboard?.addListener?.('keyboardWillShow', (e) => nativeKeyboard(e?.keyboardHeight ?? 0));
   globalThis.Capacitor?.Plugins?.Keyboard?.addListener?.('keyboardWillHide', () => { nativeKeyboard(0); if (A.st.typing) $('#say').blur(); }); // closed by Android (back, swipe): done writing
   const size = () => ({ w: innerWidth, h: full.h || innerHeight, keyboard: A.st.keyboard });
+  /** A take's own context in the row: every word in the colour of the take now (it is one take, 21.11.). */
+  const asNow = (n) => (n.take ? { ...n, tone: 'now', words: n.words.map((w) => ({ ...w, tone: 'now' })) } : { ...n, head: (n.head ?? []).map((w) => ({ ...w, tone: 'now' })), children: n.children.map(asNow) });
   function paint() {
     const st = A.st, L = takeLayout(size(), st.similar, st.form, A.data.picture ?? 1);
     A.L = L;
@@ -171,19 +175,26 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     focus.classList.toggle('gone', st.similar === 'full');
     win.classList.toggle('off', !st.strands.v);
     win.classList.toggle('gone', st.similar === 'full');
-    const svg = takeSvg(st, L, { thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, auto: A.settings.restartMs != null });
+    const svg = takeSvg(st, L, { playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, auto: A.settings.restartMs != null, range: st.filters.range ?? {}, ranging: A.data.ranging });
     if ($('#take').dataset.svg !== svg) { $('#take').innerHTML = svg; $('#take').dataset.svg = svg; }
     $('#take').classList.toggle('gone', st.similar === 'full');
-    const row = seriesRow(st.context, st.sticky);
-    const nowText = st.strands.x && st.similar !== 'full' ? nowHtml(nowWords(st.context, st.sticky), L, st.onboard.on ? ['Name', ...st.onboard.words] : []) : '';
+    const ob = st.onboard.on ? onboardingView(st.onboard, st.typing ? A.data.typing ?? '' : '') : null; // onboarding: typed into its green chip (21.11.)
+    const earlier = !isLive(st) ? st.lines.at(-1)?.takes[st.at] : null; // an earlier take in the button: its own context, in the window and to change (21.11.)
+    const edit = earlier && A.data.edit?.id === earlier.id ? A.data.edit : null;
+    const ctx = earlier ? (edit?.text ?? earlier.context ?? '') : ob?.series ?? st.context;
+    const row = earlier ? (st.typing ? seriesRow(ctx, '').map(asNow) : []) : seriesRow(ctx, st.sticky);
+    const rp = $('#replay'), atMs = earlier && rp && !rp.paused ? rp.currentTime * 1000 : null;
+    const shownWords = earlier ? takeWords(ctx).map((w) => ({ ...w, tone: 'now' })) : nowWords(ctx, st.sticky);
+    A.data.timedWords = shownWords.some((w) => w.from != null);
+    const nowText = st.strands.x && st.similar !== 'full' ? nowHtml(shownWords, L, ob?.green ?? [], { len: earlier?.ms ?? 0, atMs }) : '';
     if ($('#now').dataset.html !== nowText) { $('#now').innerHTML = nowText; $('#now').dataset.html = nowText; } // written only when it changed: the button's arc repaints often (calm.js)
     const rowEl = $('#row');
     rowEl.style.top = `${L.queueY}px`;
     rowEl.classList.toggle('typing', st.typing);
     rowEl.classList.toggle('gone', st.similar === 'full' || !st.strands.x);
-    const rowText = rowHtml(row, { waiting: st.onboard.on && st.onboard.nameSign && st.onboard.gestures === PASSWORD_PARTS.length - 1 && !st.onboard.ownTyped && !st.typing, all: st.typing, on: st.typing, caret: st.caret, typing: st.typing ? A.data.typing : '', offers: st.onboard.on ? ['Name', ...st.onboard.words] : [] });
+    const rowText = rowHtml(row, { waiting: ob?.slot === 'own' && !ob.series, all: st.typing, on: st.typing && !ob?.series, caret: st.caret, typing: st.typing && !ob?.series ? A.data.typing : '', offers: ob?.green ?? [], open: A.data.open?.caret });
     if (rowEl.dataset.html !== rowText) { rowEl.innerHTML = rowText; rowEl.dataset.html = rowText; }
-    const sim = similarHtml(st, A.data.entries ?? [], L, { ...(A.data.similarLists ?? {}), picked: A.data.picked ?? null });
+    const sim = similarHtml(st, A.data.entries ?? [], L, { ...(A.data.similarLists ?? {}), picked: A.data.picked ?? null, search: A.data.search ?? null, me: A.person?.label ?? '' });
     if ($('#similar').dataset.text !== sim) { $('#similar').innerHTML = sim; $('#similar').dataset.text = sim; }
     const cg = $('#carry'), c = A.data.carry; // what is carried follows the finger
     cg.hidden = !c;
@@ -225,7 +236,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       const at = $('#sharing-html .row')?.scrollLeft ?? 0;
       $('#sharing-html').innerHTML = v.html; $('#sharing-html').dataset.text = v.html;
       const row = $('#sharing-html .row'); if (row && at) row.scrollLeft = at;
-    }
+    }    for (const el of $('#sharing-html').querySelectorAll('.tile')) el.classList.toggle('suggest', Boolean(A.data.suggest) && el.textContent.trim().startsWith(A.data.suggest)); // the person of the double view first in sight (21.11.)
+
     A.paint();
   }
   A.paintSharing = paintSharing;
@@ -235,13 +247,19 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // what the window shows decides how the picture covers it (20.11.): the camera (asked 1:1, the device decides), a take, a file
   const picture = () => { const r = $('#replay'), v = r && !r.hidden && r.videoWidth ? r : $('#live'); const a = v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 1; if (Math.abs(a - (A.data.picture ?? 1)) > 0.01) { A.data.picture = a; A.paint(); } };
   for (const v of [$('#live'), $('#replay')]) for (const e of ['loadedmetadata', 'resize', 'play']) v.addEventListener(e, picture);
+  for (const e of ['play', 'pause', 'ended']) $('#replay').addEventListener(e, () => A.paint()); // the button shows ▶ or ❚❚ for an earlier take (21.11.)
+  $('#replay').addEventListener('timeupdate', () => { if (A.data.timedWords) A.paint(); }); // a word with its own time lights up while it is said (21.11.)
   new MutationObserver(picture).observe($('#replay'), { attributes: true, attributeFilter: ['hidden'] });
   A.pictureAspect = () => A.data.picture ?? 1;
   listen($('#screen'), (ev, e) => { A.calm.poke(); return g.onEvent(ev, e); }); // a touch is input: no start by itself under a finger
   const say = $('#say');
-  say.addEventListener('input', () => { A.calm.poke(); A.data.typing = say.value; A.similar.refresh(); A.paint(); });
+  say.addEventListener('input', () => {
+    A.calm.poke();
+    if (!say.value.includes(ZW)) { say.value = ZW + say.value; say.setSelectionRange?.(say.value.length, say.value.length); if (say.value === ZW) g.backspace(); } // the mark went: Backspace with nothing typed (21.11.)
+    A.data.typing = say.value.replace(ZW, ''); A.similar.refresh(); A.paint();
+  });
   say.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); say.blur(); } }); // Enter = done: the keyboard goes, blur commits
-  say.addEventListener('blur', () => { g.commit(); A.dispatch({ type: 'typing', on: false }); });
+  say.addEventListener('blur', () => { g.commit(); A.dispatch({ type: 'typing', on: false }); g.finish(); });
   const keyboardNow = () => { const px = measure(); if (px !== A.st.keyboard) A.dispatch({ type: 'keyboard', px }); else A.paint(); };
   globalThis.visualViewport?.addEventListener('resize', keyboardNow);
   globalThis.visualViewport?.addEventListener('scroll', keyboardNow);

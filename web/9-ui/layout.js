@@ -1,21 +1,22 @@
 // layout.js — where everything sits on the screen, as numbers only (no DOM): the take window with its three arcs,
-// the button on the line, the photo dot, the context rows, Similar and the sharing menu.
+// the button on the line, the context rows, Similar and the sharing menu.
 //
 // Purpose:   one spot for every position, so the drawing (paint.js) and the touches (touch.js) agree. The take window
 //            has a form (form.js, 20.11.: circle · ellipse · rounded rectangle · rectangle, any aspect), as large as
 //            the screen allows for it; around it, by degrees (0° = top, clockwise, as in the version until 16.11.):
 //              line   −60…60   through the button (top), the takes of the line left and right of it
-//              audio   60…140  right · context 140…220 bottom · visual 220…300 left, the photo dot at its upper end
+//              audio   60…140  right · context 140…220 bottom · visual 220…300 left (21.11.: no photo dot – ← on the ready button)
 //            Older lines are small arcs under the line (between line and window), newest first.
-//            Similar (16.11.): phone upright = above the take, the take smaller at the bottom; wide (tablet across) =
-//            beside it; full = the cloud alone. The keyboard lifts the whole take until its typing row is visible.
+//            Similar (21.11.): upright = above the take, wide = beside it; the take keeps its size at the bottom and
+//            Similar the rest (similarShare: ≥ 1/φ³ = 23.6 %; phone 40 / 60 %) · double = both windows one
+//            size · full = the cloud alone. The keyboard lifts the whole take until its typing row is visible.
 // Depends:   nothing
 // Test:      tests/ui.test.mjs
 // Limits:    drawn for a 390 px phone, scaled by k = min(long side / 760, short side / 390) (the same upright and
 //            across, 20.11.); ≤ 3 older lines drawn (more = "+n" mark);
 //            ≤ 9 takes visible on the line at once (4 left, 4 right of the button), the rest scroll in.
 
-import { fit, edge, curve, pathOf, along, cover, exponent, clampAspect, shapeIn, inside } from './form.js';
+import { fit, edge, curve, pathOf, along, cover, exponent, clampAspect, inside } from './form.js';
 
 export const ARCS = Object.freeze({ line: [-60, 60], a: [60, 140], x: [140, 220], v: [220, 300] });
 export const PHI = (1 + Math.sqrt(5)) / 2;
@@ -36,10 +37,22 @@ export function arcPath(cx, cy, r, a, b) {
 /** Is the screen wide enough to put Similar beside the take (tablet across, desktop)? */
 export const isWide = ({ w, h }) => w >= 700 && w > h * 1.15;
 
+/** Similar's selection views at its top (paint-similar.js): px at k = 1. */
+export const HEAD = 12; // 21.11.: the row of signs went (zoom zones, similar-zoom.js); a grip is left at the top
+/**
+ * Similar beside the take (21.11., user): t = the share of the screen (height; on a wide screen: width) the take needs
+ * at the size it has alone. The take keeps that size and Similar gets the rest – on a 390 × 844 phone 40 / 60 %, near
+ * the golden section (38.2 / 61.8 %); a flat window leaves Similar more. Never less than the next golden step
+ * (1/φ³ = 23.6 %): only below that the take gets smaller (a tablet upright).
+ */
+export function similarShare(t) {
+  return Math.max(1 / PHI ** 3, 1 - t);
+}
+
 /**
  * The take. size { w, h, keyboard (px covered at the bottom) } · similar: 'closed' | 'many' | 'double' | 'full' ·
  * form { round 0…1, aspect } · picture: the aspect of what the window shows (camera 1:1, a take, a file).
- * → { k, cx, cy, rx, ry, R (= ry), n, button: { x, y, r }, lineOff, photo, nowOff, queueY, lift, scale, media,
+ * → { k, cx, cy, rx, ry, R (= ry), n, button: { x, y, r }, lineOff, nowOff, queueY, lift, scale, media,
  *     similarBox, doubleBox, double (the result's form in the double view) }
  */
 export function takeLayout({ w, h, keyboard = 0 }, similar = 'closed', form = { round: 1, aspect: 1 }, picture = 1) {
@@ -49,18 +62,32 @@ export function takeLayout({ w, h, keyboard = 0 }, similar = 'closed', form = { 
   const { rx: rx0, ry: ry0 } = fit(room, form.aspect);
   const wide = isWide({ w, h });
   const S = Math.min(room.w, room.h); // the 1:1 window: no form is larger, one side may be narrower (20.11.)
-  let cx = w / 2, cy = 1.8 * ring + 6 + S / 2 + Math.max(0, (room.h - S) / 2), scale = 1, similarBox = null, doubleBox = null, double = null;
+  const top = 1.8 * ring + 6, below = 76 * k + 12, side = (w - room.w) / 2; // the button above the window, the row under it, the line's ends
+  let cx = w / 2, cy = top + S / 2 + Math.max(0, (room.h - S) / 2), scale = 1, similarBox = null, doubleBox = null, double = null;
   if (similar === 'many' || similar === 'double') {
-    if (wide) { // beside: the take right, Similar left
-      cx = w * 0.72; scale = Math.min(1, (w * 0.5) / (2 * rx0 + 60 * k), (h - 1.8 * ring - 90 * k) / (2 * ry0));
-      cy = h / 2 + ring / 2;
-      similarBox = { x: 12 * k, y: 12 * k, w: w * 0.44 - 12 * k, h: h - 24 * k };
-    } else { // above: the take smaller, low
-      scale = Math.min(0.62, (h * 0.42) / (2 * ry0 + 1.8 * ring));
-      cy = h - (ry0 * scale) - 70 * k;
-      similarBox = { x: 8 * k, y: 10 * k, w: w - 16 * k, h: cy - ry0 * scale - ring * scale * 2 - 18 * k };
+    // 21.11. (user): the take keeps the size it has alone, at the very bottom with its row; Similar gets the rest, at
+    // least 23.6 % (similarShare). Double: both windows the same size, as large as both fit.
+    const n = exponent(form.round ?? 1);
+    if (similar === 'many') {
+      const share = similarShare((wide ? 2 * rx0 + 2 * side : top + 2 * ry0 + below) / (wide ? w : h));
+      scale = Math.min(1, wide ? ((1 - share) * w - 2 * side) / (2 * rx0) : ((1 - share) * h - 6 - below) / (1.8 * ring + 2 * ry0));
+      if (wide) { cx = share * w + ((1 - share) * w) / 2; similarBox = { x: 12 * k, y: 10 * k, w: share * w - 24 * k, h: h - 20 * k }; }
+      else similarBox = { x: 8 * k, y: 10 * k, w: w - 16 * k, h: share * h - 18 * k };
+    } else if (wide) { // side by side at the same height: the double left, the take right
+      const gap = 16 * k;
+      scale = Math.min(1, (w - 26 * k - gap - 2 * side) / (4 * rx0), (h - 10 * k - HEAD * k - below) / (2 * ry0)); // 26 px left: the double's own arcs
+      const left = 26 * k + Math.max(0, w - 26 * k - (4 * rx0 * scale + gap + 2 * side)) / 2;
+      cx = left + 3 * rx0 * scale + gap + side;
+      double = { cx: left + rx0 * scale, cy: h - below - ry0 * scale, rx: rx0 * scale, ry: ry0 * scale, n };
+      similarBox = { x: 12 * k, y: 10 * k, w: cx - rx0 * scale - side - 20 * k, h: h - 20 * k };
+    } else { // one above the other: the double under Similar's selection views, the take under it
+      const gap = 14 * k;
+      scale = Math.min(1, (h - 10 * k - HEAD * k - gap - 6 - below) / (4 * ry0 + 1.8 * ring));
+      double = { cx: w / 2, cy: 10 * k + HEAD * k + ry0 * scale, rx: rx0 * scale, ry: ry0 * scale, n };
+      similarBox = { x: 8 * k, y: 10 * k, w: w - 16 * k, h: HEAD * k + 2 * ry0 * scale };
     }
-    if (similar === 'double') { double = shapeIn(squareIn(similarBox, 0.92), form); doubleBox = { x: double.cx - double.rx, y: double.cy - double.ry, w: 2 * double.rx, h: 2 * double.ry }; } // the same form as the take (20.11.)
+    cy = h - below - ry0 * scale; // the window's lower edge where it is alone at the most (the row under it)
+    if (double) doubleBox = { x: double.cx - double.rx, y: double.cy - double.ry, w: 2 * double.rx, h: 2 * double.ry };
   }
   if (keyboard && scale === 1) { // the keyboard is up (17.11.): the whole take stays in what is left, smaller if it must
     const need = 2 * ry0 + 1.8 * ring + 64 * k, room2 = h - keyboard - 6 * k;
@@ -72,16 +99,10 @@ export function takeLayout({ w, h, keyboard = 0 }, similar = 'closed', form = { 
   const lift = keyboard ? Math.max(0, queueY0 + 26 * k - (h - keyboard)) : 0; // the typing row sits right above the keyboard
   const F = { cx, cy: cy - lift, rx, ry, n };
   const lineOff = ring * 0.8 * s; // through the button: it overlaps the window a little (08.11.)
-  const [bx, by] = edge(F, 0, lineOff), [px, py] = edge(F, ARCS.v[1] + 4, 7 * k * s);
+  const [bx, by] = edge(F, 0, lineOff);
   return { k, cx, cy: F.cy, rx, ry, R: ry, n, aspect: clampAspect(form.aspect), round: form.round ?? 1, ring: ring * s, scale, wide, lift,
-    button: { x: bx, y: by, r: 31 * k * s }, lineOff, photo: { x: px, y: py, r: 8 * k * s },
+    button: { x: bx, y: by, r: 31 * k * s }, lineOff,
     nowOff: -24 * k * s, queueY: queueY0 - lift, media: cover(F, picture), similarBox, doubleBox, double };
-}
-
-/** The biggest square of share f inside a box, centred. */
-export function squareIn(box, f = 1) {
-  const s = Math.min(box.w, box.h) * f;
-  return { x: box.x + (box.w - s) / 2, y: box.y + (box.h - s) / 2, w: s, h: s };
 }
 
 /** The arcs of the take: strand arcs, the line arc and the older lines' small arcs, along the window's form. → [{ id, d, mid }] */
@@ -166,7 +187,7 @@ export function nowChipSpot(L, widths, i) {
 }
 
 /** What belongs to the take under a finger: the window, its strands, the line, the button, the context row (20.11.). */
-const TAKE_ROLES = /^(window|button|photo|line|context|under|strand:|take:|old:|gap:|chip:|bubble:)/;
+const TAKE_ROLES = /^(window|button|line|context|under|strand:|take:|old:|gap:|chip:|bubble:)/;
 /**
  * Does a finger that went down at pt (role: what was under it) start on the take? The window and a band around it
  * (the strands, the line through the button: ring · 0.8 + 22 px), and the context row under it. Everything else —

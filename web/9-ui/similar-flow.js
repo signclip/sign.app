@@ -15,7 +15,14 @@
 import { idKey } from '../1-model/ids.js';
 import { similar } from '../7-similar/filter.js';
 import { passes, ordered, byPerson, MANY } from './similar-view.js';
-import { nowWords } from './chips.js';
+import { inBundle, sortedBy } from './similar-zoom.js';
+import { wideOpen, widenWords, applyRange } from './similar-range.js';
+import { nowWords, seriesRow } from './chips.js';
+import { saveSimilar } from '../4-save/save-similar.js';
+import { deviceKeys } from './device-keys.js';
+import { writeId as writeIdOf } from '../1-model/ids.js';
+
+const sealKey = async () => (await deviceKeys().catch(() => null))?.device ?? null;
 import { readContext } from '../1-model/context.js';
 import { msOf } from '../1-model/time.js';
 import { BLACK } from './player.js';
@@ -41,21 +48,100 @@ export function similarFlow(A) {
   };
   const words = () => [...nowWords(A.st.context, A.st.sticky).map((w) => w.text), ...String(A.data.typing ?? '').split(/\s+/)].filter(Boolean);
 
+  // ---------- chains in the cloud (21.11., user): what lies on top decides where it opens ----------
+  /** search: ?( ) on top · template: an empty take _() waiting · series: a line of two takes or more. */
+  const kindOf = (c) => { const top = c?.lines?.[0]?.text ?? ''; if (/\{:\?\.\d+\}|\?\(/.test(top)) return 'search'; if (/_\(\)/.test(top)) return 'template'; return (top.match(/:chain\.\d+/g) ?? []).length >= 2 ? 'series' : null; };
+  const wordsOfSearch = (c) => (c?.defs.get('?.1')?.body?.items ?? []).filter((i) => i.t === 'value').map((i) => i.text);
+  const timeOf = (c) => { try { return msOf(String(c?.head?.["'t"] ?? '')) || 0; } catch { return 0; } };
+  /** The series holding the results, and the searches for these words (none typed: the newest six). */
+  function chainsBeside(takes, ws, f) {
+    const { index } = A, out = [], seen = new Set(takes.map((e) => e.key));
+    const put = (c, kind, extra = {}) => { if (!c || seen.has(c.key) || f.on[kind] === false) return; seen.add(c.key); out.push(dress({ key: c.key, kind, chain: c, words: [], t: timeOf(c), person: c.head?.['@'] ?? '', sharing: [c.from?.store].filter(Boolean), thumb: null, ...extra })); };
+    for (const e of takes) for (const k of index.tables.weave.get(e.chain?.key) ?? []) { const c = index.tables.chains.get(k); if (kindOf(c) === 'series') put(c, 'series'); }
+    const want = new Set(ws.map((w) => w.toLowerCase()));
+    const searches = [...index.tables.similar].map((k) => index.tables.chains.get(k)).filter(Boolean).sort((a, b) => timeOf(b) - timeOf(a));
+    for (const c of want.size ? searches.filter((c) => wordsOfSearch(c).some((w) => want.has(w.toLowerCase()))) : searches.slice(0, 6)) put(c, 'search', { words: wordsOfSearch(c) });
+    return out.slice(0, 12);
+  }
+  /** A search tile: Similar shows that search (its words instead of the window's); tapped again on its sign = back. */
+  function openSearch(e) {
+    s.search = { key: e.key, words: wordsOfSearch(e.chain) };
+    A.data.search = s.search;
+    navigator.vibrate?.(8);
+    refresh();
+  }
+  function closeSearch() { s.search = null; A.data.search = null; refresh(); }
+  /** Where a chain's file lies: { store, path } (the sharing point by its name). */
+  const fileOf = (c) => { const f = c?.from; const src = (A.sources ?? []).find((x) => x.name === f?.store); return src && f?.path ? { store: src.store, path: f.path } : null; };
+  /** A series tile: its takes into the line (an earlier sequence taken over, 21.11.), as someone else's (a guest line) until changed. */
+  async function seriesToLine(e) {
+    const c = e.chain, top = c?.lines?.[0]?.text ?? '';
+    const names = [...new Set(top.match(/:chain\.\d+/g) ?? [])].map((n) => n.slice(1));
+    const chains = names.map((n) => c.defs.get(n)?.id).filter(Boolean).map((id) => A.index.chain(writeIdOf(id))).filter(Boolean);
+    if (!chains.length) return false;
+    A.data.guestAt ??= {};
+    const takes = chains.map((tc, i) => {
+      const at = A.media.visualOf(tc), lies = fileOf(tc), id = `guest:${lies?.path ?? tc.key}`;
+      A.data.guestAt[id] = { ...(at ?? {}), chainStore: lies?.store ?? null, chainPath: lies?.path ?? null };
+      if (at) A.media.picOf(at).then((url) => { if (url) { A.data.thumbs[id] = url; A.paint(); } }, () => {});
+      return { id, ms: 0, t: i, context: '', kinds: [...tc.defs.values()].map((d) => d.kind).filter((k) => ['v', 'a', 'x'].includes(k)) };
+    });
+    for (const [i, tc] of chains.entries()) A.media.contextTextOf(tc).then((text) => { if (!text) return; A.dispatch({ type: 'lines', lines: A.st.lines.map((l) => (l.guest ? { ...l, takes: l.takes.map((x, k) => (k === i ? { ...x, context: text } : x)) } : l)) }); }, () => {});
+    navigator.vibrate?.(15);
+    A.dispatch({ type: 'lines', lines: [...A.st.lines.filter((l) => !l.guest), { id: 'guest', guest: true, sticky: '', takes }] });
+    A.dispatch({ type: 'at', at: 0 });
+    A.dispatch({ type: 'similar', level: 'closed' });
+    return true;
+  }
+  /** A template tile: its context becomes one's own series – the takes are taken one after another (21.11.). */
+  async function takeOver(e) {
+    const text = await A.media.contextTextOf(e.chain).catch(() => '');
+    if (!text) return A.shake('context');
+    navigator.vibrate?.(15);
+    A.dispatch({ type: 'context', text });
+    return A.dispatch({ type: 'similar', level: 'closed' });
+  }
+  /** Spread on a template tile: the cloud bundled by its elements, in its order. */
+  async function bundleBy(e) {
+    const text = await A.media.contextTextOf(e.chain).catch(() => '');
+    const elements = seriesRow(text ?? '', '').flatMap(function flat(n) { return n.take ? [n.words.map((w) => w.text)] : n.children.flatMap(flat); });
+    if (!elements.length) return null;
+    return A.dispatch({ type: 'filters', filters: { ...A.st.filters, group: { by: 'template', level: 0 }, value: { ...A.st.filters.value, template: elements }, open: null } });
+  }
+  /** ↑ in the cloud: what it shows now kept as a search chain (G4c), to share. → path */
+  async function saveSearch() {
+    const f = A.st.filters, ws = s.search ? s.search.words : f.on.x ? words() : [];
+    const kinds = ['v', 'x', 'a'].filter((k) => f.on[k]);
+    const saved = await saveSimilar(A.store, { words: ws, kinds, persons: f.value.name ?? [] }, { device: A.device, person: A.person, deviceKey: await sealKey() }).catch(() => null);
+    if (!saved) return null;
+    A.data.shareChain = saved.path;
+    A.reindex();
+    return saved.path;
+  }
+
   /** Results now, as view entries (pictures and chips fill in later). */
   function compute() {
     const f = A.st.filters;
-    if (s.look) { choices(s.look); return ordered(s.look.filter((e) => passes(e, f)), f); }
-    const hits = similar(A.index, { words: f.on.x ? words() : [], limit: MANY });
+    if (s.look) { choices(s.look); const shown = s.look.filter((e) => passes(e, f) && inBundle(e, f.value.bundle, f)); return f.group ? sortedBy(shown, f) : ordered(shown, f); }
+    const range = { ...wideOpen(), ...f.range }; // how far it looks in each respect (21.11., similar-range.js)
+    const written = s.search ? s.search.words : f.on.x ? words() : []; // a search chain opened (21.11.): its words, not the window's
+    const ws = range.x > 0 && written.length ? widenWords(written, range.x, A.index.tables.context) : written;
+    const hits = similar(A.index, { words: ws, limit: MANY });
     const list = hits.map((h) => {
       const head = h.entry.head ?? {};
       const old = s.entries.find((e) => e.key === h.key);
-      return old ?? dress({ key: h.key, words: [], t: (() => { try { return msOf(String(head["'t"] ?? '')) || 0; } catch { return 0; } })(), person: head['@'] ?? '', sharing: [h.entry.from?.store].filter(Boolean), spot: head.o ?? null, thumb: null, chain: chainOf(h.key) });
+      return old ?? dress({ key: h.key, words: [], t: (() => { try { return msOf(String(head["'t"] ?? '')) || 0; } catch { return 0; } })(), person: head['@'] ?? '', sharing: [h.entry.from?.store].filter(Boolean), spot: head.o ?? null, where: head['°'] ?? null, thumb: null, chain: chainOf(h.key) });
     });
     const seen = new Set(), one = list.filter((e) => { const k = e.chain?.key ?? e.key; if (seen.has(k)) return false; seen.add(k); return true; }); // a take once, however many of its strands matched
     const own = (c) => !c || [...c.defs.values()].some((d) => ['v', 'a', 'x', 'l'].includes(d.kind)); // a line (only references to takes) is no result of its own (17.11.: every take showed twice)
-    const takes = one.filter((e) => own(e.chain));
+    const earlier = A.st.at < (A.st.lines.at(-1)?.takes.length ?? 0) ? A.st.lines.at(-1).takes[A.st.at] : null;
+    const focus = { t: earlier?.t ?? Date.now(), cell: A.take?.here?.() ?? null, person: A.person?.label ?? '' }; // round the take in the button, else now
+    const reach = { own: ['own'], write: (A.sources ?? []).filter((x) => x.write && x.name !== 'own').map((x) => x.name) };
+    const takes = applyRange(one.filter((e) => own(e.chain)), range, focus, reach).map((e) => { const k = kindOf(e.chain); if (k) e.kind = k; return e; }).filter((e) => !e.kind || f.on[e.kind] !== false);
+    takes.push(...chainsBeside(takes, ws, f)); // 21.11.: the chains that hold them – series, searches – as tiles of their own
     choices(takes);
-    return ordered(takes.filter((e) => passes(e, f)), f);
+    const shown = takes.filter((e) => passes(e, f) && inBundle(e, f.value.bundle, f));
+    return f.group ? sortedBy(shown, f) : ordered(shown, f); // zoomed in a zone: sorted by it (21.11.)
   }
 
   /**
@@ -66,6 +152,9 @@ export function similarFlow(A) {
     const uniq = (xs) => [...new Set(xs.filter(Boolean))].slice(0, 12).map((x) => ({ id: x, label: x }));
     const stores = (A.sources ?? []).map((x) => x.name);
     A.data.similarLists = { ...(A.data.similarLists ?? {}), names: uniq(all.map((e) => e.person)), sharing: uniq([...stores, ...all.flatMap((e) => e.sharing ?? [])]), spots: uniq(all.map((e) => e.spot)) };
+    const members = {}; // who appears in which sharing point – a group's persons in the wer rings (21.11.)
+    for (const e of all) for (const sp of e.sharing ?? []) if (e.person) (members[sp] ??= new Set()).add(e.person);
+    A.data.similarLists.reach = (A.sources ?? []).map((x) => ({ name: x.name, write: Boolean(x.write), own: x.name === 'own', persons: [...(members[x.name] ?? [])].slice(0, 6) }));
   }
 
   /**
@@ -220,7 +309,8 @@ export function similarFlow(A) {
     const files = e?.pieces ? e.pieces.map((p) => ({ store: p.from, path: p.path })) : e?.at ? [e.at] : [];
     if (!files.length) return false;
     A.data.guestAt ??= {};
-    const takes = files.map((at, i) => { const id = `guest:${at.path}`; A.data.guestAt[id] = at; return { id, ms: 0, t: i, context: e.person ? `(${e.person})` : '', kinds: ['v'] }; });
+    const lies = fileOf(e.chain), context = e.words?.length ? `(${e.words.map((w) => `(${w})`).join(' ')})` : ''; // its own context, to change afterwards (21.11.)
+    const takes = files.map((at, i) => { const id = `guest:${at.path}`; A.data.guestAt[id] = { ...at, chainStore: lies?.store ?? null, chainPath: lies?.path ?? null }; return { id, ms: 0, t: i, context, kinds: e.chain ? [...e.chain.defs.values()].map((d) => d.kind).filter((k) => ['v', 'a', 'x'].includes(k)) : ['v'] }; });
     for (const t of takes) A.media.picOf(A.data.guestAt[t.id]).then((url) => { if (url) { A.data.thumbs[t.id] = url; A.paint(); } }, () => {});
     s.carried = e; s.cmp = null; stopBelow(); tell();
     navigator.vibrate?.(15);
@@ -305,5 +395,5 @@ export function similarFlow(A) {
   }
 
   const close = () => { if (s.carried) return; s.look = null; s.playing = null; s.cmp = null; A.data.picked = null; stopBelow(); tell(); }; // someone lies in the window: her pile stays until she is decided
-  return { refresh, lookAt, pick, decide, close, step, toLine, dropGuest, sound, get carried() { return Boolean(s.carried); }, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
+  return { refresh, lookAt, pick, decide, close, step, toLine, dropGuest, sound, openSearch, closeSearch, seriesToLine, takeOver, bundleBy, saveSearch, get carried() { return Boolean(s.carried); }, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
 }

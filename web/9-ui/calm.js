@@ -6,8 +6,10 @@
 // Purpose:   a series without hands: start → sign → still → kept → countdown → the next. Without the left time a take
 //            that went still waits on the button (← keeps, ↓ far drops, a tap goes on). Against takes nobody meant: one
 //            that started by itself and saw no motion is dropped and the next start waits for motion or a touch; after
-//            a photo by itself and after the app opens the same; typing or a touch begins the countdown anew. A thin arc round the button shows
-//            the countdown (green), then the stillness in the take (red).
+//            the app opens the same; typing or a touch begins the countdown anew. Seen on the button (21.11., no numbers, a
+//            tick per second): the countdown = the pill as wide as set, narrowing from the left onto the button (green);
+//            stillness in a take = the pill growing to the right up to its end, round like the button (red); it opens
+//            and closes moving (≈ 0.2 s), back onto the button with motion or when the take was kept.
 // Depends:   browser; settings.js (calmStep, normalize), layout.js (timerPill), ready.js (watch), take-state.js (live)
 // Test:      calmStep, timerPill in tests/ui.test.mjs; the sensing on a phone.
 // Limits:    0–10 s each, in half seconds; ≈ 15 px per second beyond a catch of 26 px; checked every 100 ms; the camera
@@ -15,10 +17,11 @@
 
 import { calmStep, normalize } from './settings.js';
 import { timerPill } from './layout.js';
+import { calmShapes } from './paint.js';
 import { watch } from './ready.js';
 import { live } from './take-state.js';
 
-const EVERY_MS = 100, CLOSE_MS = 220;
+const EVERY_MS = 100, CLOSE_MS = 220, EASE_MS = 60, STILL_SEEN_MS = 250; // the pill opens and closes in ≈ 0.2 s; stillness shows after 0.25 s
 const run = (fn) => Promise.resolve().then(fn).catch(() => {});
 const on = (s) => s.restartMs != null || s.stillEndMs > 0;
 
@@ -52,20 +55,45 @@ export function calmOf(A) {
     if (!on(s)) return show(null);
     const recording = st.rec === 'recording';
     const step = calmStep(s, { idle, freeMs: now - free, armed, recording, stillMs: now - still, moved, auto });
-    if (step) { show(null); navigator.vibrate?.(step === 'pause' ? [20, 60, 20] : 10); }
-    if (step === 'start') { if (st.mode === 'photo') { armed = false; return run(A.take.photo); } starting = true; return run(A.take.start); }
+    if (step) { show(null); navigator.vibrate?.(step === 'pause' ? [20, 60, 20] : 10); } // the pill closes moving
+    if (step === 'start') { starting = true; return run(A.take.start); }
     if (step === 'keep') return run(A.take.keep); // the series goes on: the button is free, the countdown begins
     if (step === 'pause') return run(A.take.pause); // waits for ← (keep) or ↓ far (drop)
     if (step === 'drop') { armed = false; return run(A.take.anew); }
-    return show(recording && s.stillEndMs ? { kind: 'stop', f: (now - still) / s.stillEndMs }
-      : idle && armed && s.restartMs > 0 ? { kind: 'start', f: (now - free) / s.restartMs } : null);
+    return show(recording && s.stillEndMs && now - still > STILL_SEEN_MS ? { kind: 'stop', t0: still, ms: s.stillEndMs }
+      : idle && armed && s.restartMs > 0 ? { kind: 'start', t0: free, ms: s.restartMs } : null);
   }
-  /** The arc round the button (paint.js): painted again only when it visibly changed. */
+
+  /**
+   * The pill on the button moves (21.11., user): it opens – to the left as the countdown, to the right with its end
+   * when the take went still – and closes onto the button when it starts, moves again or was kept, each in ≈ 0.2 s;
+   * in between it follows the time exactly, every frame. Only the moving paths change (paint.js calmShapes); the whole
+   * take is painted again only when the pill comes or goes.
+   */
+  let target = null, frame = 0, last = 0;
   function show(c) {
-    const before = A.data.calm;
-    if (!c && !before) return;
-    A.data.calm = c && c.f > 0.02 ? c : null;
-    if (!before || !A.data.calm || before.kind !== A.data.calm.kind || Math.abs(before.f - A.data.calm.f) >= 0.02) A.paint();
+    target = c;
+    if (!frame && (target || A.data.calm)) frame = requestAnimationFrame(move);
+  }
+  const width = (t, now) => { const f = Math.min(1, Math.max(0, (now - t.t0) / t.ms)); return t.kind === 'start' ? 1 - f : f; };
+  function move(now) {
+    frame = 0;
+    const dt = Math.min(50, last ? now - last : 16), ease = 1 - Math.exp(-dt / EASE_MS); last = now;
+    const t = target && (!A.data.calm || A.data.calm.kind === target.kind) ? target : null; // another kind: the old one closes first
+    let c = A.data.calm, born = false;
+    if (!c && t) { c = A.data.calm = { kind: t.kind, ms: t.ms, w: 0, g: 0 }; born = true; }
+    if (!c) { last = 0; return; }
+    if (t) c.ms = t.ms;
+    const tw = t ? width(t, now) : 0, tg = t ? 1 : 0;
+    c.w = Math.abs(tw - c.w) < 0.03 ? tw : c.w + (tw - c.w) * ease; // a jump (opening, closing, moved again) eases; the time itself is followed
+    c.g = Math.abs(tg - c.g) < 0.01 ? tg : c.g + (tg - c.g) * ease;
+    if (!t && c.w < 0.01 && c.g < 0.01) { A.data.calm = null; last = 0; A.paint(); if (target) frame = requestAnimationFrame(move); return; } // round again
+    if (born) A.paint();
+    else {
+      const p = calmShapes(c, A.L);
+      for (const [cls, d] of [['calm-move', p.move], ['calm-goal-move', p.goal], ['calm-end-move', p.end]]) if (d) for (const el of document.getElementsByClassName(cls)) el.setAttribute('d', d);
+    }
+    frame = requestAnimationFrame(move);
   }
 
   /**

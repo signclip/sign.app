@@ -6,6 +6,7 @@
   --rc: #f5c6b8; --rc-stroke: #f5a08a; --sc: #d7e6f5; --sc-stroke: #8fb6e0; --hold: #5fbf92;
   --c-head: #993C1D; --c-now: #F4A58C; --c-next: #F9CDBE; --c-later: #FDEDE7; --b-now: #A8432A; --b-next: #C9694F; --b-later: #E29C86;
   --nest: #FFF4CC; --nest-b: #A67C00; --mint: #E1F5EE; --mint-b: #1D9E75;
+  --ink: #4A1B0C; --paper: #fffdfb; --nest-paper: #FFF4CC; /* text on chips, and what stays light under dark text in dark mode too (21.11.: ≥ 7:1) */
 }
 @media (prefers-color-scheme: dark) { :root { --bg: #171716; --rest: #2b2b29; --fg: #eeece7; --card: #222; --line: #333; --nest: #4a3f14; --nest-b: #d9b24a; } }
 * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
@@ -45,34 +46,36 @@ video::-webkit-media-controls { display: none !important; }
 .old { fill: none; stroke: var(--rc-stroke); stroke-width: 2; opacity: .35; stroke-linecap: round; }
 .more { font: 600 11px Inter, system-ui, sans-serif; fill: var(--mut); text-anchor: middle; }
 .thumb { fill: var(--video); stroke: none; } .thumb-edge { fill: none; stroke: var(--rc-stroke); stroke-width: 2; }
-.photo { fill: var(--card); stroke: var(--mut); stroke-width: 2; transition: fill .2s; } .photo.on { fill: var(--rc-stroke); stroke: var(--b-now); stroke-width: 2.5; }
 
 /* the button */
 .button { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 3; }
 .button-ring { fill: none; stroke: var(--rc-stroke); stroke-width: 1.5; opacity: .5; }
-.button-timer { fill: none; stroke: var(--b-now); stroke-width: 3.5; stroke-linecap: round; } .button-timer.start { stroke: var(--hold); }
+.calm-base, .calm-goal { fill: var(--card); pointer-events: none; } .calm { stroke-width: 3; pointer-events: none; fill-opacity: .3; } /* the series (21.11.): countdown narrows onto the button, stillness grows to its mark */
+.calm.start { fill: var(--hold); stroke: var(--hold); } .calm.stop { fill: var(--b-now); stroke: var(--b-now); } .calm-goal { stroke: var(--b-now); stroke-width: 1.5; stroke-dasharray: 4 4; } .calm-end { fill: none; stroke: var(--b-now); stroke-width: 4; stroke-linecap: round; pointer-events: none; } /* the end: round like the button (21.11.) */ .timer-tick.start { stroke: var(--hold); }
 .timer-tick { stroke: var(--b-later); stroke-width: 1.5; stroke-linecap: round; pointer-events: none; } .timer-catch { stroke: var(--b-now); stroke-width: 3; stroke-linecap: round; pointer-events: none; } .timer-catch.ahead { opacity: .35; }
-.button-g.auto .button-ring, .button-g.auto.recording .button-ring { stroke: var(--hold); stroke-width: 3; opacity: 1; } .button.wide-edge.auto { stroke: var(--hold); } /* it starts anew by itself (20.11.) */ .timer-label { pointer-events: none; } .timer-label rect { fill: rgba(40, 20, 12, .72); } .timer-label text { fill: #fff; font: 600 13px Inter, system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
+.button-g.auto .button-ring, .button-g.auto.recording .button-ring { stroke: var(--hold); stroke-width: 3; opacity: 1; } .button.wide-edge.auto { stroke: var(--hold); } /* it starts anew by itself (20.11.) */
 .button-g.recording .button-ring { stroke: var(--b-now); stroke-width: 3; opacity: 1; stroke-dasharray: 6 5; animation: run 1.2s linear infinite; }
 .button-g.paused .button-ring { stroke-dasharray: 3 5; opacity: .9; }
 .sym { fill: var(--b-now); } .sym.rec { fill: var(--rc-stroke); } .sym-ring { fill: none; stroke: var(--mut); stroke-width: 2.5; }
-.button-g.photo .button { stroke: var(--mut); }
 .button-pic { opacity: .75; }
 .button.wide { fill: var(--card); stroke: var(--rc-stroke); stroke-width: 3; }
 .wide-pic { opacity: .55; } .tick { stroke: var(--rc-stroke); stroke-width: 1.5; }
 .playhead { stroke: var(--b-now); stroke-width: 3; stroke-linecap: round; }
-.cut { stroke: var(--b-now); stroke-width: 4; stroke-dasharray: 6 5; stroke-linecap: round; }
+.cut-bow { fill: none; stroke: var(--b-now); stroke-width: 3; stroke-linecap: round; } /* the mark bending into the two round ends (21.11.) */
 @keyframes run { to { stroke-dashoffset: -22; } }
 
 /* chips (20.11.): background = when (the take now and sticky: the window's colour · next lighter · later lighter still),
    edge = which nesting (--nc, set on each bubble; loose words: the edge of their tone) · brackets = pastel-yellow bubbles */
 .chip { display: inline-flex; align-items: center; justify-content: center; height: 30px; padding: 0 11px; border-radius: 15px; margin: 0 2px;
-  font: 500 14px Inter, system-ui, sans-serif; color: #4A1B0C; background: var(--c-next); border: 1.5px solid var(--b-next); white-space: nowrap; }
+  font: 500 14px Inter, system-ui, sans-serif; color: var(--ink); background: var(--c-next); border: 1.5px solid var(--b-next); white-space: nowrap; }
 .chip.now, .chip.sticky { background: var(--c-now); border-color: var(--nc, var(--b-now)); font-weight: 600; }
 .chip.next { border-color: var(--nc, var(--b-next)); }
 .chip.later { background: var(--c-later); border-color: var(--nc, var(--b-later)); }
 .chip.offer { background: var(--mint); border-color: var(--mint-b); color: #085041; border-style: dashed; }
-.chip.typing { background: var(--card); border: 1.5px dashed var(--b-now); animation: breathe 1.4s ease-in-out infinite; }
+.chip.typing { background: var(--paper); border: 1.5px dashed var(--b-now); animation: breathe 1.4s ease-in-out infinite; }
+.chip.timed { position: relative; overflow: hidden; } .chip .when { position: absolute; bottom: 2px; height: 3px; border-radius: 2px; background: var(--b-now); pointer-events: none; } /* a word with its own time: where in the take (21.11.) */
+.chip.said { background: var(--b-now); color: #fff; border-color: var(--b-now); } .chip.said .when { background: #fff; }
+.open-mark { display: inline-flex; align-items: center; font: 700 22px Inter, system-ui, sans-serif; color: var(--nest-b); margin: 0 1px; } /* "(" typed, waiting for its ")" (21.11.) */
 .chip.in { position: absolute; height: 26px; font-size: 13px; padding: 0 8px; pointer-events: all; box-shadow: 0 1px 4px rgba(0,0,0,.18); }
 #now { inset: 0; pointer-events: none; }
 #row { left: 0; right: 0; height: 64px; transform: translateY(-50%); display: flex; align-items: center; overflow-x: auto; overflow-y: hidden;
@@ -102,8 +105,11 @@ video::-webkit-media-controls { display: none !important; }
 .tile { border-radius: 14px; overflow: hidden; background: var(--sc); border: 2px solid var(--sc-stroke); animation: appear .3s ease-out both; }
 .tile img, .double img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .tile.picked { border-color: var(--hold); border-width: 3px; }
+#similar .tile { border: 0; border-radius: 0; } /* in the window's form (21.11.): a clip path, the edge an SVG; chips kept inside the rounder corners */
+#similar .tile .tags { left: calc(4px + var(--r, 0) * 14%); right: calc(4px + var(--r, 0) * 14%); bottom: calc(4px + var(--r, 0) * 8%); justify-content: center; }
+.tile-edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; } .tile-edge path { fill: none; stroke: var(--sc-stroke); stroke-width: 4; } .tile.picked .tile-edge path { stroke: var(--hold); stroke-width: 6; }
 .tags { position: absolute; left: 4px; right: 4px; bottom: 4px; display: flex; flex-wrap: wrap; gap: 2px; pointer-events: none; }
-.chip.tag { height: 18px; font-size: 10px; padding: 0 6px; background: var(--c-next); border-width: 1px; }
+.chip.tag { height: 19px; font-size: 11px; padding: 0 6px; background: var(--c-next); border-width: 1px; }
 .double { overflow: hidden; background: transparent; pointer-events: all; } /* its form is a clip path (the take's form), its edge an SVG */
 .double-edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; } .double-edge path { fill: none; stroke: var(--sc-stroke); stroke-width: 6; }
 #pickvideo { object-fit: cover; background: var(--sc); pointer-events: none; }
@@ -113,14 +119,34 @@ video::-webkit-media-controls { display: none !important; }
   color: var(--mut); background: var(--card); border: 1.5px dashed var(--mut); opacity: .7; }
 .sel.on { color: #0C447C; background: var(--sc); border: 2px solid var(--sc-stroke); opacity: 1; }
 .sel.open { box-shadow: 0 0 0 3px var(--sc); }
+/* Similar's zones (21.11.): a pale grip at each edge, filled while open, its step as dots; bundles as pastel bubbles */
+.grip { position: absolute; min-width: 26px; height: 28px; padding: 0 5px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 2px; font: 600 13px Inter, system-ui, sans-serif; color: var(--mut); background: var(--paper); border: 1.5px dashed var(--sc-stroke); opacity: .55; }
+.grip.on { opacity: 1; border-style: solid; background: var(--sc); color: #0C447C; } .grip i { font-style: normal; font-size: 8px; letter-spacing: 1px; }
+.sel.strand-sel { position: absolute; }
+.who-rings { position: absolute; overflow: visible; } .who-ring { fill: var(--paper); fill-opacity: .9; stroke: var(--sc-stroke); stroke-width: 1.2; } .who-ring.on { fill: var(--sc); } /* wer as rings round me (21.11.) */
+.who-me { position: absolute; transform: translate(-50%, -50%); width: 38px; height: 38px; border-radius: 50%; background: var(--mut); color: #fff; display: flex; align-items: center; justify-content: center; font: 700 13px Inter, system-ui, sans-serif; pointer-events: none; }
+.who-group { position: absolute; border-radius: 50%; background: var(--nest-paper); border: 2px solid var(--nest-b); display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 2px; padding: 4px; } .who-group.on { box-shadow: 0 0 0 3px #0C447C; } .who-group.far { opacity: .6; }
+.who-group b { width: 100%; text-align: center; font: 600 10px Inter, system-ui, sans-serif; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .who-group i { font-style: normal; width: 18px; height: 18px; border-radius: 50%; background: var(--paper); border: 1px solid var(--nest-b); font: 600 9px Inter, system-ui, sans-serif; color: var(--ink); display: flex; align-items: center; justify-content: center; } .who-group i.on { background: #0C447C; color: #fff; }
+/* how far Similar looks (21.11.): the halo round the take, the rings with sectors over it */
+.halo { fill: none; stroke: var(--sc-stroke); stroke-opacity: .45; stroke-linecap: round; pointer-events: none; } .halo.later { stroke: var(--mut); stroke-opacity: .25; }
+.range-back { fill: var(--paper); fill-opacity: .93; stroke: var(--sc-stroke); stroke-width: 1.5; }
+.range-ring { fill: var(--paper); stroke: var(--sc-stroke); stroke-width: 1; } .range-ring.on { fill: var(--sc-stroke); fill-opacity: .45; } .range-ring.later { opacity: .35; }
+.range-sign { font: 700 14px Inter, system-ui, sans-serif; fill: #0C447C; text-anchor: middle; dominant-baseline: central; pointer-events: none; } .range-take { fill: var(--mut); pointer-events: none; } .sel.kind { font-weight: 700; }
+#sharing-html .tile.suggest { box-shadow: 0 0 0 4px var(--hold); animation: breathe 1.4s ease-in-out infinite; } /* the person of the double view (21.11.) */
+.bundle { position: absolute; border-radius: 22%; background: var(--nest-paper); border: 2px solid var(--nest-b); display: flex; flex-wrap: wrap; align-content: flex-start; justify-content: center; gap: 3px; padding: 20px 4px 4px; overflow: hidden; animation: appear .3s ease-out both; }
+.bundle b { position: absolute; top: 3px; left: 6px; right: 6px; font: 600 11px Inter, system-ui, sans-serif; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+.bundle img { border-radius: 4px; object-fit: cover; } .bundle i { position: absolute; right: 6px; bottom: 3px; font: 600 10px Inter, system-ui, sans-serif; font-style: normal; color: var(--ink); background: var(--paper); border-radius: 8px; padding: 0 4px; }
+.letters em { font-style: normal; color: #0C447C; font: 700 13px Inter, system-ui, sans-serif; padding: 2px 4px; }
+.datebar em { pointer-events: all; }
+.tile .sign { position: absolute; top: 3px; left: 5px; font: 700 13px Inter, system-ui, sans-serif; font-style: normal; color: var(--ink); background: var(--paper); border-radius: 8px; padding: 0 5px; z-index: 1; } /* a chain in the cloud: ? search · # choice · — series · _ template (21.11.) */
 .letters { width: 26px; display: flex; flex-direction: column; align-items: center; overflow-y: auto; gap: 1px; }
 .letters span { font: 600 12px Inter, system-ui, sans-serif; color: var(--mut); padding: 1px 4px; border-radius: 6px; }
 .letters span.on { background: var(--sc-stroke); color: #fff; }
 .datebar { width: 20px; border-radius: 10px; background: var(--card); border: 1.5px solid var(--sc-stroke); }
 .datebar b { position: absolute; left: 2px; right: 2px; border-radius: 8px; background: var(--sc-stroke); }
-.datebar em { position: absolute; bottom: -18px; left: 0; right: 0; text-align: center; font-style: normal; color: var(--mut); font-size: 12px; }
+.datebar em { position: absolute; top: -22px; left: -4px; right: -4px; text-align: center; font-style: normal; color: #0C447C; font: 700 14px Inter, system-ui, sans-serif; }
 .strip { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
-.chip.pick { background: var(--card); border-color: var(--sc-stroke); color: #0C447C; } .chip.pick.on { background: var(--sc); border-width: 2px; }
+.chip.pick { background: var(--paper); border-color: var(--sc-stroke); color: #0C447C; } .chip.pick.on { background: var(--sc); border-width: 2px; }
 
 /* the sharing menu */
 #sharing { inset: 0; background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(6px); animation: sheet-up .22s ease-out; }
@@ -134,8 +160,8 @@ video::-webkit-media-controls { display: none !important; }
 .plus { border-radius: 50%; border: 1.5px dashed var(--mut); font: 400 22px Inter, system-ui, sans-serif; color: var(--mut); }
 .plus.ready { border: 2.5px solid var(--rc-stroke); color: var(--b-now); animation: breathe 1.4s ease-in-out infinite; }
 .tile.device { background: var(--rc); border-color: var(--rc-stroke); border-radius: 22px; }
-.bubble-acc { border-radius: 50%; font: 600 12px Inter, system-ui, sans-serif; color: #4A1B0C; text-align: center; line-height: 1.1; padding: 2px; overflow: hidden; }
-.bubble-acc.front { background: var(--card); border: 2.5px solid var(--rc-stroke); z-index: 2; }
+.bubble-acc { border-radius: 50%; font: 600 12px Inter, system-ui, sans-serif; color: var(--ink); text-align: center; line-height: 1.1; padding: 2px; overflow: hidden; }
+.bubble-acc.front { background: var(--paper); border: 2.5px solid var(--rc-stroke); z-index: 2; }
 .bubble-acc.back { background: var(--c-next); border: 2px solid var(--b-later); }
 #sharing-html .tile { flex-direction: column; border-radius: 18px; background: var(--card); border: 2px solid var(--line); font: 500 12px Inter, system-ui, sans-serif; animation: none; }
 #sharing-html .tile span { padding: 0 6px; text-align: center; word-break: break-word; }
@@ -143,7 +169,7 @@ video::-webkit-media-controls { display: none !important; }
 #sharing-html .tile.mine { border: 3px solid var(--rc-stroke); }
 #sharing-html .tile.waiting, #sharing-html .tile.error, #sharing-html .tile.closed { border-style: dashed; opacity: .6; }
 #sharing-html .tile.sealed { box-shadow: inset 0 0 0 3px var(--video); }
-.way-bubble { border-radius: 50%; font: 600 12px Inter, system-ui, sans-serif; background: var(--card); border: 2px dashed var(--sc-stroke); color: #0C447C; }
+.way-bubble { border-radius: 50%; font: 600 12px Inter, system-ui, sans-serif; background: var(--paper); border: 2px dashed var(--sc-stroke); color: #0C447C; }
 .way-bubble.offer { border-style: solid; animation: breathe 1.4s ease-in-out infinite; }
 .way-bubble.sent { border-style: dashed; } .way-bubble.hello.accepted, .way-bubble.hello.loading { border: 4px solid var(--sc-stroke); }
 .way-bubble.join.accepted { animation: breathe 1.4s ease-in-out infinite; border-style: solid; } .way-bubble.join.loading { border-style: dashed; }
@@ -207,13 +233,13 @@ video::-webkit-media-controls { display: none !important; }
 /* the timeline in the spread button (17.11.) */
 .button.wide { fill: var(--rest); } .button.wide-edge { fill: none; stroke: var(--rc-stroke); stroke-width: 3; }
 .tl-band { fill: var(--card); } .tl-pic { opacity: .9; }
-.tl-row.v { fill: var(--c-later); } .tl-row.a { fill: var(--c-next); } .tl-row.x { fill: var(--nest); } .tl-row.off { fill: var(--mut); opacity: .5; }
+.tl-row.v { fill: var(--c-later); } .tl-row.a { fill: var(--c-next); } .tl-row.x { fill: var(--nest-paper); } .tl-row.off { fill: var(--mut); opacity: .5; }
 .tl-said { fill: var(--c-now); stroke: var(--b-now); stroke-width: 1; }
-.tl-word { font: 500 9px Inter, system-ui, sans-serif; fill: #4A1B0C; pointer-events: none; } .tick.full { stroke-width: 2; }
+.tl-word { font: 600 11px Inter, system-ui, sans-serif; fill: var(--ink); pointer-events: none; } .tick.full { stroke-width: 2; }
 .tl-join { stroke: var(--fg); stroke-width: 2; stroke-dasharray: 2 3; }
 .playhead { stroke: var(--b-now); stroke-width: 3; stroke-linecap: round; }
 .strip { padding: 4px 6px; border-radius: 16px; background: var(--card); border: 1.5px solid var(--sc-stroke); min-height: 38px; align-items: center; touch-action: pan-x; }
-.strip .chip.pick { flex: none; background: var(--card); border: 1.5px solid var(--sc-stroke); color: #0C447C; }
+.strip .chip.pick { flex: none; background: var(--paper); border: 1.5px solid var(--sc-stroke); color: #0C447C; }
 .strip .chip.pick.on { background: var(--sc); border-width: 2.5px; font-weight: 600; }
 #carry { width: 68px; height: 68px; border-radius: 16px; background: var(--sc) center / cover; border: 3px solid var(--hold); box-shadow: 0 6px 18px rgba(0,0,0,.25); pointer-events: none; z-index: 5; }
 /* the strands of the double view (20.11.) */

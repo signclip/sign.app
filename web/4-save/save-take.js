@@ -33,9 +33,11 @@ const enc = new TextEncoder();
  * audio: { channels: [Float32Array], sampleRate } or null · store: storage adapter
  * deviceKey: from crypto.newDeviceKey(); if given, every text file gets its witness y_
  * preview: JPEG bytes of the first picture (96 × 96) or null · onto: path of the chain it adds to · keep: kinds taken over from there by reference (state.toKeep)
+ * ontoStore: where that chain lies, if not in store (21.11.: a take of someone else – the new chain is one's own, with a reference)
+ * waiting: a template (21.11.) – the context with an empty take _() beside it, waiting for takes
  * Returns { chain: { path, id }, paths }.
  */
-export async function saveTake({ device, person, cell = null, where = null, now = Date.now(), lengthMs = 0, context = '', video = null, picture = null, audio = null, store, deviceKey = null, onto = null, keep = [], preview = null }) {
+export async function saveTake({ device, person, cell = null, where = null, now = Date.now(), lengthMs = 0, context = '', video = null, picture = null, audio = null, store, deviceKey = null, onto = null, ontoStore = null, keep = [], preview = null, waiting = false }) {
   const time = timeLabel(now, lengthMs);
   const words = context ? flatWords(context) : [];
   const base = { words, person: person.label, time };
@@ -65,18 +67,19 @@ export async function saveTake({ device, person, cell = null, where = null, now 
     const text = await signed(deviceKey, fileText(head('x', id), [], [storedText(context).replace(/\s*\n\s*/g, ' ').trim()]));
     await add('x', id, enc.encode(text));
   }
-  if (!used.length) throw new Error('a Take needs at least one strand');
+  if (!used.length && !(onto && keep.length)) throw new Error('a Take needs at least one strand'); // on top of a take: keeping it without its context is a change too (21.11.)
   if (preview && video) await add('v', make(), preview, { ext: 'jpg', echo: 'preview :v.1' }); // the small picture, as echo of the video
 
   const chainId = make();
   const chainHead = headLine('chain', { '!': writeId(chainId), '@': person.label, '°': where, "'t": time });
-  const took = `_({${used.map((u) => `:${u}`).join(' ')}})`;
-  let line = `${took}'t(${time})`, below = [];
+  const took = used.length ? `_({${used.map((u) => `:${u}`).join(' ')}})` : '';
+  let line = waiting ? `{${used.map((u) => `:${u}`).join(' ')} _()}'t(${time})` : `${took}'t(${time})`, below = [];
   if (onto) { // adding: kept definitions as they stand below, the old combination as :chain.1
-    const baseText = new TextDecoder().decode(await store.read(onto));
+    const baseText = new TextDecoder().decode(await (ontoStore ?? store).read(onto));
     const kept = baseText.split('\n').filter((l) => keep.some((k) => l.startsWith(`:${k}.`)));
     defs.unshift(...kept, defLine('chain.1', { id: writeId(readFile(baseText).head.id, await hashBytes(enc.encode(baseText))) }));
-    line = `{${kept.map((l) => /^:[a-z]+\.\d+/.exec(l)[0]).join(' ')} ${took}}'t(${time})`;
+    const elements = kept.filter((l) => !l.includes('~(')).map((l) => /^:[a-z]+\.\d+/.exec(l)[0]); // an echo (the small picture) is defined, not an element
+    line = `{${[...elements, took].filter(Boolean).join(' ')}}'t(${time})`;
     below = ['{:chain.1}'];
   }
   const chainText = await signed(deviceKey, fileText(chainHead, defs, [line, ...below]));

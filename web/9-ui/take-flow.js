@@ -91,8 +91,12 @@ export function takeFlow(A) {
     return run;
   }
 
-  /** The photo dot is on: one tap = one picture, kept at once. */
+  /**
+   * One picture, kept at once (21.11.: ← or ↑ on the ready button, instead of the photo dot). Visual strand off: a take
+   * of the other strands (its context) without a picture.
+   */
   async function photo() {
+    if (!A.st.strands.v) return save({ lengthMs: 0, began: Date.now(), preview: null });
     await openCamera();
     if (!t.camera) return A.shake('button');
     const picture = await snapshot(live);
@@ -102,7 +106,9 @@ export function takeFlow(A) {
   }
 
   async function save({ video = null, audio = null, picture = null, lengthMs, began, preview }) {
-    const st = A.st, on = st.strands;
+    const adding = t.addTo; t.addTo = null;
+    if (adding) return addStrandSave(adding, { video, audio, lengthMs });
+    const st = A.st, on = st.strands, answering = st.similar === 'double' ? A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === st.pick) : null;
     const context = on.x ? contextForTake(st.context, st.sticky) : '';
     let saved;
     try {
@@ -119,6 +125,7 @@ export function takeFlow(A) {
     if (A.st.lines.length !== before || count(A.st) === 1) remember(A.st.lines.length - 1, saved.chain.path);
     else remember(A.st.lines.length - 1, (await addLine({ own: A.store, chainPath: t.lineChain, elements: [{ bytes: await A.store.read(saved.chain.path) }], device: A.device, person: A.person, deviceKey: await sealKey() }).catch(() => ({ chain: t.lineChain }))).chain);
     A.keepLines();
+    if (answering) await answer(answering, saved.chain.path); // taken in the double view: one's own version, with a reference to that one (21.11.)
     await A.onboardTook(saved.paths, take);
     A.engine?.afterTake(saved.paths).catch(() => {});
     A.reindex();
@@ -172,6 +179,83 @@ export function takeFlow(A) {
       return chain;
     } catch (err) { console.warn('line context', err); return null; }
   }
+  /**
+   * An earlier take's context changed afterwards (21.11., user: words deleted, brackets set later): one's own take = a
+   * new chain on top of it – the picture and the sound kept by reference, the new context recorded, the old one stays
+   * below ({:chain.1}); someone else's take (take.from: its store) = the same, but the new chain is one's own. The line
+   * then points to it. edit: { n, i, text }
+   */
+  async function retext({ n, i, text }) {
+    const line = A.st.lines[n], take = line?.takes[i];
+    if (!take || (take.parts?.length ?? 0) > 1) return A.shake('context'); // two joined takes: their contexts stay their own
+    const guest = A.data.guestAt?.[take.id]; // someone else's take, carried in from Similar: the new chain is one's own, with a reference
+    const base = guest?.chainPath ?? take.parts?.[0]?.id ?? take.id, keep = (take.kinds ?? ['v', 'a']).filter((k) => k !== 'x');
+    let saved;
+    try {
+      saved = await saveTake({ device: A.device, person: A.person, store: A.store, now: Date.now(), lengthMs: take.ms ?? 0, context: text,
+        onto: base, ontoStore: guest?.chainStore ?? null, keep, deviceKey: await sealKey() });
+    } catch (err) { console.warn('retext', err); return A.shake('context'); }
+    const id = saved.chain.path, next = { ...take, id, context: text, ...(take.parts ? { parts: [{ ...take.parts[0], id }] } : {}) };
+    if (A.data.thumbs[take.id]) A.data.thumbs[id] = A.data.thumbs[take.id];
+    A.dispatch({ type: 'lines', lines: A.st.lines.map((l, j) => (j === n ? { ...l, takes: l.takes.map((x, k) => (k === i ? next : x)) } : l)) });
+    A.keepLines();
+    if (n === A.st.lines.length - 1) await saveLine();
+    A.reindex();
+    return id;
+  }
+  /**
+   * A take taken in the double view (21.11.): a line of one's own with both, the result first – one's own version of
+   * it, by reference; the other person's files stay where they are. → the line's chain (↑ then sends it to her)
+   */
+  async function answer(e, mine) {
+    const from = e.chain?.from; // { store: the sharing point's name, path } (3-index)
+    try {
+      const store = (A.sources ?? []).find((x) => x.name === from?.store)?.store ?? null, path = from?.path;
+      if (!store || !path) return null;
+      const line = await addLine({ own: A.store, elements: [{ bytes: await store.read(path) }, { bytes: await A.store.read(mine) }], device: A.device, person: A.person, deviceKey: await sealKey() });
+      A.data.shareChain = line.chain; A.data.suggest = e.person || null;
+      A.reindex();
+      return line.chain;
+    } catch (err) { console.warn('answer', err); return null; }
+  }
+  /** A strand the earlier take lacks (21.11.): its arc tapped → the next take records only that, onto this take. */
+  function addStrand(kind) {
+    const n = A.st.lines.length - 1, i = A.st.at, take = A.st.lines[n]?.takes[i];
+    if (!take || (take.kinds ?? []).includes(kind) || !['v', 'a'].includes(kind)) return false;
+    t.addTo = { n, i, kind };
+    navigator.vibrate?.(10);
+    start();
+    return true;
+  }
+  async function addStrandSave(add, { video, audio, lengthMs }) {
+    const take = A.st.lines[add.n]?.takes[add.i];
+    if (!take) return null;
+    const guest = A.data.guestAt?.[take.id], base = guest?.chainPath ?? take.parts?.[0]?.id ?? take.id;
+    let saved;
+    try {
+      saved = await saveTake({ device: A.device, person: A.person, store: A.store, now: Date.now(), lengthMs: take.ms || lengthMs, video: add.kind === 'v' ? video : null, audio: add.kind === 'a' ? audio : null,
+        onto: base, ontoStore: guest?.chainStore ?? null, keep: take.kinds ?? [], deviceKey: await sealKey() });
+    } catch (err) { console.warn('add strand', err); return A.shake('button'); }
+    const id = saved.chain.path, next = { ...take, id, kinds: [...new Set([...(take.kinds ?? []), add.kind])], ...(take.parts ? { parts: [{ ...take.parts[0], id }] } : {}) };
+    if (A.data.thumbs[take.id]) A.data.thumbs[id] = A.data.thumbs[take.id];
+    A.dispatch({ type: 'lines', lines: A.st.lines.map((l, j) => (j === add.n ? { ...l, takes: l.takes.map((x, k) => (k === add.i ? next : x)) } : l)) });
+    A.dispatch({ type: 'at', at: add.i });
+    A.keepLines();
+    if (add.n === A.st.lines.length - 1 && !A.st.lines[add.n].guest) await saveLine();
+    A.reindex();
+    return id;
+  }
+  /**
+   * The series written in the row, kept as a template (21.11.): ↑ on the row = shared. A chain whose line is its
+   * context and one empty take – waiting for takes (SCHEMA _( ) empty = waits). → path
+   */
+  async function saveTemplate(context) {
+    if (!context) return null;
+    const saved = await saveTake({ device: A.device, person: A.person, store: A.store, now: Date.now(), lengthMs: 0, context, deviceKey: await sealKey(), waiting: true });
+    A.data.shareChain = saved.chain.path;
+    A.reindex();
+    return saved.chain.path;
+  }
   /** The chosen line's chain (↑ shares its make-up); one without a chain yet gets one first. → path or null */
   async function chosenChain() {
     const n = A.st.chosenLine, line = n == null ? null : A.st.lines[n];
@@ -187,7 +271,7 @@ export function takeFlow(A) {
   }
 
   /** The chain of the line in force (↑ on the button shares it). */
-  const lastChain = async () => (await chosenChain()) ?? t.lineChain; // a chosen line: that one (20.11.)
+  const lastChain = async () => A.data.shareChain ?? (await chosenChain()) ?? t.lineChain; // what was just made to share (a search, an answer, a template), else a chosen line (20.11.)
 
-  return { saveLine, lineWith, setCamera: (stream) => { t.camera = stream; }, openCamera, start, pause, resume, keep, anew, photo, lastChain, get camera() { return t.camera; } };
+  return { here: () => here.now?.() ?? null, saveLine, lineWith, retext, addStrand, saveTemplate, setCamera: (stream) => { t.camera = stream; }, openCamera, start, pause, resume, keep, anew, photo, lastChain, get camera() { return t.camera; } };
 }

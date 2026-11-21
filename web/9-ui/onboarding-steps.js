@@ -52,5 +52,24 @@ export function onboardingSeries({ name = '', dropped = false, nameSign = false,
   return parts.filter(Boolean).join(' ');
 }
 
+/** The green spot typed into while onboarding: the name (while there is no name sign) or one's own password word. */
+export function typingSlot(o) {
+  if (!o?.on) return null;
+  if (!o.nameSign) return 'name';
+  return o.gestures === PASSWORD_PARTS.length - 1 && !o.ownTyped ? 'own' : null;
+}
+
+/**
+ * What the row and the window show while onboarding (21.11., user): what is typed goes straight into its green chip –
+ * in the row and in the window – and one's own words stay green. typing: the text being typed now.
+ * → { slot, series (the series with it, or null while nothing is typed), green: [words shown green] }
+ */
+export function onboardingView(o, typing = '') {
+  const slot = typingSlot(o), live = slot ? typing.trim() : '';
+  const series = live ? onboardingSeries({ ...o, ...(slot === 'name' ? { name: live } : { own: live }) }) : null;
+  const name = o.nameSign ? null : o.name;
+  return { slot, series, green: ['Name', ...(o.words ?? []), o.own, name, live].filter(Boolean) };
+}
+
 /** Which chips are offers (preset, not to be changed) in the onboarding row: the drawn password words and "Name". */
 export const isPreset = (text, words = []) => text === 'Name' || words.includes(text);

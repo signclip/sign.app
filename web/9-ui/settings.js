@@ -71,7 +71,7 @@ export const CHOICES = {
 /**
  * The button's two times (calm.js): → 'start' | 'keep' | 'pause' | 'drop' | null.
  * now: { idle (the button is free on the newest spot), freeMs (free for so long; typing and touches begin it anew),
- * armed (motion or a touch since the last drop or photo by itself), recording, stillMs (no motion for so long in the
+ * armed (motion or a touch since the last drop), recording, stillMs (no motion for so long in the
  * running take), moved (motion in it at all), auto (it started by itself) }. A take that went still is kept when the
  * button starts anew by itself (a series without hands), else it waits for ←; one that started by itself and saw no
  * motion at all is dropped (nobody was there), and the next start then waits for motion or a touch.

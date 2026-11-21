@@ -4,7 +4,6 @@
 //            sharing menu at the same time, so a gesture can be checked against all of it (tests). The devices (camera,
 //            files) are app.js; it reads the state and does what changed. Events:
 //              strand {kind}        an arc tapped: that strand on/off (visual off = the picture fades out)
-//              photo                the dot on the visual arc: photo mode on/off (the button becomes a shutter)
 //              form {round, aspect} the window's form (double tap on the picture, two fingers with one still)
 //              rec {to}             'recording' | 'paused' | 'idle' (what the recorder did)
 //              took {take}          a take kept (← on the button): onto the line, left of the button; the series moves on
@@ -25,7 +24,7 @@ import { noFilters } from './similar-view.js';
 import { afterOne } from './chips.js';
 
 export const initial = () => Object.freeze({
-  mode: 'video', rec: 'idle', form: { round: 0, aspect: 1 }, // the window's form (form.js), standard the 1:1 rectangle (20.11., user); a take is always recorded 1:1
+  rec: 'idle', form: { round: 0, aspect: 1 }, // the window's form (form.js), standard the 1:1 rectangle (20.11., user); a take is always recorded 1:1
   strands: { v: true, a: true, x: true },
   dstrands: { v: true, x: true, a: false }, // what the double view shows and plays (20.11.): picture, context; sound only when chosen (two pictures at once)
   lines: noLines(), at: 0, chosenLine: null,
@@ -47,7 +46,6 @@ export function next(s, e) {
     case 'strand': return { ...s, strands: { ...s.strands, [e.kind]: !s.strands[e.kind] } };
     case 'dstrand': return { ...s, dstrands: { ...s.dstrands, [e.kind]: !s.dstrands[e.kind] } };
     case 'form': return { ...s, form: { round: e.round ?? s.form.round, aspect: e.aspect ?? s.form.aspect } };
-    case 'photo': return s.rec === 'idle' ? { ...s, mode: s.mode === 'photo' ? 'video' : 'photo' } : s;
     case 'rec': return { ...s, rec: e.to, ...(e.to === 'recording' ? { at: count(s), wide: 0 } : {}) };
     case 'took': {
       const lines = addTake(s.lines, e.take, s.sticky);
@@ -80,20 +78,21 @@ export function next(s, e) {
 
 /**
  * What a gesture on the button means now (the user's table, 16.11.). g: swipe.js event on role 'button'.
- * → { do } with do one of: 'photo' 'start' 'pause' 'resume' 'play' 'keep' 'next' 'before' 'share' 'share-line'
+ * → { do } with do one of: 'photo' 'photo-share' 'share-similar' 'share-to' 'start' 'pause' 'resume' 'play' 'keep' 'next' 'before' 'share' 'share-line'
  *   'line-with' 'line-without' 'clear-context' 'anew' 'spread' or null. A line chosen (20.11.): ↑ = share its make-up,
  *   ← = the words written now onto every take of it, ↓ = out of every take that has them.
  */
 export function buttonMeaning(s, g) {
   if (g.type === 'tap') {
     if (!live(s)) return { do: 'play' };
-    if (s.mode === 'photo') return { do: 'photo' };
     return { do: s.rec === 'idle' ? 'start' : s.rec === 'recording' ? 'pause' : 'resume' };
   }
   if (g.type !== 'swipe') return null;
-  if (g.dir === 'up') return { do: s.chosenLine != null ? 'share-line' : 'share' };
+  // nothing running yet (21.11., instead of the photo dot): ← = one picture, kept · ↑ = one picture, straight to sharing
+  const ready = live(s) && s.rec === 'idle' && s.chosenLine == null;
+  if (g.dir === 'up') return { do: s.chosenLine != null ? 'share-line' : s.similar === 'double' ? 'share-to' : s.similar === 'many' || s.similar === 'full' ? 'share-similar' : ready && s.strands.v && !s.onboard?.on ? 'photo-share' : 'share' }; // 21.11.: Similar open = its search · double = to her
   if (g.dir === 'down') return { do: s.chosenLine != null ? 'line-without' : g.far ? 'anew' : 'clear-context' };
-  if (g.dir === 'left') return { do: live(s) && s.rec !== 'idle' ? 'keep' : s.chosenLine != null ? 'line-with' : 'next' };
+  if (g.dir === 'left') return { do: live(s) && s.rec !== 'idle' ? 'keep' : s.chosenLine != null ? 'line-with' : ready ? 'photo' : 'next' };
   if (g.dir === 'right') return { do: 'before' };
   return null;
 }
