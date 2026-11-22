@@ -26,7 +26,7 @@ import { installDebug, note as debugNote } from './debug.js';
 import { initial, next } from './take-state.js';
 import { takeLayout } from './layout.js';
 import { outline } from './form.js';
-import { takeSvg, nowHtml, rowHtml } from './paint.js';
+import { takeSvg, fanRows, nowHtml, rowHtml } from './paint.js';
 import { similarHtml } from './paint-similar.js';
 import { sharingView } from './paint-sharing.js';
 import { seriesRow, nowWords } from './chips.js';
@@ -231,9 +231,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     focus.classList.toggle('gone', st.similar === 'full');
     win.classList.toggle('off', !st.strands.v);
     win.classList.toggle('gone', st.similar === 'full');
-    const svg = takeSvg(st, L, { playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, auto: A.settings.restartMs != null, meter: A.settings.restartMs != null || A.settings.stillEndMs > 0, range: st.filters.range ?? {}, ranging: A.data.ranging, series: isLive(st) && !st.typing ? A.data.kindCounts?.series ?? 0 : 0 });
+    const svg = takeSvg(st, L, { fan: A.data.fan, fanOff: A.data.fanOff, playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, auto: A.settings.restartMs != null, meter: A.settings.restartMs != null || A.settings.stillEndMs > 0, range: st.filters.range ?? {}, ranging: A.data.ranging, series: isLive(st) && !st.typing ? A.data.kindCounts?.series ?? 0 : 0 });
     if ($('#take').dataset.svg !== svg) { $('#take').innerHTML = svg; $('#take').dataset.svg = svg; }
-    if (!A.data.gliding) slide(L); // Similar full glides by itself (glideFull)
+    if (!A.data.gliding) slide(L);
+    A.data.fanRows = fanRows(L); // how many lines the fan shows at once (22.11.) // Similar full glides by itself (glideFull)
     const ob = st.onboard.on ? onboardingView(st.onboard, st.typing ? A.data.typing ?? '' : '') : null; // onboarding: typed into its green chip (21.11.)
     const earlier = !isLive(st) ? st.lines.at(-1)?.takes[st.at] : null; // an earlier take in the button: its own context, in the window and to change (21.11.)
     const edit = earlier && A.data.edit?.id === earlier.id ? A.data.edit : null;
@@ -249,7 +250,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     Object.assign(rowEl.style, L.row ? { left: `${L.row.x}px`, right: 'auto', width: `${L.row.w}px`, padding: `0 ${Math.round(L.row.w * 0.4)}px` } : { left: '', right: '', width: '', padding: '' }); // Similar full across: the row under the take's column
     rowEl.classList.toggle('typing', st.typing);
     rowEl.classList.toggle('gone', !st.strands.x);
-    const rowText = rowHtml(row, { waiting: ob?.slot === 'own' && !ob.series, all: st.typing, on: st.typing && !ob?.series, caret: st.caret, typing: st.typing && !ob?.series ? A.data.typing : '', offers: ob?.green ?? [], open: A.data.open?.caret });
+    const rowText = rowHtml(row, { waiting: ob?.slot === 'own' && !ob.series, all: st.typing, on: st.typing && !ob?.series, caret: st.caret, typing: st.typing && !ob?.series ? A.data.typing : '', offers: ob?.green ?? [], open: A.data.open ?? undefined, join: Boolean(A.data.join) });
     const nTemplates = A.data.kindCounts?.template ?? 0; // the templates' bubble at the end of the row (21.11.): spread or tap = their cloud
     const rowAll = rowText + (!earlier && !ob && !st.typing && nTemplates ? `<span class="kind-bubble" data-role="kinds:template"><em>_</em><b>${nTemplates}</b></span>` : '');
     if (rowEl.dataset.html !== rowAll) { rowEl.innerHTML = rowAll; rowEl.dataset.html = rowAll; }
@@ -273,7 +274,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if (!st.typing && A.data.wasTyping) toStart(rowEl); // done writing: a long row glides back to its start, the next words in sight (20.11.)
     A.data.wasTyping = st.typing;
     if (st.typing) { // the caret stays in sight in a long row (17.11.)
-      const c = rowEl.querySelector('.chip.typing') ?? rowEl.querySelector('.gap.caret');
+      const c = rowEl.querySelector('.gap.caret') ?? rowEl.querySelector('.chip.typing'); // the caret, behind the word being typed (22.11.)
       if (c) { const a = c.getBoundingClientRect(), mid = a.left + a.width / 2; if (mid < 40 || mid > innerWidth - 40) rowEl.scrollLeft += mid - innerWidth / 2; }
     }
   }
@@ -315,7 +316,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   say.addEventListener('input', () => {
     A.calm.poke();
     if (!say.value.includes(ZW)) { say.value = ZW + say.value; say.setSelectionRange?.(say.value.length, say.value.length); if (say.value === ZW) g.backspace(); } // the mark went: Backspace with nothing typed (21.11.)
-    A.data.typing = say.value.replace(ZW, ''); A.similar.refresh(); A.paint();
+    let now = say.value.replace(ZW, '');
+    if (!A.st.onboard.on && /[\s()]/.test(now)) { now = g.typed(now); say.value = ZW + now; say.setSelectionRange?.(say.value.length, say.value.length); } // a word ends at a space or bracket: a chip at once (22.11.)
+    A.data.typing = now; A.similar.refresh(); A.paint();
   });
   say.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); say.blur(); } }); // Enter = done: the keyboard goes, blur commits
   say.addEventListener('blur', () => { g.commit(); A.dispatch({ type: 'typing', on: false }); g.finish(); });

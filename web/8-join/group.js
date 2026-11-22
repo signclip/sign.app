@@ -12,6 +12,10 @@
 // Door:      the project's door (project.json) splits the links (decided 13.11.): the read link shows only the
 //            folder join/ (with a copy of the description, for the signer's keys), the drop link takes only
 //            into hello/. So nobody reads the hellos and name signs through the door. doorLinks() maps both.
+// Object storage (22.11., user: "auch für die Gruppen"): the folder lies in the owner's sharing point behind the gateway;
+//            instead of two links two door grants (grant.js: access *, r and a), chained to the owner's own grant and
+//            sealed by her device key, travel in the invitation. A member's hello back carries her own grant (her access
+//            key, ra) for both tiles: renewing the door (new door grants, the old ones revoked) leaves members as they are.
 // Limits:    two shares per group on the owner's server; renewing = 2 + n requests (n members) · a drop is open
 //            to anyone: per look at most 50 hellos are read (newest first), only sealed ones are shown; the rest
 //            is counted as junk (set a small quota on the drop's account so a flood cannot fill more).
@@ -22,6 +26,9 @@ import { readName } from '../1-model/filename.js';
 import { checkWitness } from '../1-model/crypto.js';
 import { SELF } from '../2-storage/layout.js';
 import { ExistsError } from '../2-storage/memory.js';
+import { gatewayParts, packGrant } from '../2-storage/spec.js';
+import { newSource } from '../1-model/ids.js';
+import { makeGrant, chainOf } from './grant.js';
 
 const dec = new TextDecoder();
 /** Hellos read per look into a drop: the newest; a flood of junk costs at most this many reads. */
@@ -38,6 +45,17 @@ export async function makeGroup(nc, { folder, label, password = undefined }) {
   return { read, drop, sharingPoints: linksOf(label, read, drop) };
 }
 
+/**
+ * A group in the object storage: path = the owner's sharing point there (the group folder), grants = her own chain
+ * (w). → { gateway: { grants }, read: { chain }, drop: { chain }, sharingPoints } — chain = her chain + the door grant.
+ */
+export async function gatewayGroup({ path, grants, label, signer, now = Date.now() }) {
+  const p = gatewayParts(path), own = chainOf(grants);
+  const door = async (rights) => [...own, await makeGrant({ signer, access: '*', prefix: p.prefix, rights, now })];
+  const at = `${p.base}/s3/${p.prefix}`;
+  return { gateway: { grants: own }, read: { chain: await door('r') }, drop: { chain: await door('a') }, sharingPoints: [{ label, path: `${at}#read`, id: null }, { label, path: `${at}#add`, id: null }] };
+}
+
 const linksOf = (label, read, drop) => [{ label, path: read.webdav, id: null }, { label, path: drop.webdav, id: null }];
 
 /**
@@ -46,7 +64,12 @@ const linksOf = (label, read, drop) => [{ label, path: read.webdav, id: null }, 
  */
 export async function welcomeToGroup({ store, helloPath, group, signer, now = Date.now() }) {
   await describeJoin(store);
-  return helloBack({ store, helloPath, secret: '', sharingPoints: group.sharingPoints, signer, now });
+  if (!group.gateway) return helloBack({ store, helloPath, secret: '', sharingPoints: group.sharingPoints, signer, now });
+  const ask = readHello(dec.decode(await store.read(helloPath))), p = gatewayParts(group.sharingPoints[0].path);
+  const sharingPoints = group.sharingPoints.map((x) => ({ ...x, id: newSource() }));
+  const mine = ask.access ? JSON.stringify([...chainOf(group.gateway.grants), await makeGrant({ signer, device: ask.device, access: ask.access, prefix: p.prefix, rights: 'ra', now })]) : null; // her own grant; a device without access key keeps the door's
+  const grants = Object.fromEntries(sharingPoints.map((x, i) => [x.id, mine ?? JSON.stringify((i ? group.drop : group.read)?.chain ?? [])]));
+  return helloBack({ store, helloPath, secret: JSON.stringify({ grants }), sharingPoints, signer, now });
 }
 
 /**
@@ -65,8 +88,10 @@ export async function renewGroup(nc, { folder, label, old = null, tokens = [], s
   return { group, joins };
 }
 
-/** The invitation a signer hands out (one paste brings the whole group in): name, read link, drop link. */
-export const invitation = (label, group) => [label, group.read.webdav, group.drop.webdav].join('\n');
+/** The invitation a signer hands out (one paste brings the whole group in): name, read link, drop link (object storage: the two tiles with their door grants). */
+export const invitation = (label, group) => (group.gateway
+  ? [label, ...group.sharingPoints.map((x, i) => `${x.path}=${packGrant((i ? group.drop : group.read).chain)}`)]
+  : [label, group.read.webdav, group.drop.webdav]).join('\n');
 
 /**
  * Hellos in the group folder still without an answer in join/. store: the folder as the signer reaches

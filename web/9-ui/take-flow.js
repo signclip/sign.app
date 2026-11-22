@@ -211,6 +211,16 @@ export function takeFlow(A) {
    * A take taken in the single view (21.11.): a line of one's own with both, the result first – one's own version of
    * it, by reference; the other person's files stay where they are. → the line's chain (↑ then sends it to her)
    */
+  /** An older line tapped in the fan (22.11., user): it comes to the button; a change then writes a new line on top of it. */
+  function showLine(n) {
+    const line = A.st.lines[n];
+    if (!line) return null;
+    A.data.fan = false;
+    A.dispatch({ type: 'show-line', n });
+    t.lineChain = line.chain ?? null;
+    navigator.vibrate?.(10);
+    return A.paint();
+  }
   /** ↑ with the take in the button (21.11.): that take goes over – its own chain, or a line of mine pointing to a guest. */
   async function shareTake() {
     const take = A.st.lines.at(-1)?.takes[A.st.at];
@@ -315,5 +325,5 @@ export function takeFlow(A) {
   /** The chain of the line in force (↑ on the button shares it). */
   const lastChain = async () => A.data.shareChain ?? (await chosenChain()) ?? t.lineChain; // what was just made to share (a search, an answer, a template), else a chosen line (20.11.)
 
-  return { here: () => here.now?.() ?? null, saveLine, lineWith, retext, addStrand, takeStrand, shareTake, shareElement, saveTemplate, setCamera: (stream) => { t.camera = stream; }, openCamera, start, pause, resume, keep, anew, photo, lastChain, get camera() { return t.camera; } };
+  return { here: () => here.now?.() ?? null, saveLine, lineWith, retext, addStrand, takeStrand, shareTake, shareElement, showLine, saveTemplate, setCamera: (stream) => { t.camera = stream; }, openCamera, start, pause, resume, keep, anew, photo, lastChain, get camera() { return t.camera; } };
 }

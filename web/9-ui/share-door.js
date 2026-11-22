@@ -14,14 +14,16 @@ import { helloTakes, firstPieces, knownFolder } from '../8-join/known.js';
 import { doorView, toWithin, backToHello, moveAccount, deleteFolder } from '../8-join/door.js';
 import { renames, adoptRename, declineRename } from '../8-join/rename.js';
 import { setDisplayName, setEnabled, deleteAccount, sharedWithMe, makeFolder } from '../8-join/provision.js';
-import { hellosToWelcome, welcome, choices, trustedHere } from './share-group.js';
+import { hellosToWelcome, welcome, choices, trustedHere, signerOfText } from './share-group.js';
+import { certificatesIn, pendingSigners, verdict } from '../8-join/signers.js';
+import { deviceKeys } from './device-keys.js';
 import { copyRoute } from '../2-storage/routes.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
 
 const dec = new TextDecoder();
 
-/** ctx: the sharing menu's (s, say, t, draw, admin, atlas, door) · panel · onLookAll(items). → { refreshDoor, lookPile, pileList, adminStore } */
+/** ctx: the sharing menu's (s, say, t, draw, admin, atlas, door) · panel · onLookAll(items). → { refreshDoor, lookPile, pileList, adminStore, signerVerdict } */
 export function doorPart(ctx, { panel, onLookAll }) {
   const { s, say, t } = ctx;
   const draw = () => ctx.draw();
@@ -35,9 +37,31 @@ export function doorPart(ctx, { panel, onLookAll }) {
     s.door = door ? await doorView(door).catch(() => s.door) : null;
     s.renames = door ? await renames(door).catch(() => s.renames ?? []) : []; // a person renamed herself: in the hello pile
     if (door) { const ok = await trustedHere(ctx, door).catch(() => true); if (!ok) s.note = t('door.notSigner'); else if (s.note === t('door.notSigner')) s.note = ''; } // this admin device is not project.json's signer: said at once, not after a welcome (21.11.)
+    s.signersWaiting = door ? await waitingSigners(door).catch(() => s.signersWaiting ?? []) : [];
+    if (s.signersWaiting.length) s.note = t('signer.waiting', { name: s.signersWaiting[0].signer.label, date: new Date(s.signersWaiting[0].until).toLocaleString().slice(0, -3) }); // told on every signer device
     if (!panel.hidden) draw();
   }
   setInterval(() => { if (!panel.hidden && (ctx.admin || s.hellos.length)) refreshDoor(); }, 20000);
+  /**
+   * New signers of the door within their 48 h (22.11., user: "B"), as every other signer device sees them: not the ones
+   * this device made itself, not this device. → [{ u, signer, by, until }]
+   */
+  async function waitingSigners(door) {
+    const pinned = signerOfText(ctx.doorSigner);
+    if (!pinned) return [];
+    return (await pendingSigners(pinned, await certificatesIn(door))).filter((p) => p.by !== ctx.device && p.signer.id !== ctx.device);
+  }
+  /** A signer device agrees (ok: the new signer counts at once) or objects (it never counts). */
+  async function signerVerdict(p, ok) {
+    const door = adminStore();
+    if (!p || !door) return say(t('notReachable'));
+    const me = await deviceKeys();
+    const v = await verdict({ by: { id: ctx.device, label: ctx.person?.label ?? '', privateKey: me.device.privateKey }, u: p.u, ok, person: ctx.person });
+    await door.write(v.path, new TextEncoder().encode(v.text));
+    navigator.vibrate?.(ok ? 20 : [15, 60, 15]);
+    s.note = '';
+    return refreshDoor();
+  }
   const pileList = (name) => (name === 'hello' ? [...s.hellos, ...(s.renames ?? [])] : s.door?.[name] ?? []);
   /**
    * Admin (15.11.): one pile as Similar tiles; each person's name sign and password gestures together, a new device of a
@@ -107,5 +131,5 @@ export function doorPart(ctx, { panel, onLookAll }) {
     }
   }
   const userOfFolder = (folder) => /!\(([^()]*)\)$/.exec(folder)?.[1]?.toLowerCase();
-  return { refreshDoor, lookPile, pileList, adminStore };
+  return { refreshDoor, lookPile, pileList, adminStore, signerVerdict };
 }

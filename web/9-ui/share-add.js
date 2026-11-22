@@ -14,18 +14,17 @@
 //            Nextcloud to accept there. After giving to a cloud id: one tap opens the other side's page.
 // Limits:    the browser blocks the one-click login and the pending-share API (CORS); a link per kind.
 
-import { readPaste } from '../2-storage/spec.js';
+import { readPaste, gatewayParts } from '../2-storage/spec.js';
 import { startLogin, waitLogin } from '../2-storage/login-flow.js';
 import { Nextcloud, webdavUrl } from '../2-storage/nextcloud.js';
 import { giveStrands, giveAll } from '../2-storage/routes.js';
 import { connect, takeIn, acceptPage, pendingPage, myCloudId, cloudIdParts } from '../2-storage/connect.js';
-import { pairWith } from '../2-storage/gateway-store.js';
 import { newSource } from '../1-model/ids.js';
 import { userId, appPasswordFor } from '../8-join/provision.js';
 import { roleOf } from '../8-join/flow.js';
 import { timeLabel } from '../1-model/filename.js';
 import { describeNew } from '../2-storage/sharing-points.js';
-import { deviceKeys, accessKey } from './device-keys.js';
+import { deviceKeys } from './device-keys.js';
 
 /**
  * A folder brought in that is not a sharing point yet becomes one: its sharing-point.sign, this device as signer,
@@ -131,10 +130,13 @@ export async function bringIn(ctx, given = null) { // given: a text instead of t
     return edit({ add: { label: host, path: `cloud:${what.cloudId}`, id: newSource() } });
   }
   if (what.kind === 'nextcloud' && !what.folder && secret && roleOf(what.user, ctx.project ?? {})) return bringRole(ctx, what, secret); // Atlas, Groups: made in the browser, brought in with their own password (20.11.)
-  if (what.kind === 'gateway' && what.pair) { // an object storage (21.11.): the pairing link makes this device's access key a grant, once
-    try { await pairWith(text.trim(), { access: accessKey, label: ctx.person?.label ?? '' }); } catch { return say(t('notReachable')); }
-  }
   const id = newSource();
+  if (what.kind === 'gateway') { // object storage (22.11.): a folder inside my own sharing point there opens with my grant
+    const mine = s.entries.find((e) => { const p = gatewayParts(e.path), q = gatewayParts(what.path); return p && q && !p.side && p.base === q.base && q.prefix.startsWith(p.prefix); });
+    const grant = what.grant ?? (mine ? await keychain.get(mine.id).catch(() => null) : null);
+    if (!grant) return say(t('notReachable'));
+    await keychain.set(id, grant);
+  }
   if (secret) await keychain.set(id, secret); // came with the link: the folder opens at once
   if (what.kind === 'login') return loginAt(ctx, what.server, id);
   await edit({ add: { path: what.path, id }, marks: ['show'] });

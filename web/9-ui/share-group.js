@@ -24,7 +24,10 @@ import { readPaste } from '../2-storage/spec.js';
 import { connect } from '../2-storage/connect.js';
 import { SELF } from '../2-storage/layout.js';
 import { trustedSigners, certificatesIn } from '../8-join/signers.js';
-import { makeGroup, renewGroup, invitation, waitingHellos, welcomeToGroup, doorLinks, describeJoin } from '../8-join/group.js';
+import { makeGroup, renewGroup, invitation, waitingHellos, welcomeToGroup, doorLinks, describeJoin, gatewayGroup } from '../8-join/group.js';
+import { readGrant, chainOf, makeGrant } from '../8-join/grant.js';
+import { GatewayStore } from '../2-storage/gateway-store.js';
+import { gatewayParts } from '../2-storage/spec.js';
 import { sayHello, answerFor, join, advance, readHello } from '../8-join/join.js';
 import { honorRemove } from '../8-join/remove-request.js';
 import { welcome as welcomeWithAccount, welcomeDevice, arrive } from '../8-join/welcome.js';
@@ -34,7 +37,7 @@ import { sayRename } from '../8-join/rename.js';
 import { QUOTA } from '../8-join/provision.js';
 import { readName } from '../1-model/filename.js';
 import { newSource } from '../1-model/ids.js';
-import { deviceKeys, joins } from './device-keys.js';
+import { deviceKeys, joins, accessKey } from './device-keys.js';
 import { copy } from './system-share.js';
 
 const dec = new TextDecoder();
@@ -68,10 +71,14 @@ export async function trustedHere(ctx, store) {
   return trusted[ctx.device] === (await deviceKeys()).device.public;
 }
 
-/** "q_… z_…" (project.json signer) → { q_…: key } as signerKeys gives it, or null. */
+/**
+ * project.json signer → { q_…: key, … } as signerKeys gives it, or null. One anchor ("q_… z_…") or several (22.11.: the
+ * admin device and the paper): a list, or one text with a line or comma between them. Only public halves: the paper's
+ * private half is the code on the sheet.
+ */
 export function signerOfText(text) {
-  const m = /^(q_\S+)\s+z_(\S+)$/.exec(String(text ?? '').trim());
-  return m ? { [m[1]]: m[2] } : null;
+  const all = (Array.isArray(text) ? text : String(text ?? '').split(/[\n,]+/)).map((x) => /^(q_\S+)\s+z_(\S+)$/.exec(String(x).trim())).filter(Boolean);
+  return all.length ? Object.fromEntries(all.map((m) => [m[1], m[2]])) : null;
 }
 
 /** Signer: ↑ on my own Nextcloud folder → make the group, or renew its links. */
@@ -79,6 +86,7 @@ export async function makeOrRenew(ctx, n) {
   const { s, keychain, say, t, edit } = ctx;
   const sp = s.open.get(n);
   const label = sp.entry.label;
+  if (sp.spec?.kind === 'gateway') return makeOrRenewHere(ctx, n); // object storage (22.11.): door grants instead of links
   const nc = new Nextcloud({ server: sp.spec.server, user: sp.spec.user, password: await keychain.get(sp.entry.id) });
   const folder = sp.spec.folder;
   const before = groupOf(ctx, label);
@@ -97,14 +105,78 @@ export async function makeOrRenew(ctx, n) {
   return say(t('copied'));
 }
 
+/**
+ * Signer, object storage (22.11.): ↑ on my own folder behind the gateway → the group's two tiles with door grants (anyone
+ * with the invitation reads and adds), the invitation copied. Again = renew: new door grants, the old ones revoked at the
+ * gateway; members keep their own grants (from their hello back), so nobody needs a new join.
+ */
+async function makeOrRenewHere(ctx, n) {
+  const { s, keychain, say, t, edit } = ctx;
+  const sp = s.open.get(n), label = sp.entry.label;
+  const before = groupOf(ctx, label);
+  const group = await gatewayGroup({ path: sp.entry.path, grants: await keychain.get(sp.entry.id), label, signer: await signerOf(ctx) });
+  if (before) {
+    for (const x of [before.read, before.drop]) {
+      const door = readGrant(chainOf(await keychain.get(s.entries[x.n - 1].id).catch(() => null)).at(-1));
+      if (door?.access === '*') await sp.store.revoke(door.id).catch(() => {}); // the old invitation opens nothing any more
+    }
+    for (const x of [Math.max(before.read.n, before.drop.n), Math.min(before.read.n, before.drop.n)]) await edit({ remove: x });
+  }
+  for (const [i, link] of group.sharingPoints.entries()) {
+    const id = newSource();
+    await keychain.set(id, JSON.stringify((i ? group.drop : group.read).chain));
+    await edit({ add: { ...link, id }, marks: i ? [] : ['show'] });
+  }
+  await copy(invitation(label, group));
+  return say(t('copied'));
+}
+
+/**
+ * Groups in the object storage (22.11., user: "Gruppen als eigenständige Ordner wie bei Nextcloud"): the admin's device,
+ * the project's signer, keeps a Groups tile at <gateway>/s3/groups/ with a grant it seals itself (rw groups/). ← on it =
+ * a new folder groups/<name>/ (share-accounts newGroup): a group outlives the account of any one person.
+ */
+export async function ensureGroupsHere(ctx, project) {
+  if (!project?.gateway || !ctx.admin) return null;
+  const path = `${project.gateway.replace(/\/$/, '')}/s3/groups/`;
+  const there = ctx.s.entries.find((e) => e.path === path);
+  if (there) return there;
+  const pinned = signerOfText(ctx.doorSigner), keys = await deviceKeys();
+  if (pinned && pinned[ctx.device] !== keys.device.public) return null; // only the project's signer seals it for itself
+  const id = newSource();
+  await ctx.keychain.set(id, await makeGrant({ signer: await signerOf(ctx), device: { label: ctx.person?.label ?? '', id: ctx.device, key: keys.device.public }, access: keys.access.public, prefix: 'groups/' }));
+  await ctx.edit({ add: { label: project.groups || 'Groups', path, id } });
+  return ctx.s.entries.find((e) => e.path === path) ?? null;
+}
+
+/** The chain that may give grants for a gateway path: a tile of mine there without a side, whose prefix holds it (own folder or Groups). */
+async function ownerChainFor(ctx, path) {
+  const q = gatewayParts(path);
+  const mine = q && ctx.s.entries.filter((e) => { const p = gatewayParts(e.path); return p && !p.side && p.base === q.base && q.prefix.startsWith(p.prefix); }).sort((a, b) => b.path.length - a.path.length)[0];
+  return mine ? ctx.keychain.get(mine.id).catch(() => null) : null;
+}
+
+/** Group folders in groups/ of the object storage (their read tiles) with the Groups chain → [[n, store]]. */
+async function groupsHere(ctx) {
+  const out = [];
+  for (const [n, sp] of ctx.s.open) {
+    const p = gatewayParts(sp.entry.path);
+    if (p?.side !== 'read' || !p.prefix.startsWith('groups/')) continue;
+    const grant = await ownerChainFor(ctx, sp.entry.path);
+    if (readGrant(chainOf(grant).at(-1))?.rights === 'rw') out.push([n, new GatewayStore({ path: `${p.base}/s3/${p.prefix}`, access: accessKey, grant, name: sp.entry.label })]);
+  }
+  return out;
+}
+
 /** Signer: hellos waiting in my group folders → [{ n, helloPath, name }]. */
 export async function hellosToWelcome(ctx) {
   const out = [];
   const door = ctx.admin ? ctx.adminStore?.() : null; // the admin: the door's folder (found from its links, 15.11.)
   const groupsAt = (label) => (ctx.groups ? new WebDavStore({ base: webdavUrl(ctx.groups.server, ctx.groups.user, label), user: ctx.groups.user, password: ctx.groups.password, name: label }) : null); // Groups (16.11.): its own folders, with rights to move and to honour remove requests
-  const look = [...[...ctx.s.open].filter(([, sp]) => (sp.spec?.kind === 'nextcloud' || (ctx.groups && sp.spec?.kind === 'link' && !sp.store?.dropOnly)) && groupOf(ctx, sp.entry.label)).filter(([, sp], i, all) => all.findIndex(([, x]) => x.entry.label === sp.entry.label) === i) // one look per group
+  const look = [...[...ctx.s.open].filter(([, sp]) => (sp.spec?.kind === 'nextcloud' || (sp.spec?.kind === 'gateway' && !/#(read|add)$/.test(sp.entry.path)) || (ctx.groups && sp.spec?.kind === 'link' && !sp.store?.dropOnly)) && groupOf(ctx, sp.entry.label)) // gateway: my own folder there, not the group's two tiles.filter(([, sp], i, all) => all.findIndex(([, x]) => x.entry.label === sp.entry.label) === i) // one look per group
       .map(([n, sp]) => [n, sp.spec?.kind === 'link' ? groupsAt(sp.entry.label) : sp.store]),
-    ...(door ? [[ctx.s.adminN, door]] : [])];
+    ...(door ? [[ctx.s.adminN, door]] : []),
+    ...(await groupsHere(ctx))];
   for (const [n, store] of look) {
     try {
       for (const helloPath of await waitingHellos(store)) out.push({ n, store, helloPath, name: /@\(([^)]*)\)/.exec(helloPath)?.[1] ?? '?' });
@@ -185,7 +257,8 @@ export async function welcome(ctx, { n, helloPath, store = null }, { into } = {}
         return welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: person.id.toLowerCase(), gateway: ctx.gateway });
       });
   } else if (sharingPoints.length) {
-    await welcomeToGroup({ store: sp.store, helloPath, group: { sharingPoints }, signer: await signerOf(ctx) });
+    const here = sp.spec?.kind === 'gateway' ? { gateway: { grants: await ownerChainFor(ctx, sp.entry.path) } } : {}; // object storage: her own grant, chained to mine (own folder or Groups)
+    await welcomeToGroup({ store: sp.store, helloPath, group: { sharingPoints, ...here }, signer: await signerOf(ctx) });
   } else return null;
   return ctx.say(`${ctx.t('share')} → ${/@\(([^)]*)\)/.exec(helloPath)?.[1] ?? ''}`);
 }
@@ -193,12 +266,13 @@ export async function welcome(ctx, { n, helloPath, store = null }, { into } = {}
 /** Member: a pasted invitation (name, read link, drop link) → one group tile, and hello into the drop. */
 export async function bringInvitation(ctx, text, secret = null) {
   const lines = String(text).split('\n').map((l) => l.trim()).filter(Boolean);
-  const links = lines.map(readPaste).filter((x) => x?.kind === 'link');
+  const links = lines.map(readPaste).filter((x) => x?.kind === 'link' || (x?.kind === 'gateway' && x.grant)); // object storage (22.11.): the two tiles with their door grants
   if (links.length !== 2) return false;
   const label = lines.find((l) => !/^https?:/.test(l)) ?? new URL(links[0].path).host;
   for (const link of links) {
     const id = newSource();
-    if (secret) await ctx.keychain.set(id, secret); // one password for both links, pasted with them
+    if (link.grant) await ctx.keychain.set(id, link.grant); // the door's grant: read, or add
+    else if (secret) await ctx.keychain.set(id, secret); // one password for both links, pasted with them
     await ctx.edit({ add: { label, path: link.path, id }, marks: link === links[0] ? ['show'] : [] });
   }
   await sayHelloTo(ctx, label);
@@ -352,10 +426,14 @@ async function takeOwn(ctx, r) {
   try { s = r.secret ? JSON.parse(r.secret) : null; } catch { return false; }
   if (!s?.server && !Object.keys(s?.grants ?? {}).length) return false;
   const { entries } = await arrive({ secret: r.secret, sharingPoints: r.sharingPoints ?? [], keychain: ctx.keychain });
-  for (const e of entries.filter((x) => ['nextcloud', 'gateway'].includes(x.kind) && !ctx.s.entries.some((y) => y.path === x.path))) { // gateway: own sharing point in the object storage, with its grant (21.11.)
+  let added = false;
+  for (const e of entries.filter((x) => ['nextcloud', 'gateway'].includes(x.kind))) { // gateway: own sharing point in the object storage, with its grant (21.11.)
+    const there = ctx.s.entries.find((y) => y.path === e.path);
+    if (there) { if (s.grants?.[e.id]) await ctx.keychain.set(there.id, s.grants[e.id]); continue; } // a group tile (22.11.): her own grant replaces the door's
     await ctx.edit({ add: { label: e.label, path: e.path, id: e.id }, marks: ['show', 'write'] });
+    added = true;
   }
-  return { server: s.server ?? null, user: s.user ?? null }; // kept with the join: a quiet note later logs exactly this account out
+  return s.server || added ? { server: s.server ?? null, user: s.user ?? null } : false; // kept with the join: a quiet note later logs exactly this account out
 }
 
 /** Renewed links in a join: replace the group's two entries when the paths changed. */

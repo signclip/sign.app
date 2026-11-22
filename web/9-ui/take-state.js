@@ -15,6 +15,7 @@
 //              wide {spread, ms}    the button spread across: a window into the take, ms = the moment in its middle
 //              context {text}  sticky {text}  typing {on}  caret {at}  keyboard {px}
 //              similar {level}  pick {key}  filters {filters}       share {open}       onboard {patch}
+//              show-line {n}        an older line to the button (the fan, 22.11.)
 //              choose {what}        what goes over with ↑ on Similar's side (21.11., user): 'cloud' · 'element' · null =
 //                                   the take's side (the take in the button, a chosen line, else ready). The last touched counts.
 // Depends:   line.js, similar-view.js, chips.js
@@ -62,6 +63,12 @@ export function next(s, e) {
     }
     case 'at': return { ...s, at: Math.max(0, Math.min(count(s), e.at)), wide: 0, sel: null };
     case 'select-line': return { ...s, chosenLine: s.chosenLine === e.n ? null : e.n, sel: null };
+    case 'show-line': { // an older line chosen in the fan (22.11., user): it comes to the button – nothing written until it changes
+      if (!(e.n >= 0 && e.n < s.lines.length - 1)) return s;
+      const lines = [...s.lines], [l] = lines.splice(e.n, 1);
+      lines.push(l);
+      return { ...s, lines, at: l.takes.length, chosenLine: null, sel: null, wide: 0 };
+    }
     case 'choose': return { ...s, sel: e.what ?? null, ...(e.what ? { chosenLine: null } : {}) }; // one thing chosen at a time: Similar's side or the take's
     case 'lines': return { ...s, lines: e.lines, at: Math.min(s.at, e.lines.at(-1).takes.length) };
     case 'wide': return { ...s, wide: Math.max(0, e.spread), wideMs: e.ms ?? s.wideMs, wideZoom: e.spread > 0 ? e.zoom ?? s.wideZoom ?? 1 : 1 }; // zoom: finer in time (20.11.), back to 1 when closed

@@ -15,7 +15,7 @@
 import { sign } from '../1-model/crypto.js';
 
 export const WAIT_MS = 8000, STAY_MS = 5 * 60 * 1000;
-const field = (x) => (x == null ? '-' : encodeURIComponent(String(x)));
+const field = (x) => (x == null || x === '' ? '-' : encodeURIComponent(String(x))); // empty = "-" too (the root of a bucket)
 const nonce = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const answered = new Map(); // api of the entry → { at: index of the gateway that answered, until: ms }
 

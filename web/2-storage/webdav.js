@@ -35,11 +35,11 @@ export class WebDavStore {
     return out.filter((f) => f.path.startsWith(prefix)).sort((a, b) => (a.path < b.path ? -1 : 1));
   }
 
-  /** One level of a folder: [{ path, folder: true|false, size }]. */
+  /** One level of a folder: [{ path, folder: true|false, size, at (ms, when the server has it) }]. */
   async propfind(folder) {
     const res = await this.request('PROPFIND', folder, {
       headers: { Depth: '1', 'Content-Type': 'application/xml' },
-      body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:getcontentlength/><d:resourcetype/></d:prop></d:propfind>',
+      body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:getcontentlength/><d:resourcetype/><d:getlastmodified/></d:prop></d:propfind>',
     });
     if (res.status === 404) return [];
     if (res.status !== 207) throw new Error(`PROPFIND ${folder}: ${res.status}`);
@@ -47,12 +47,13 @@ export class WebDavStore {
     const basePath = decodeURIComponent(new URL(this.base).pathname); // decoded like every href (16.11.): a user or folder with a space, @ or umlaut stays relative
     return xml.split(/<d:response>/i).slice(1).map((block) => {
       const href = decodeURIComponent(/<d:href>([^<]*)<\/d:href>/i.exec(block)?.[1] ?? '');
-      return { path: href.startsWith(basePath) ? href.slice(basePath.length) : href, folder: /<d:collection\s*\/>/i.test(block), size: Number(/<d:getcontentlength>(\d+)/i.exec(block)?.[1] ?? 0) };
+      const at = Date.parse(/<d:getlastmodified>([^<]*)/i.exec(block)?.[1] ?? ''); // the server's time (22.11.: signers.js counts 48 h by it, not by anything a signer writes)
+      return { path: href.startsWith(basePath) ? href.slice(basePath.length) : href, folder: /<d:collection\s*\/>/i.test(block), size: Number(/<d:getcontentlength>(\d+)/i.exec(block)?.[1] ?? 0), ...(at ? { at } : {}) };
     }).filter((e) => e.path !== folder);
   }
 
   async walk(folder, out) {
-    for (const e of await this.propfind(folder)) if (e.folder) await this.walk(e.path, out); else out.push({ path: e.path, size: e.size });
+    for (const e of await this.propfind(folder)) if (e.folder) await this.walk(e.path, out); else out.push({ path: e.path, size: e.size, ...(e.at ? { at: e.at } : {}) });
   }
 
   /**

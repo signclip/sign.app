@@ -48,7 +48,7 @@ import { addNew, bringIn, peek, pickFolder, loginAt, resumeLogin, giveOut, giveT
 import { readHello, devicesOf, quietDevice, takeFiles } from '../8-join/join.js';
 import { helloTakes, accountTakes, firstPieces, knownFolder } from '../8-join/known.js';
 import { doorView, toWithin, backToHello, moveAccount, deleteFolder } from '../8-join/door.js';
-import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey, withdrawHello } from './share-group.js';
+import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey, withdrawHello, ensureGroupsHere } from './share-group.js';
 import { askRemove } from '../8-join/remove-request.js';
 import { folders, canPick } from './folders.js';
 
@@ -105,6 +105,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     incoming: [], // shares waiting for me in my own Nextcloud
     acceptThere: null, // after giving to a cloud id: { url, label } of the other side's page
     hellos: [], // signer: hellos waiting in my group folders
+    signersWaiting: [], // signer (22.11.): new signers of the door within their 48 h, as waiting tiles (tap = agree, ↓ = object)
     joinStates: new Map(), // member: label → 'hello' | 'join'
     note: '', // one short line under the circles
     runs: new Map(), // n → how its last run went (upkeep.summary)
@@ -312,7 +313,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
   const ctx = { every: () => every(), confirmed: () => confirmed(), project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, gateway: project?.gateway || null, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on), newPerson: () => onOwnHold() };
   // the admin's door and what Admin, Atlas, Groups do: their own files (15.11., share-door.js, share-accounts.js)
-  const { refreshDoor, lookPile, pileList, adminStore } = doorPart(ctx, { panel, onLookAll });
+  const { refreshDoor, lookPile, pileList, adminStore, signerVerdict } = doorPart(ctx, { panel, onLookAll });
   const { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, showGroups, groupTiles, addToGroup } = accountPart(ctx, { words, onLookAll, project });
   ctx.showIndex = showIndex;
 
@@ -407,7 +408,8 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     sheet.spots = await spotsOf(sheet.stats.cells); // where the takes were: o_ cells → their middle (h3, loaded once)
     const pdf = sheetPdf(sheet);
     const name = sheetName(sheet); // (Sign Overview)@(Name)'t(…)!(u_…).pdf, as every file name
-    const p = { title: 'Sign Overview', text: key, files: [new File([pdf], name, { type: 'application/pdf' })] };
+    const paperKey = signerCode ? await import('../8-join/signers.js').then(({ paperSigner }) => paperSigner(signerCode)).then((x) => `${x.id} z_${x.key}`).catch(() => null) : null;
+    const p = { title: 'Sign Overview', text: paperKey ? `${key}\n${paperKey}` : key, files: [new File([pdf], name, { type: 'application/pdf' })] }; // admin (22.11.): both anchors for project.json signer (device + paper, public halves only)
     if (!s.apps?.list?.length) return send(p).catch(() => null); // no row (iOS, browser): the system sheet
     s.pending = p; s.apps.x = 0; return draw(); // the menu folds down to its share row: choose where it goes (14.11.)
   }
@@ -585,6 +587,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     if (what === 'out') return outside(); // the share sign: the last take to other apps (the system sheet)
     if (what === 'app') { const app = rowApps()[Number(a)]; if (!app) return null; if (!app.glyph) usedApp(app); return outside(app); } // one app of the row: straight there
     if (what === 'browse') { const x = (s.index ? indexTiles() : s.accounts ? accountTiles() : s.groupList ? groupTiles() : browseChips(ctx))[Number(a)]; return x?.go ? x.go() : x?.look ? x.look() : null; } // an account: tap = look at it
+    if (what === 'incoming' && Number(a) >= s.incoming.length) return signerVerdict(s.signersWaiting[Number(a) - s.incoming.length], true); // a new signer waiting (22.11.): tap = agree, it counts at once
     if (what === 'incoming') { const x = s.incoming[Number(a)]; return x?.groupFolder ? takeGroupFolder(x) : acceptWaiting(ctx, x); } // a group folder: one tap = in my menu, like join
     if (what === 'hello' && s.carry && s.piles?.[Number(a)]?.pile === s.carry.to) { // a person carried here (within ↓ → quiet, 16.11.): the tap moves her
       const { go } = s.carry; s.carry = null; s.pulse = null; draw();
@@ -657,6 +660,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       }
     }
     if (ctx.admin) { const real = await keychain.get(confirmId(ctx.admin)).catch(() => null); if (real && ctx.admin.password !== real) ctx.admin = { ...ctx.admin, password: real }; } // 17.11.: accounts are managed with the account's own password (below)
+    if (ctx.admin && project?.gateway) await ensureGroupsHere(ctx, project).catch(() => null); // Groups in the object storage (22.11.): the admin's Groups tile there (a tile; ← = new group folder), sealed by this device for itself
     return ctx.admin ?? null;
   }
   /**
@@ -817,7 +821,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     refreshPersonStates();
     const { width: w, height: h } = panel.getBoundingClientRect();
     const browse = s.index ? indexTiles() : s.accounts ? accountTiles() : s.groupList ? groupTiles() : s.browse ? browseChips(ctx) : null;
-    const incoming = s.incoming.map((x) => ({ label: x.groupFolder ? x.folder.split('/').pop() : x.share.name }));
+    const incoming = [...s.incoming.map((x) => ({ label: x.groupFolder ? x.folder.split('/').pop() : x.share.name })), ...(s.signersWaiting ?? []).map((p) => ({ label: `signer: ${p.signer.label}` }))];
     const ws = words().map((w) => w.toLowerCase());
     const found = (x) => ws.every((w) => x.name.toLowerCase().includes(w)); // context words find persons in the piles too
     const count = (p) => pileList(p).filter(found).length;
@@ -880,6 +884,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       if (role?.startsWith('hello:') && dir === 'right' && s.piles?.[Number(role.split(':')[1])]?.pile === 'index') { say(t('menu.wait')); return atlasCount(ctx.atlas, { now: true }).then(showIndex, () => say(t('notReachable'))); } // → on index: atlas counts now
       if (role?.startsWith('hello:') && dir === 'right') return refreshDoor(); // → look again; deciding is in the tiles (15.11.)
       if (role?.startsWith('browse:') && s.accounts && dir === 'right') return back(); // → in the accounts: one step back
+      if (role?.startsWith('incoming:') && (dir === 'down' || dir === 'down-out') && Number(role.split(':')[1]) >= s.incoming.length) return signerVerdict(s.signersWaiting[Number(role.split(':')[1]) - s.incoming.length], false); // ↓ = object: it never counts
       const n = circleOf(role);
       if (role?.startsWith('account:')) { // ← = what its role opens · ↓ = log out (its app password deletes itself)
         const acc = logins()[Number(role.split(':')[1])];
@@ -889,7 +894,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       if (role === `person:${globalThis.signPersons?.current()}` && dir === 'left') return ctx.role === 'admin' ? showAccounts() : ctx.role === 'atlas' ? showIndex() : ctx.role === 'groups' ? newGroup(s.groupsN) : null; // ← on my account: what my role opens
       if (n && n === s.adminN && dir === 'left') return showAccounts(); // ← on Admin: the accounts (15.11.: ← = further, → = again)
       if (n && n === s.atlasN && dir === 'left') return showIndex(); // ← on Atlas: the index
-      if (n && n === s.groupsN && dir === 'left') return newGroup(n); // ← on Groups: a new group folder, named by the context words
+      if (n && (n === s.groupsN || /\/s3\/groups\/$/.test(s.entries[n - 1]?.path ?? '')) && dir === 'left') return newGroup(n); // ← on Groups (Nextcloud login or the tile in the object storage): a new group folder, named by the context words
       if (n && dir === 'right') { s.flash = role; draw(); return (n === s.adminN || n === s.atlasN ? refreshDoor() : load()).then(() => { s.flash = null; draw(); }); } // → on a tile = look again
       if ((n === 0 || (n && n === s.adminN)) && dir === 'up') return emergency(); // ↑ on my own tile: the emergency sheet as PDF in the share sheet (the check key goes along as text)
       if (!n) return null;

@@ -163,25 +163,27 @@ export function rangeSvg(range, L) {
 export function takeSvg(st, L, data = {}) {
   const out = [];
   const line = st.lines.at(-1), older = st.lines.length - 1;
+  // the take in the button chosen (nothing else is): a tinted ring of 18 px around the window (22.11., user)
+  if (L.scale && !L.full && st.rec === 'idle' && st.at < (line?.takes.length ?? 0) && st.chosenLine == null && !st.sel) out.push(`<path class="chosen-rim" fill-rule="evenodd" d="${outline(L, 18 * L.k)} ${outline(L, 0)}"/>`);
   if (L.scale && !L.full) out.push(`<path class="focus-edge" d="${outline(L)}"/>`);
   if (st.similar !== 'closed' && st.similar !== 'full' && !L.full && data.range) out.push(haloSvg(data.range, L)); // how far Similar looks, in each respect (21.11.)
   if (data.series && st.similar !== 'full' && !L.full) { // the series' bubble at the end of the line (21.11.): spread or tap = their cloud
     const [x, y] = edge(L, 25, L.lineOff), rr = 15 * L.k; // on the line, right of the button (where no take lies yet)
     out.push(`<g class="kind-dot" data-role="kinds:series"><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(rr)}"/><text x="${f1(x)}" y="${f1(y - 3 * L.k)}">—</text><text class="n" x="${f1(x)}" y="${f1(y + 7 * L.k)}">${data.series}</text></g>`);
   } // only the inside is seen (20.11., user): the picture itself is clipped to the window (app.js)
-  // a line chosen (20.11.): a border around it, as wide as its takes — the stroke itself keeps its colour
-  const border = (d, w, id) => `<mask id="${id}" maskUnits="userSpaceOnUse"><rect x="-9999" y="-9999" width="99999" height="99999" fill="white"/><path d="${d}" fill="none" stroke="black" stroke-width="${f1(w)}" stroke-linecap="round"/></mask><path class="line-border" d="${d}" stroke-width="${f1(w + 6)}" mask="url(#${id})"/>`;
+  // chosen = a slightly tinted ground, one colour for all (22.11., user): a band behind the line, as wide as its takes
+  const band = (d, w) => `<path class="chosen-band" d="${d}" stroke-width="${f1(w)}"/>`;
   const sc = L.scale || 1;
   for (const a of arcsOf(L, older)) {
     if (a.kind) {
       const on = st.strands[a.kind];
       out.push(`<path class="strand ${on ? 'on' : 'off'}${st.rec === 'recording' && on ? ' live' : ''}" d="${a.d}"/><path class="hit" data-role="${a.id}" d="${a.d}"/>`);
     } else if (a.id === 'line') {
-      if (st.chosenLine === older) out.push(border(a.d, 2 * 15 * L.k * sc + 10, 'b-line'));
+      if (st.chosenLine === older) out.push(band(a.d, 2 * 15 * L.k * sc + 18));
       out.push(`<path class="line" d="${a.d}"/><path class="hit" data-role="line" d="${a.d}"/>`);
     } else {
       const i = Number(a.id.split(':')[1]), n = older - 1 - i;
-      if (st.chosenLine === n) out.push(border(a.d, 10 * L.k * sc, `b-old${n}`));
+      if (st.chosenLine === n) out.push(band(a.d, 10 * L.k * sc + 12));
       out.push(`<path class="old" d="${a.d}"/><path class="hit thin" data-role="old:${n}" d="${a.d}"/>`);
     }
   }
@@ -229,7 +231,36 @@ export function takeSvg(st, L, data = {}) {
     out.push(`${symbol(st, b.x, b.y, b.r, live, data.playing)}<circle class="button-ring" cx="${f1(b.x)}" cy="${f1(b.y)}" r="${f1(b.r + 5 * L.k)}"/></g>`);
   }
   if (data.ranging && st.similar !== 'closed') out.push(rangeSvg(data.range, L)); // the rings with sectors, over the take (21.11.)
+  if (data.fan && st.lines.length > 1) out.push(fanSvg(st, L, data)); // the older lines fanned out above the button (22.11.)
   return out.join('');
+}
+
+const FAN_ROW = 52, FAN_THUMB = 19, FAN_STEP = 46, FAN_MAX = 7;
+/** How many rows of the fan fit above the button. */
+export const fanRows = (L) => Math.max(1, Math.floor((L.button.y - L.button.r - 18 * L.k) / (FAN_ROW * L.k)));
+/**
+ * The older lines fanned out (22.11., user): a row each above the button, the newest older one nearest, its takes in
+ * the window's form (up to 7, then +n); a row is where to tap (data-role fan:n). Phone 390 × 844: ≈ 3 rows fit,
+ * ↑ ↓ on them shows older or newer (data.fanOff).
+ */
+export function fanSvg(st, L, data = {}) {
+  const k = L.k, b = L.button, rows = fanRows(L), older = st.lines.length - 1, off = Math.min(data.fanOff ?? 0, Math.max(0, older - rows));
+  const out = [], defs = [], top = b.y - b.r - 10 * k - rows * FAN_ROW * k;
+  out.push(`<rect class="fan-back" x="0" y="${f1(top - 8 * k)}" width="100%" height="${f1(b.y - b.r - top + 8 * k)}"/>`);
+  for (let i = 0; i < rows && off + i < older; i++) {
+    const n = older - 1 - off - i, line = st.lines[n], takes = line.takes.slice(0, FAN_MAX), cy = b.y - b.r - 10 * k - (i + 0.5) * FAN_ROW * k;
+    const c = Math.max(1, takes.length), x0 = b.x - ((c - 1) / 2) * FAN_STEP * k, half = Math.max(60 * k, ((c - 1) / 2) * FAN_STEP * k + 28 * k);
+    out.push(`<g data-role="fan:${n}"><rect class="fan-row" x="${f1(b.x - half)}" y="${f1(cy - 24 * k)}" width="${f1(2 * half)}" height="${f1(48 * k)}" rx="${f1(24 * k)}"/>`);
+    takes.forEach((t, j) => {
+      const x = x0 + j * FAN_STEP * k, T = { cx: x, cy, rx: FAN_THUMB * k * Math.min(1, L.aspect), ry: FAN_THUMB * k * Math.min(1, 1 / L.aspect), n: L.n }, d = outline(T), pic = data.thumbs?.[t.id];
+      defs.push(`<clipPath id="f${n}-${j}"><path d="${d}"/></clipPath>`);
+      out.push(`<path class="thumb" d="${d}"/>${pic ? `<image href="${esc(pic)}" x="${f1(x - T.rx)}" y="${f1(cy - T.ry)}" width="${f1(2 * T.rx)}" height="${f1(2 * T.ry)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#f${n}-${j})"/>` : ''}<path class="thumb-edge" d="${d}"/>`);
+    });
+    if (line.takes.length > FAN_MAX) out.push(`<text class="more" x="${f1(b.x + half + 14 * k)}" y="${f1(cy + 4 * k)}">+${line.takes.length - FAN_MAX}</text>`);
+    out.push('</g>');
+  }
+  if (off + rows < older) out.push(`<text class="more" x="${f1(b.x)}" y="${f1(top - 12 * k)}">↑ ${older - off - rows}</text>`);
+  return `<defs>${defs.join('')}</defs>${out.join('')}`;
 }
 
 /**
@@ -253,30 +284,56 @@ export function nowHtml(words, L, offers = [], { len = 0, atMs = null } = {}) {
  * puts the caret there; what is typed shows at the caret. caret: { at: path | null, how: 'after' | 'in' | 'first' } | null
  * (null = at the end). open: where a "(" was typed (21.11.), shown until its ")". → HTML
  */
-export function rowHtml(row, { caret = null, typing = '', offers = [], all = false, waiting = false, on = false, open } = {}) {
+export function rowHtml(row, { caret = null, typing = '', offers = [], all = false, waiting = false, on = false, open, join = false } = {}) {
   const same = (a, b) => (a ?? []).length === (b ?? []).length && (a ?? []).every((x, i) => x === b[i]);
   const here = (at, how) => on && caret && caret.how === how && same(caret.at, at);
-  const opens = (at, how) => open !== undefined && (open === null ? how === 'end' : open.how === how && same(open.at, at)); // "(" typed here, waiting for its ")" (21.11.)
-  const mark = (at, how) => (opens(at, how) ? '<b class="open-mark">(</b>' : '');
-  const typed = `<span class="chip typing">${esc(typing) || '&nbsp;'}</span>`;
-  const gap = (at, how = 'after') => `${mark(at, how)}<i class="gap${here(at, how) ? ' caret' : ''}" data-role="gap:${how}:${(at ?? []).join('.')}"></i>${here(at, how) && typing ? typed : ''}`;
+  // 22.11. (user): a "(" just typed opens a pastel bubble at once, from there to the end of its level, until ")"
+  const level = open ? (open.how === 'after' ? open.at.slice(0, -1) : open.at) : null, from = open ? (open.how === 'after' ? open.at.at(-1) + 1 : 0) : 0;
+  const atOpen = Boolean(open && on && caret && caret.how === open.how && same(caret.at, open.at));
+  // the word being typed: before the caret, already in the colour of the take it goes into (22.11., user)
+  const takes = [];
+  const walk = (n) => (n.take ? takes.push(n) : n.children?.forEach(walk));
+  row.forEach(walk);
+  const within = (p, q) => p.length >= q.length && q.every((x, i) => x === p[i]);
+  const ordinal = () => {
+    if (!caret) return takes.length;
+    const at = caret.at ?? [], inside = takes.filter((t) => within(t.at, at));
+    if (caret.how === 'first') return at.length ? takes.indexOf(inside[0] ?? takes[0]) : 0;
+    const last = inside.at(-1);
+    return last ? takes.indexOf(last) + (join && caret.how === 'after' ? 0 : 1) : takes.length;
+  };
+  const tone = ['now', 'next'][ordinal()] ?? 'later';
+  const typed = `<span class="chip ${tone} typing">${esc(typing) || '&nbsp;'}</span>`;
+  const caretHtml = (cls = '') => `${typing ? typed : ''}<i class="gap caret${cls}"></i>`;
+  const gap = (at, how = 'after') => {
+    const mine = here(at, how) && !atOpen;
+    return `${mine && typing ? typed : ''}<i class="gap${mine ? ' caret' : ''}" data-role="gap:${how}:${(at ?? []).join('.')}"></i>`;
+  };
   const hidden = (n) => !all && (n.take ? n.i === 0 : n.children.every(hidden)); // the take now shows inside the window; the row: what comes
   const chip = (w) => `<span class="chip ${w.tone}${offers.includes(w.text) ? ' offer' : ''}">${esc(w.text)}</span>`;
   const edge = (k) => (k == null ? '' : ` style="--nc:${NEST_COLORS[k % NEST_COLORS.length]}"`); // the edge says which nesting (20.11.)
+  /** A level's elements, each with its gap behind; the open bracket wraps the rest of its level. */
+  const list = (nodes, path) => {
+    const items = nodes.map((c) => node(c) + (c.at && !hidden(c) ? gap(c.at) : ''));
+    if (!open || !same(path, level)) return items.join('');
+    return `${items.slice(0, from).join('')}<span class="bubble opening">${atOpen ? caretHtml() : ''}${items.slice(from).join('')}</span>`;
+  };
   const node = (n) => {
     if (hidden(n)) return '';
     if (n.take) {
       const words = n.words.map(chip).join('');
       return `<span class="take ${n.tone}"${n.at ? ` data-role="gap:after:${n.at.join('.')}"` : ''}>${n.nest != null ? `<span class="bubble inner"${edge(n.nest)}>${words}</span>` : words}</span>`;
     }
-    const inside = n.children.map((c) => node(c) + (c.at && !hidden(c) ? gap(c.at) : '')).join('');
-    const tail = here(n.at, 'in') ? `<i class="gap caret"></i>${typing ? typed : ''}` : '';
-    return `<span class="bubble d${Math.min(3, n.depth)}${n.sticky ? ' sticky' : ''}"${edge(n.nest)} data-role="bubble:${(n.at ?? []).join('.')}">${(n.head ?? []).map(chip).join('')}${n.sticky ? '' : gap(n.at, 'first')}${inside}${tail}</span>`;
+    const tail = here(n.at, 'in') ? caretHtml() : '';
+    const head = (n.head ?? []).map(chip).join('');
+    if (n.sticky) return `<span class="bubble d0 sticky" data-role="bubble:">${head}${list(n.children, n.at)}${tail}</span>`;
+    // the bubble begins and ends at its brackets: the word in front stands before it (Begriff1 (Begriff2 Begriff3), 22.11.)
+    return `<span class="head"${edge(n.nest)}>${head}</span><span class="bubble d${Math.min(3, n.depth)}"${edge(n.nest)} data-role="bubble:${(n.at ?? []).join('.')}">${gap(n.at, 'first')}${list(n.children, n.at)}${tail}</span>`;
   };
-  const parts = row.map((n) => node(n) + (n.at?.length && !hidden(n) ? gap(n.at) : ''));
+  const top = list(row, []);
   const atEnd = on && !caret;
   const wait = waiting ? '<span class="chip offer wait" data-role="context"></span>' : ''; // one's own password word: empty, breathing
-  return `${gap([], 'first')}${parts.join('')}${wait}${mark(null, 'end')}<i class="gap end${atEnd ? ' caret' : ''}" data-role="gap:end:"></i>${atEnd && typing ? typed : ''}<i class="gap tail" data-role="gap:end:"></i>`;
+  return `${gap([], 'first')}${top}${wait}${atEnd && typing ? typed : ''}<i class="gap end${atEnd ? ' caret' : ''}" data-role="gap:end:"></i><i class="gap tail" data-role="gap:end:"></i>`;
 }
 
 /** An arc path for the hint layer (the gesture shown by a pale point). */

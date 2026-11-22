@@ -58,7 +58,7 @@ export function seriesRow(text, sticky = '') {
       return { bubble: true, depth, at, nest: me, first, head: node.head.map((w) => ({ text: w, tone: toneOf(w, first) })), children };
     }
     const i = index.get(at.join('.')), words = node.items ? node.items.flatMap((x) => split(x.text)) : split(node.text);
-    const inBracket = depth > 1 && words.length > 1; // a bracket inside a bracket: one take, its own bubble
+    const inBracket = words.length > 1 && (depth > 1 || Boolean(node.items)); // a bracket inside a bracket, or one typed with nothing before it (22.11.): one take, its own bubble
     return { take: true, at, i, tone: TONES[i] ?? 'later', ...(inBracket ? { nest: nest++ } : {}), words: words.map((w) => ({ text: w, tone: toneOf(w, i) })) };
   };
   const row = tree.map((node, i) => build(node, [i], 1));

@@ -29,8 +29,8 @@ import { slotPx, onTake, timeline, wideButton } from './layout.js';
 import { zoomed, tapFilter, turnOrder, setFilter } from './similar-view.js';
 import { zoneOf, zoomZone, openBundle, bundlesOf } from './similar-zoom.js';
 import { SECTORS, READY, wideOpen, stepRange } from './similar-range.js';
-import { insertGesture, fromField } from '../1-model/context.js';
-import { removeBefore, wrapBetween } from '../1-model/context-edit.js';
+import { insertGesture, fromField, contextTree } from '../1-model/context.js';
+import { removeBefore, nestBetween, closeAt, unwrapAt, appendWord } from '../1-model/context-edit.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
 import { flipPicture, focusAt, mainLens } from './camera.js';
 import { BOW } from './paint.js';
@@ -52,6 +52,7 @@ export function gesturesOf(A) {
     if (A.st.share) return sharing(ev, e);
     if (A.data.ranging) return ranging(ev);
     if (ev.type === 'hold' && ev.role === 'window' && (A.st.similar === 'many' || A.st.similar === 'single')) { A.data.ranging = true; navigator.vibrate?.(10); return A.paint(); } // how far Similar looks: the rings with sectors (21.11.)
+    if (A.data.fan && ev.type !== 'pinch') return fan(ev); // the lines fanned out: a row = that line, elsewhere = closed
     if (ev.type === 'pinch') return pinch(ev);
     const r = ev.role ?? '';
     if (onLine(r) && (ev.type === 'drag' || ev.type === 'swipe' || ev.type === 'drag-end')) return pull(ev); // the line follows the finger (17.11.)
@@ -222,8 +223,31 @@ export function gesturesOf(A) {
   }
 
   // ---------- spread, squeeze ----------
+  /**
+   * The lines fanned out (22.11., user): two fingers on the line pulled apart up and down = the older lines above the
+   * button, a row each with its takes (paint.js fanSvg); a row tapped = that line at the button; ↑ ↓ on them = older,
+   * newer; pushed together or a tap beside = closed.
+   */
+  function fan(ev) {
+    const r = ev.role ?? '';
+    if (ev.type === 'tap') { if (r.startsWith('fan:')) return A.take.showLine(Number(r.slice(4))); A.data.fan = false; return A.paint(); }
+    if (ev.type === 'swipe' && r.startsWith('fan:') && (ev.dir === 'up' || ev.dir === 'down')) {
+      const most = Math.max(0, A.st.lines.length - 1 - (A.data.fanRows ?? 1));
+      A.data.fanOff = Math.max(0, Math.min(most, (A.data.fanOff ?? 0) + (ev.dir === 'up' ? 1 : -1) * Math.max(1, (A.data.fanRows ?? 2) - 1)));
+      return A.paint();
+    }
+    return null;
+  }
   function pinch(ev) {
     const L = A.L, [a, b] = ev.roles ?? [];
+    const upright = ev.at?.length === 2 && Math.abs(ev.at[0].y - ev.at[1].y) > Math.abs(ev.at[0].x - ev.at[1].x);
+    const byLine = L && Math.abs(ev.centre.y - L.button.y) < 50 * L.k && !inside(L, ev.centre.x, ev.centre.y);
+    if (A.st.lines.length > 1 && A.st.rec === 'idle' && upright && (A.data.fan || byLine || [a, b].some((x) => x && onLine(x)))) { // the lines fanned out, or folded again (22.11.)
+      if (ev.phase !== 'end') return null;
+      if (ev.scale > 1.15 && !A.data.fan) { A.data.fan = true; A.data.fanOff = 0; navigator.vibrate?.(8); return A.paint(); }
+      if (ev.scale < 0.87 && A.data.fan) { A.data.fan = false; return A.paint(); }
+      return null;
+    }
     const kindRole = [a, b].find((x) => x?.startsWith('kinds:'));
     if (kindRole) return ev.phase === 'end' && ev.scale > 1.12 ? A.similar.openKind(kindRole.slice(6)) : null; // spread on a bubble = its cloud
     const nearButton = L && Math.hypot(ev.centre.x - L.button.x, ev.centre.y - L.button.y) < 70 * L.k;
@@ -355,6 +379,7 @@ export function gesturesOf(A) {
     const take = !live(A.st) && !o.on ? A.st.lines.at(-1)?.takes[A.st.at] : null; // an earlier take in the button: its own context is written (21.11.)
     if (take && editing()?.id !== take.id) A.data.edit = { n: A.st.lines.length - 1, i: A.st.at, id: take.id, text: take.context ?? '', was: take.context ?? '' };
     if (!take) A.data.edit = null;
+    A.data.join = null; // a tap: the next word is a take of its own
     A.dispatch({ type: 'caret', at: caretOf(role) });
     A.dispatch({ type: 'typing', on: true });
     say.value = ZW; A.data.typing = ''; // the mark lets an empty field still feel Backspace (Android keyboards send no key there)
@@ -365,6 +390,10 @@ export function gesturesOf(A) {
   /** Backspace with nothing typed (21.11.): the last word before the caret goes. */
   function backspace() {
     if (A.st.onboard.on) return null;
+    A.data.join = null;
+    if (A.data.open && same(A.data.open, A.st.caret)) { A.data.open = undefined; navigator.vibrate?.(5); return A.paint(); } // the "(" just typed goes again (22.11.)
+    const u = unwrapAt(textNow(), A.st.caret); // right after a bracket's "(": the nesting goes, the words stay (22.11., user)
+    if (u) { navigator.vibrate?.(8); setText(u.text); return A.dispatch({ type: 'caret', at: u.caret }); }
     const r = removeBefore(textNow(), A.st.caret);
     if (!r) return A.shake('context');
     navigator.vibrate?.(5);
@@ -373,8 +402,9 @@ export function gesturesOf(A) {
   }
   /** Typing done: an earlier take's changed context is kept (own take: a new chain on top of it; take-flow.js retext). */
   function finish() {
+    if (A.data.open) { const r = nestBetween(textNow(), A.data.open, endOf(A.data.open)); if (r) setText(r.text); } // a "(" without ")": the bracket reaches to the end of where it was opened (22.11.)
     const e = editing();
-    A.data.edit = null; A.data.open = undefined;
+    A.data.edit = null; A.data.open = undefined; A.data.join = null;
     if (e && e.text !== e.was) return A.take.retext(e);
     return A.paint();
   }
@@ -390,20 +420,89 @@ export function gesturesOf(A) {
       return A.syncOnboard();
     }
     if (o.on && o.gestures === PASSWORD_PARTS.length - 1) { A.dispatch({ type: 'onboard', patch: { own: text, ownTyped: true } }); return A.syncOnboard(); }
-    if (text === '(') { A.data.open = { caret: A.st.caret }; return A.paint(); } // nesting afterwards (21.11.): "(" here …
-    if (text === ')' && A.data.open) { // … ")" there: what lies between is nested
-      const w = wrapBetween(textNow(), A.data.open.caret, A.st.caret);
-      A.data.open = undefined;
-      if (!w) return A.shake('context');
-      navigator.vibrate?.(8);
-      setText(w);
-      return A.dispatch({ type: 'caret', at: null });
+    typed(`${text} `); // what is left in the field: a word (or brackets) as if a space ended it
+    return A.paint();
+  }
+
+  // ---------- writing while typing (22.11., user) ----------
+  // A word becomes a chip as soon as a space, "(" or ")" ends it; the caret stands behind it. "(" opens a bracket at once:
+  // a pastel bubble from there to the end of where the caret is (paint.js rowHtml, A.data.open), what is typed goes into
+  // it; ")" closes it at the caret – also behind a word tapped further on. No "(" waiting: ")" ends the bracket the caret
+  // is in there (what follows moves out), in the row the bracket before the caret reaches to here. Words without a
+  // bracket typed one after another are one take together (context.js typingForm), in a bracket each word one take.
+  const same = (a, b) => (a == null && b == null) || (a != null && b != null && a.how === b.how && (a.at ?? []).join('.') === (b.at ?? []).join('.'));
+  /** The field's text → words and brackets placed; → what is still being typed. */
+  function typed(value) {
+    let v = value;
+    for (let m = /[\s()]/.exec(v); m; m = /[\s()]/.exec(v)) {
+      const word = v.slice(0, m.index), ch = m[0];
+      v = v.slice(m.index + 1);
+      if (word) placeWord(word);
+      if (ch === '(') openBracket();
+      else if (ch === ')') closeBracket();
     }
-    const c = A.st.caret;
-    const inBracket = (c?.at?.length ?? 0) >= 2 || ((c?.how === 'in' || c?.how === 'first') && (c?.at?.length ?? 0) >= 1); // written into a bubble: each word one take (20.11.)
+    return v;
+  }
+  /** The path of the last element at a level ([] = the row) of the text, or null when it is empty. */
+  function lastAt(path) {
+    let nodes = [];
+    try { nodes = contextTree(textNow()); } catch { return null; }
+    for (const i of path) nodes = nodes[i]?.items ?? [];
+    return nodes.length ? [...path, nodes.length - 1] : null;
+  }
+  /** A caret as a spot behind something (or first in its level): what is typed later then stays behind it. */
+  function spotOf(c) {
+    if (c && c.how !== 'in') return c;
+    const path = c?.at ?? [], last = lastAt(path);
+    return last ? { how: 'after', at: last } : { how: 'first', at: path };
+  }
+  /** The end of the level a "(" was opened in (as a caret). */
+  function endOf(open) {
+    const level = open.how === 'after' ? open.at.slice(0, -1) : open.at;
+    return level.length ? { how: 'in', at: level } : null;
+  }
+  function placeWord(text) {
+    const c = A.st.caret, open = A.data.open;
+    if (!open && A.data.join && same(A.data.join, c)) { const joined = appendWord(textNow(), c, text); if (joined) { setText(joined); return; } }
+    const inBracket = Boolean(open) || (c?.at?.length ?? 0) >= 2 || ((c?.how === 'in' || c?.how === 'first') && (c?.at?.length ?? 0) >= 1); // written into a bubble: each word one take (20.11.)
     const r = insertGesture(textNow(), c?.at ?? null, c?.how ?? 'after', fromField(text, { list: inBracket }));
     setText(r.text);
-    return A.dispatch({ type: 'caret', at: c ? { how: 'after', at: r.at } : null }); // the next word goes behind this one
+    const next = { how: 'after', at: r.at };
+    A.dispatch({ type: 'caret', at: next }); // the next word goes behind this one
+    A.data.join = !inBracket && r.at.length === 1 ? next : null;
+  }
+  function openBracket() {
+    A.data.join = null;
+    if (A.data.open) { // a bracket inside the one still open: that one becomes real up to here, the new one opens in it
+      const r = nestBetween(textNow(), A.data.open, A.st.caret);
+      let tree = [];
+      try { tree = contextTree(r?.text ?? ''); } catch { tree = []; }
+      let n = { items: tree };
+      for (const i of r?.at ?? []) n = n?.items?.[i];
+      if (!r || !n?.head) return A.shake('context'); // nothing before it: one take, nothing to open inside
+      setText(r.text);
+      A.dispatch({ type: 'caret', at: { how: 'in', at: r.at } });
+    }
+    A.data.open = spotOf(A.st.caret);
+    navigator.vibrate?.(6);
+    A.dispatch({ type: 'caret', at: A.data.open });
+  }
+  function closeBracket() {
+    A.data.join = null;
+    const open = A.data.open;
+    if (open) {
+      const r = nestBetween(textNow(), open, A.st.caret);
+      A.data.open = undefined;
+      if (!r) return A.paint(); // nothing between: the "(" goes again
+      navigator.vibrate?.(8);
+      setText(r.text);
+      return A.dispatch({ type: 'caret', at: { how: 'after', at: r.at } });
+    }
+    const r = closeAt(textNow(), A.st.caret);
+    if (!r) return A.shake('context');
+    navigator.vibrate?.(8);
+    setText(r.text);
+    return A.dispatch({ type: 'caret', at: r.caret });
   }
 
   // ---------- Similar's selection views ----------
@@ -519,5 +618,5 @@ export function gesturesOf(A) {
     return null;
   }
 
-  return { onEvent, commit, backspace, finish };
+  return { onEvent, commit, backspace, finish, typed };
 }

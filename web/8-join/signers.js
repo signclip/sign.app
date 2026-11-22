@@ -8,7 +8,14 @@
 //                     certifies it once; a lost admin device → the code on a new device certifies that device
 // Depends:   1-model (crypto, ids, file, filename), Web Crypto (Ed25519 from a 32-byte seed via PKCS#8)
 // Test:      tests/join.test.mjs
-// Limits:    ≤ 50 certificates, ≤ 10 links in a chain · the paper key: PBKDF2-SHA-256, 200 000 rounds (≈ 0.3 s on a
+//            48 h (22.11., user: "B"): a new certificate counts 48 h after it appeared in the door (the storage's own time,
+//            which no signer can set), at once when another trusted signer approves ((signer ok)), never when a trusted
+//            signer objects ((signer no)). Every signer device is told meanwhile (share-door.js). A lost admin device:
+//            the paper's new device counts after 48 h; a stolen paper: the real admin objects within them.
+//            Junk in join/signer/ (22.11.): only files named (signer …) are read, ≤ 200; one without a trusted seal
+//            counts for nothing. Pushing the real ones out takes > 200 files named so, written with the admin's account;
+//            the paper as a second anchor in project.json does not depend on any file here.
+// Limits:    ≤ 200 certificates read, ≤ 10 links in a chain · the paper key: PBKDF2-SHA-256, 200 000 rounds (≈ 0.3 s on a
 //            phone, guessing stays slow), code 26 Base32 characters (≈ 130 bit) · a certificate ≈ 0.4 KB.
 
 import { signed, checkWitness, newPassword } from '../1-model/crypto.js';
@@ -16,7 +23,7 @@ import { newId, writeId, uOf, toBase32 } from '../1-model/ids.js';
 import { headLine, defLine, fileText, readFile } from '../1-model/file.js';
 import { buildName, timeLabel } from '../1-model/filename.js';
 
-export const FOLDER = 'join/signer/';
+export const FOLDER = 'join/signer/', MOST = 200, WAIT_MS = 48 * 3600 * 1000;
 const subtle = () => globalThis.crypto.subtle;
 const enc = new TextEncoder();
 const PKCS8 = [0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20]; // Ed25519 private key, 32-byte seed follows
@@ -48,37 +55,79 @@ export async function certify({ by, signer, person, now = Date.now() }) {
   return { path: `${FOLDER}${buildName({ words: ['signer', signer.label], person: person.label, time, u: uOf(id), kind: 'chain', ext: 'sign' })}`, text };
 }
 
-/** Read a certificate → { by (q_ of the sealer), signer: { id, key, label } } or null. */
+/** Read a certificate → { u (its id), by (q_ of the sealer), signer: { id, key, label } } or null. */
 export function readCertificate(text) {
   try {
     const f = readFile(text);
     const d = f.defs.get('sharing-point.1');
     if (!/\(\(signer\)/.test(f.rows[0]?.text ?? '') || !d?.id?.z) return null;
-    return { by: f.head.id.q, signer: { id: d.id.q, key: d.id.z.slice(2), label: d.hint } };
+    return { u: f.head.id.u, by: f.head.id.q, signer: { id: d.id.q, key: d.id.z.slice(2), label: d.hint } };
   } catch { return null; }
 }
 
-/**
- * The trusted signers: anchor ({ q_: z_ } from project.json) plus every certificate sealed by someone trusted,
- * link by link (≤ 10). texts: the certificates (≤ 50). → { q_: z_ }
- */
-export async function trustedSigners(anchor, texts = []) {
-  const trusted = { ...(anchor ?? {}) };
-  const certs = texts.slice(0, 50).map((text) => ({ text, c: readCertificate(text) })).filter((x) => x.c);
-  for (let round = 0; round < 10; round++) {
-    let added = false;
-    for (const { text, c } of certs) {
-      if (trusted[c.signer.id] || !trusted[c.by]) continue;
-      if (await checkWitness(trusted[c.by], text)) { trusted[c.signer.id] = c.signer.key; added = true; }
-    }
-    if (!added) break;
-  }
-  return trusted;
+/** Read an approval or objection → { by (q_), ok: true | false, u (the certificate's id) } or null. */
+export function readVerdict(text) {
+  try {
+    const f = readFile(text);
+    const m = /^\(\(signer (ok|no)\) \((u_[0-9A-Z]+)\)\)/.exec(f.rows[0]?.text ?? '');
+    return m ? { by: f.head.id.q, ok: m[1] === 'ok', u: m[2] } : null;
+  } catch { return null; }
 }
 
-/** All certificates of a door, read through store (the door links or the admin's own folder) → [text]. */
+/** A trusted signer (by: { id, label, privateKey }) approves (ok) or objects to (no) certificate u → { path, text } for join/signer/. */
+export async function verdict({ by, u, ok, person, now = Date.now() }) {
+  const id = newId({ q: by.id, n: person.id, now });
+  const time = timeLabel(now);
+  const text = await signed({ privateKey: by.privateKey }, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": time }), [], [`((signer ${ok ? 'ok' : 'no'}) (${u}))'t(${time})`]));
+  return { path: `${FOLDER}${buildName({ words: ['signer', ok ? 'ok' : 'no'], person: person.label, time, u: uOf(id), kind: 'chain', ext: 'sign' })}`, text };
+}
+
+/**
+ * The trusted signers: anchor ({ q_: z_ } from project.json) plus every certificate sealed by someone trusted, link by
+ * link (≤ 10), that is 48 h old in the door or approved by another trusted signer, and that no trusted signer objected
+ * to. items: [{ text, at (ms, the storage's time; null = unknown: counts as old) }] or texts (≤ 200). → { q_: z_ }
+ */
+export async function trustedSigners(anchor, items = [], { now = Date.now(), wait = WAIT_MS } = {}) {
+  return (await signerState(anchor, items, { now, wait })).trusted;
+}
+
+/** Certificates sealed by a trusted signer, still waiting (not 48 h old, not approved, not objected) → [{ u, signer, by, until }] */
+export async function pendingSigners(anchor, items = [], { now = Date.now(), wait = WAIT_MS } = {}) {
+  return (await signerState(anchor, items, { now, wait })).pending;
+}
+
+async function signerState(anchor, items, { now, wait }) {
+  const all = items.slice(0, MOST).map((x) => (typeof x === 'string' ? { text: x, at: null } : x));
+  const certs = all.map((x) => ({ ...x, c: readCertificate(x.text) })).filter((x) => x.c);
+  const verdicts = all.map((x) => ({ ...x, v: readVerdict(x.text) })).filter((x) => x.v);
+  const sealedBy = async (trusted, q, text) => Boolean(trusted[q]) && checkWitness(trusted[q], text).catch(() => false);
+  let out = [], objected = new Set();
+  for (let pass = 0; pass < 5; pass++) { // objections can only come from someone trusted: trust, look at objections, again without
+    const trusted = { ...(anchor ?? {}) }, pending = [];
+    for (let round = 0; round < 10; round++) {
+      let added = false;
+      for (const { text, at, c } of certs) {
+        if (trusted[c.signer.id] || objected.has(c.u) || !(await sealedBy(trusted, c.by, text))) continue;
+        let ok = false;
+        for (const { text: vt, v } of verdicts) if (v.ok && v.u === c.u && v.by !== c.by && v.by !== c.signer.id && await sealedBy(trusted, v.by, vt)) ok = true;
+        if (ok || at == null || now - at >= wait) { trusted[c.signer.id] = c.signer.key; added = true; }
+        else if (!pending.some((p) => p.u === c.u)) pending.push({ u: c.u, signer: c.signer, by: c.by, until: at + wait });
+      }
+      if (!added) break;
+    }
+    const no = new Set(objected);
+    for (const { text, v } of verdicts) if (!v.ok && await sealedBy(trusted, v.by, text)) for (const { c } of certs) if (c.u === v.u && v.by !== c.signer.id) no.add(c.u);
+    out = { trusted, pending: pending.filter((p) => !no.has(p.u) && !trusted[p.signer.id]) };
+    if (no.size === objected.size) break;
+    objected = no;
+  }
+  return out;
+}
+
+/** All certificates, approvals and objections of a door, read through store → [{ path, text, at (ms or null) }]. */
 export async function certificatesIn(store) {
   const dec = new TextDecoder();
-  const paths = (await store.list(FOLDER).catch(() => [])).map((f) => f.path).filter((p) => p.endsWith('.sign')).slice(0, 50);
-  return Promise.all(paths.map(async (p) => dec.decode(await store.read(p))));
+  const named = (p) => p.endsWith('.chain.sign') && p.slice(p.lastIndexOf('/') + 1).startsWith('(signer '); // as certify() and verdict() name them; anything else is not even read
+  const files = (await store.list(FOLDER).catch(() => [])).filter((f) => named(f.path)).slice(0, MOST);
+  return Promise.all(files.map(async (f) => ({ path: f.path, text: dec.decode(await store.read(f.path)), at: Number.isFinite(f.at) ? f.at : null })));
 }

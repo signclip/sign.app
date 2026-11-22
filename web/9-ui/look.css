@@ -2,13 +2,13 @@
    coral = own · blue = others, Similar · pastel yellow = belongs together (nesting) · mint = password gestures.
    Colour never alone: off = thin and grey, chosen = thick, waiting = dashed, sent = solid. */
 :root {
-  --bg: #faf9f7; --rest: #e4e2dd; --fg: #222; --mut: #8a8984; --card: #fff; --line: #e8e6e1; --video: #2F323A;
+  --bg: #faf9f7; --rest: #e4e2dd; --chosen: color-mix(in srgb, var(--rest) 72%, #a9c3e0); /* chosen: a ground slightly apart from the rest, one colour (22.11.) */ --fg: #222; --mut: #8a8984; --card: #fff; --line: #e8e6e1; --video: #2F323A;
   --rc: #f5c6b8; --rc-stroke: #f5a08a; --sc: #d7e6f5; --sc-stroke: #8fb6e0; --hold: #5fbf92;
   --c-head: #993C1D; --c-now: #F4A58C; --c-next: #F9CDBE; --c-later: #FDEDE7; --b-now: #A8432A; --b-next: #C9694F; --b-later: #E29C86;
-  --nest: #FFF4CC; --nest-b: #A67C00; --mint: #E1F5EE; --mint-b: #1D9E75;
-  --ink: #4A1B0C; --paper: #fffdfb; --nest-paper: #FFF4CC; /* text on chips, and what stays light under dark text in dark mode too (21.11.: ≥ 7:1) */
+  --nest: #FBF3DA; --nest-b: #A67C00; /* brackets: a light pastel yellow, close to beige (22.11.) */ --mint: #E1F5EE; --mint-b: #1D9E75;
+  --ink: #4A1B0C; --paper: #fffdfb; --nest-paper: #FBF3DA; /* text on chips, and what stays light under dark text in dark mode too (21.11.: ≥ 7:1) */
 }
-@media (prefers-color-scheme: dark) { :root { --bg: #171716; --rest: #2b2b29; --fg: #eeece7; --card: #222; --line: #333; --nest: #4a3f14; --nest-b: #d9b24a; } }
+@media (prefers-color-scheme: dark) { :root { --bg: #171716; --rest: #2b2b29; --fg: #eeece7; --card: #222; --line: #333; --nest: #4a4330; --nest-b: #d9b24a; } }
 * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--rest); color: var(--fg); font-family: Inter, system-ui, sans-serif; overflow: hidden;
   touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
@@ -45,7 +45,6 @@ video::-webkit-media-controls { display: none !important; }
 .hit { fill: none; stroke: transparent; stroke-width: 30; } .hit.thin { stroke-width: 12; }
 .hit-dot { fill: transparent; }
 .line { fill: none; stroke: var(--rc-stroke); stroke-width: 2; opacity: .45; }
-.line-border { fill: none; stroke: var(--hold); stroke-linecap: round; pointer-events: none; } /* a line chosen: a border around it (20.11.) */
 .old { fill: none; stroke: var(--rc-stroke); stroke-width: 2; opacity: .35; stroke-linecap: round; }
 .more { font: 600 11px Inter, system-ui, sans-serif; fill: var(--mut); text-anchor: middle; }
 .thumb { fill: var(--video); stroke: none; } .thumb-edge { fill: none; stroke: var(--rc-stroke); stroke-width: 2; }
@@ -76,7 +75,7 @@ video::-webkit-media-controls { display: none !important; }
 .chip.next { border-color: var(--nc, var(--b-next)); }
 .chip.later { background: var(--c-later); border-color: var(--nc, var(--b-later)); }
 .chip.offer { background: var(--mint); border-color: var(--mint-b); color: #085041; border-style: dashed; }
-.chip.typing { background: var(--paper); border: 1.5px dashed var(--b-now); animation: breathe 1.4s ease-in-out infinite; }
+.chip.typing { } /* the word being typed: in the colour of its take at once, the caret behind it (22.11.) */
 .chip.timed { position: relative; overflow: hidden; } .chip .when { position: absolute; bottom: 2px; height: 3px; border-radius: 2px; background: var(--b-now); pointer-events: none; } /* a word with its own time: where in the take (21.11.) */
 .chip.said { background: var(--b-now); color: #fff; border-color: var(--b-now); } .chip.said .when { background: #fff; }
 .open-mark { display: inline-flex; align-items: center; font: 700 22px Inter, system-ui, sans-serif; color: var(--nest-b); margin: 0 1px; } /* "(" typed, waiting for its ")" (21.11.) */
@@ -88,8 +87,10 @@ video::-webkit-media-controls { display: none !important; }
 #row .take { display: inline-flex; align-items: center; }
 #row .bubble { display: inline-flex; align-items: center; padding: 4px 6px; border-radius: 20px; background: var(--nest); border: 1.5px solid var(--nc, var(--nest-b)); margin: 0 2px; }
 #row .bubble.inner { padding: 2px 3px; border-radius: 18px; }
-#row .bubble .bubble { background: color-mix(in srgb, var(--nest) 70%, #ffd75e); }
-#row .bubble .bubble .bubble { background: color-mix(in srgb, var(--nest) 45%, #ffcc33); }
+#row .bubble .bubble { background: color-mix(in srgb, var(--nest) 72%, #e3c98a); } /* inside: a little deeper, outer and inner apart */
+#row .bubble .bubble .bubble { background: color-mix(in srgb, var(--nest) 50%, #d9b86a); }
+#row .bubble.opening { border-style: dashed; } /* "(" typed, its ")" still to come: to the end of its level (22.11.) */
+#row .head { display: inline-flex; align-items: center; } /* the word before a bracket, its edge the bracket's */
 #row .bubble.sticky { background: transparent; border-color: var(--b-now); }
 #row .gap { display: inline-block; width: 14px; height: 36px; flex: none; }
 #row.typing .gap { border-radius: 2px; background: transparent; }
@@ -127,8 +128,10 @@ video::-webkit-media-controls { display: none !important; }
 .grip { position: absolute; min-width: 26px; height: 28px; padding: 0 5px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 2px; font: 600 13px Inter, system-ui, sans-serif; color: var(--mut); background: var(--paper); border: 1.5px dashed var(--sc-stroke); opacity: .55; }
 .grip.on { opacity: 1; border-style: solid; background: var(--sc); color: #0C447C; } .grip i { font-style: normal; font-size: 8px; letter-spacing: 1px; }
 .sel.strand-sel { position: absolute; }
-.cloud-chosen { position: absolute; border: 2px solid var(--sc-stroke); border-radius: 18px; opacity: .8; pointer-events: none; } /* the cloud chosen: quiet (21.11.) */
-.single-chosen { position: absolute; pointer-events: none; overflow: visible; } .single-chosen path { fill: none; stroke: var(--sc-stroke); stroke-width: 2; opacity: .8; } /* the element chosen */
+.cloud-chosen { position: absolute; background: var(--chosen); border-radius: 18px; pointer-events: none; } /* the cloud chosen: its ground tinted (22.11.) */
+.single-chosen { position: absolute; pointer-events: none; overflow: visible; } .single-chosen path { fill: var(--chosen); stroke: none; } /* the element chosen */
+.fan-back { fill: var(--rest); fill-opacity: .94; } .fan-row { fill: var(--paper); stroke: var(--line); stroke-width: 1.5; } /* the older lines fanned out (22.11.) */
+.chosen-band { fill: none; stroke: var(--chosen); stroke-linecap: round; pointer-events: none; } .chosen-rim { fill: var(--chosen); stroke: none; pointer-events: none; } /* a line, the take in the button */
 /* templates, series, saved similar (21.11.): one bubble each where they are used – row end, line end, top of Similar */
 .kind-bubble { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 30px; padding: 0 10px; margin-left: 6px; border-radius: 15px; background: var(--nest-paper); border: 2px dashed var(--nest-b); font: 700 14px Inter, system-ui, sans-serif; color: var(--ink); }
 .kind-bubble b { font: 600 12px Inter, system-ui, sans-serif; } .kind-bubble.in-similar { margin: 0; }

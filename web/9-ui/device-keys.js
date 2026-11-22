@@ -1,17 +1,20 @@
-// device-keys.js — this device's two key pairs, made once and kept in the browser (or the app's WebView).
+// device-keys.js — this device's key pairs, made once: in the phone's Keystore (APK), else kept in the browser.
 //
-// Purpose:   device key (Ed25519): seals what this device writes (y_), its public half z_ names the device.
+// Purpose:   device key (P-256 since 22.11.): seals what this device writes (y_), its public half z_ names the device.
 //            pickup key (ECDH P-256): a signer seals a join for it; only this device can open it.
-//            access key (Ed25519, 21.11.): signs the wishes to an object storage's gateway (2-storage/gateway-store.js);
+//            access key (P-256, 21.11.): signs the wishes to an object storage's gateway (2-storage/gateway-store.js);
 //            kept apart from the device key, so access can be renewed without a new device (and no wish is a seal).
-//            Both private halves are non-extractable CryptoKeys: they never leave the device, not even
-//            to this code; IndexedDB keeps them as they are (structured clone), no password needed.
-// Depends:   browser (IndexedDB, WebCrypto); 1-model/crypto.js
+//            APK (22.11., user): made inside the Android Keystore (native-keys.js), StrongBox or TEE; only alias and
+//            public half are kept here. Elsewhere non-extractable CryptoKeys in IndexedDB. A key made before stays
+//            what it was: a new one would make a new device (it would have to join again).
+// Depends:   browser (IndexedDB, WebCrypto); 1-model/crypto.js, 1-model/ids.js; native-keys.js
 // Test:      needs a browser; the keys themselves are tested in tests/join.test.mjs and crypto tests.
 // Limits:    one pair of each per device and browser profile; clearing site data = a new device (it
 //            joins again with a new hello; a gateway pairs it again with a new link).
 
-import { newDeviceKey, newPickupKey } from '../1-model/crypto.js';
+import { newDeviceKey, newPickupKey, compressP256 } from '../1-model/crypto.js';
+import { toBase32 } from '../1-model/ids.js';
+import { nativeKeys } from './native-keys.js';
 import { personal } from './persons.js';
 
 const DB = 'sign-keys', STORE = 'keys';
@@ -45,10 +48,28 @@ async function kept(name, make) {
   return back;
 }
 
+/** A key in the Keystore: made once (alias and public half kept here), then a handle. kind: 'sign' | 'agree'. */
+async function keptNative(name, kind) {
+  const have = await run('readonly', (s) => s.get(`native:${name}`));
+  if (have && (await nativeKeys.has(have.alias))) return { privateKey: nativeKeys.handle(have.alias, kind), public: have.public, hardware: have.hardware };
+  const alias = `sign.${name}.${toBase32(crypto.getRandomValues(new Uint8Array(5)))}`;
+  const made = await nativeKeys.create(alias, kind);
+  const record = { alias, public: toBase32(kind === 'sign' ? compressP256(made.public) : made.public), hardware: made.hardware }; // pickup: 65 raw bytes as before
+  await run('readwrite', (s) => s.put(record, `native:${name}`));
+  return { privateKey: nativeKeys.handle(alias, kind), public: record.public, hardware: record.hardware };
+}
+/** A key of this device: the one made before (browser), else the Keystore, else a new browser key. */
+async function keyOf(name, kind, make) {
+  const have = await run('readonly', (s) => s.get(name));
+  if (have) return have;
+  if (nativeKeys.available()) { try { return await keptNative(name, kind); } catch { /* no plugin in this APK, or agree before Android 12: the browser's */ } }
+  return kept(name, make);
+}
+
 let once = null; // one promise for everyone: two callers at the start must not make two different keys (14.11.)
-/** → { device: { privateKey, publicKey, public }, pickup: { privateKey, public }, access: { privateKey, public } } */
+/** → { device: { privateKey, public, hardware? }, pickup: { privateKey, public }, access: { privateKey, public } } */
 export function deviceKeys() {
-  once ??= (async () => ({ device: await kept('device', newDeviceKey), pickup: await kept('pickup', newPickupKey), access: await kept('access', newDeviceKey) }))().catch((err) => { once = null; throw err; });
+  once ??= (async () => ({ device: await keyOf('device', 'sign', newDeviceKey), pickup: await keyOf('pickup', 'agree', newPickupKey), access: await keyOf('access', 'sign', newDeviceKey) }))().catch((err) => { once = null; throw err; });
   return once;
 }
 /** The access key alone (for gateway-store.js). */

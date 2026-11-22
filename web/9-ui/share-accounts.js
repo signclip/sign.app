@@ -59,6 +59,13 @@ export function accountPart(ctx, { words, onLookAll, project }) {
     const sp = s.open.get(n), name = words().join(' ').trim() || `Gruppe ${shown(Date.now(), 'day')}`;
     if (!sp?.spec) return say(t('notReachable'));
     s.flash = `sp:${n}`; draw();
+    if (sp.spec.kind === 'gateway') { // object storage (22.11.): groups/<name>/ with door grants, sealed under the Groups grant; no folder to make
+      try {
+        await makeOrRenew({ ...ctx, s: { ...s, open: new Map([...s.open, [n, { ...sp, entry: { ...sp.entry, path: `${sp.entry.path}${name}/`, label: name } }]]) } }, n);
+        navigator.vibrate?.(20);
+      } catch { navigator.vibrate?.([40, 40, 40]); say(t('notReachable')); }
+      s.flash = null; return draw();
+    }
     try {
       const folder = [sp.spec.folder, name].filter(Boolean).join('/');
       await makeFolder(ctx.groups, folder);

@@ -3,14 +3,16 @@
 //
 // Purpose:   browser: values are sealed with an AES-256-GCM key that cannot be exported (it stays
 //            inside the browser's crypto); key and sealed values live in IndexedDB.
-//            native app: EXTEND(S4, keychain): Android Keystore / iOS Keychain through a plugin, same
-//            three functions.
-// Depends:   browser (IndexedDB, Web Crypto)
+//            APK (22.11.): the AES key lies in the Android Keystore (native-keys.js, alias sign.keychain); values
+//            sealed before with the browser's key are sealed anew by it the first time they are read. iOS: to come.
+// Depends:   browser (IndexedDB, Web Crypto); native-keys.js
 // Test:      needs a browser; the contract { get, set, remove } is what welcome.arrive() uses.
 // Limits:    one record per id, a few hundred bytes · clearing site data in the browser deletes it
 //            (then: join again with the password gestures, or the native app).
 
-const DB = 'sign-keychain', STORE = 'secrets';
+import { nativeKeys } from './native-keys.js';
+
+const DB = 'sign-keychain', STORE = 'secrets', ALIAS = 'sign.keychain';
 const enc = new TextEncoder(), dec = new TextDecoder();
 
 function open() {
@@ -31,15 +33,26 @@ async function key() {
   return k;
 }
 
+let ready = null; // is the Keystore's AES key there (made once)? asked once per start
+const native = () => (ready ??= (async () => {
+  if (!nativeKeys.available()) return false;
+  try { if (!(await nativeKeys.has(ALIAS))) await nativeKeys.create(ALIAS, 'aes'); return true; } catch { return false; } // an APK without the plugin
+})());
+
 export const keychain = {
   async set(id, value) {
+    if (await native()) { const { iv, data } = await nativeKeys.encrypt(ALIAS, enc.encode(value)); await tx('readwrite', (s) => s.put({ iv, data, native: true }, id)); return; }
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await key(), enc.encode(value));
     await tx('readwrite', (s) => s.put({ iv, data }, id));
   },
   async get(id) {
     const r = await tx('readonly', (s) => s.get(id));
-    return r ? dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: r.iv }, await key(), r.data)) : null;
+    if (!r) return null;
+    if (r.native) return dec.decode(await nativeKeys.decrypt(ALIAS, r.iv, r.data));
+    const value = dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: r.iv }, await key(), r.data));
+    if (await native()) await keychain.set(id, value); // sealed before by the browser's key: now by the Keystore
+    return value;
   },
   async remove(id) { await tx('readwrite', (s) => s.delete(id)); },
 };

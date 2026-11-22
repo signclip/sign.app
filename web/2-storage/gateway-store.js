@@ -5,8 +5,8 @@
 //            it and answers with a link for exactly one object; the bytes go straight to and from the object storage.
 //            No password travels, none is kept: the entry holds only the gateway's address and the prefix.
 //              path of the entry:  https://<gateway>/s3/<prefix>     e.g. https://gw.example.org/s3/n_7QK…/
-//            The right: the signer's grant from the hello back (8-join/grant.js; kept in the keychain, goes along with
-//            every wish), or — without a signer — a pairing link (…/s3/<prefix>#pair=CODE, gateway/setup.mjs pair).
+//            The right: a grant chain (8-join/grant.js) from a hello back or a group's invitation, kept in the keychain
+//            (one text or a JSON array), goes along with every wish. revoke(): the owner of a prefix takes a grant back.
 // Depends:   gateway-ask.js (the signed wish, gateway-2 and -3 to fall back on), memory.js (ExistsError, MissingError),
 //            spec.js (gatewayParts), fetch, crypto.subtle
 // Test:      tests/gateway.test.mjs (with the gateway and an object storage in memory)
@@ -40,7 +40,7 @@ export class GatewayStore {
   ask(op, a, b, c) { return askGateway(this, op, a, b, c, this.grant ? { grant: this.grant } : {}); } // the grant goes along
   async list(prefix = '') {
     const { files } = await this.ask('list', this.prefix + prefix);
-    return files.map((f) => ({ path: f.path.slice(this.prefix.length), size: f.size }));
+    return files.map((f) => ({ path: f.path.slice(this.prefix.length), size: f.size, ...(f.at ? { at: f.at } : {}) })); // at: the storage's time (signers.js: 48 h)
   }
   async read(path) {
     const { url } = await this.ask('get', this.prefix + path);
@@ -95,6 +95,8 @@ export class GatewayStore {
     }
     this.open.delete(key);
   }
+  /** Owner (w): no grant inside prefix counts any more for what (a grant's id, an access key, a device, a name). */
+  revoke(what, prefix = this.prefix) { return this.ask('revoke', what, prefix); }
   async remove(path) { await this.ask('remove', this.prefix + path); }
   async move(from, to) {
     try { await this.ask('move', this.prefix + from, this.prefix + to); } catch (err) {
@@ -103,11 +105,4 @@ export class GatewayStore {
       throw err;
     }
   }
-}
-
-/** Pair this device with a gateway: the code from the link becomes a grant for its prefix. → { prefix, rights } */
-export function pairWith(link, { access, label = '', fetch = globalThis.fetch.bind(globalThis) }) {
-  const p = gatewayParts(link);
-  if (!p?.code) throw new Error('no pairing code in the link');
-  return askGateway({ api: p.api, access, fetch }, 'pair', p.code, null, null, { label });
 }

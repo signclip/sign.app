@@ -58,10 +58,10 @@ export function similarHtml(st, entries, L, { names = [], sharing = [], spots = 
   const g = f.group, dots = (z) => (g?.by === z ? `<i>${LADDERS[z].map((_, i) => (i < g.level ? '●' : '○')).join('')}</i>` : '');
   const grip = (z, x, y, end = false) => `<span class="grip${f.open === z || g?.by === z ? ' on' : ''}" data-role="grip:${z}" style="left:${px(x)};top:${px(y)}${end ? ';transform:translateX(-100%)' : ''}">${ICON[z]}${dots(z)}</span>`;
   out.push(grip('initial', box.x + 2 * L.k, box.y + box.h / 2 - 14 * L.k), grip('date', box.x + box.w - 2 * L.k, box.y + box.h / 2 - 14 * L.k, true), grip('spot', box.x + box.w / 2 - 13 * L.k, box.y + 2 * L.k));
-  if (st.sel === 'cloud' && st.similar !== 'single') out.push(`<div class="cloud-chosen" style="left:${px(box.x)};top:${px(box.y)};width:${px(box.w)};height:${px(box.h)}"></div>`); // the cloud chosen: a quiet frame (21.11.)
-  if (st.sel === 'element' && st.similar === 'single' && L.single) { // the element chosen: a quiet ring just outside its window (21.11.)
-    const pad = 9 * L.k, S = L.single, x0 = S.cx - S.rx - pad, y0 = S.cy - S.ry - pad;
-    out.push(`<svg class="single-chosen" style="left:${px(x0)};top:${px(y0)};width:${px(2 * (S.rx + pad))};height:${px(2 * (S.ry + pad))}"><path d="${outline(S, 5 * L.k, x0, y0)}"/></svg>`);
+  if (st.sel === 'cloud' && st.similar !== 'single') out.unshift(`<div class="cloud-chosen" style="left:${px(box.x)};top:${px(box.y)};width:${px(box.w)};height:${px(box.h)}"></div>`); // the cloud chosen: its ground tinted, behind the tiles (22.11.)
+  if (st.sel === 'element' && st.similar === 'single' && L.single) { // the element chosen: a tinted ring of 18 px around its window (22.11.)
+    const pad = 18 * L.k, S = L.single, x0 = S.cx - S.rx - pad, y0 = S.cy - S.ry - pad;
+    out.unshift(`<svg class="single-chosen" style="left:${px(x0)};top:${px(y0)};width:${px(2 * (S.rx + pad))};height:${px(2 * (S.ry + pad))}"><path fill-rule="evenodd" d="${outline(S, pad, x0, y0)} ${outline(S, 0, x0, y0)}"/></svg>`);
   }
   // 21.11. (user): what counts as similar = the strands that are on in the take; wer and the rest = the rings with sectors
   if (search) out.push(`<span class="chip pick on search-on" data-role="search-off" style="position:absolute;left:${px(box.x + 40 * L.k)};top:${px(box.y + 2 * L.k)}">? ${esc(search.words.join(' '))}</span>`); // a similar opened: its words; pulled down = the window's again (21.11.)
