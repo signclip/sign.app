@@ -13,7 +13,7 @@
 //            (together rounder up to the circle, apart back to the rectangle); side by side = width, one above the
 //            other = height (narrower and back to full). One side always keeps the full 1:1 size; the aspect snaps
 //            to the picture's own format and to 1:1 within SNAP. The same form frames the result in Similar's
-//            double view and the takes on the line.
+//            single view and the takes on the line.
 //            No visible corners (20.11., user): the outline is sampled along the curve's own parameter, so its
 //            points crowd where it bends (the corners of a rounded rectangle) and lie wide where it is straight.
 // Depends:   nothing
@@ -39,7 +39,7 @@ export function fit(room, aspect) {
   return { rx: (S / 2) * Math.min(1, a), ry: (S / 2) * Math.min(1, 1 / a) };
 }
 
-/** The form inside a box (Similar's double view, a take on the line): the box's square, one side narrower. */
+/** The form inside a box (Similar's single view, a take on the line): the box's square, one side narrower. */
 export function shapeIn(box, form = {}) {
   const { rx, ry } = fit(box, form.aspect ?? 1);
   return { cx: box.x + box.w / 2, cy: box.y + box.h / 2, rx, ry, n: exponent(form.round ?? 1) };

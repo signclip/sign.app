@@ -35,7 +35,7 @@ import { sheetPdf, sheetData, sheetName, paperChoice } from './emergency.js';
 const SIGNER_PAPER_ID = 'paper-signer'; // the signer code on the sheet and the path of its certificate in the door
 import { partsOf } from '../2-storage/layout.js';
 import { quietIds } from '../4-save/remove.js';
-import { deviceKeys, joins } from './device-keys.js';
+import { deviceKeys, joins, accessKey } from './device-keys.js';
 import { readPaste } from '../2-storage/spec.js';
 import { copyRoute } from '../2-storage/routes.js';
 import { send, filesOf, targets, sendTo, defaults, printFile, saveFiles, copy } from './system-share.js';
@@ -219,7 +219,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       if (added) return loadOnce(); // once; if it cannot be written, the list stays as it was
     }
     if (await takePendingLogin().catch(() => false)) return loadOnce(); // a role login moved here from another account (15.11.)
-    s.open = await openAll(s.entries, { keychain, own, folders });
+    s.open = await openAll(s.entries, { keychain, own, folders, access: accessKey }); // access: an object storage through the gateway (21.11.)
     onSources(sources(s.rules, s.open, own));
     waitingShares(ctx).then(async (list) => { // asks in the background
       const expected = expectedOf(ctx, list); // from accounts I brought in: taken in without a tap
@@ -310,7 +310,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     draw();
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { every: () => every(), confirmed: () => confirmed(), project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on), newPerson: () => onOwnHold() };
+  const ctx = { every: () => every(), confirmed: () => confirmed(), project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, gateway: project?.gateway || null, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on), newPerson: () => onOwnHold() };
   // the admin's door and what Admin, Atlas, Groups do: their own files (15.11., share-door.js, share-accounts.js)
   const { refreshDoor, lookPile, pileList, adminStore } = doorPart(ctx, { panel, onLookAll });
   const { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, showGroups, groupTiles, addToGroup } = accountPart(ctx, { words, onLookAll, project });
@@ -529,7 +529,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       for (const [l, st] of states) if (s.joinStates?.get?.(l) !== st) s.fresh.add(l);
       s.joinStates = states;
       onDoor(states.get(label) ?? null);
-      if (states.get(label) === 'ready') { await joins.set(label, { ...(await joins.get(label)), tapped: false }); s.note = t('notReachable'); return draw(); } // not taken (seal, network): a tap tries again
+      if (states.get(label) === 'ready') { await joins.set(label, { ...(await joins.get(label)), tapped: false }); s.note = t(s.joinWhy ?? 'notReachable'); s.joinWhy = null; s.shake = role; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); return null; } // not taken: it shakes and says why (21.11.) // not taken (seal, network): a tap tries again
       if (states.get(label) === 'join-own') return arrived(label);
       return draw();
     }

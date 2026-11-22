@@ -14,12 +14,15 @@ import './persons-boot.js';
 import { translator } from '../0-i18n/t.js';
 import { LocalStore, lasting } from '../2-storage/local.js';
 import { buildIndex } from '../3-index/index.js';
+import { cachePrefix } from '../3-index/parts.js';
+import { openDevice } from '../3-index/sqlite.js';
+import { mergedOf } from '../3-index/merged.js';
 import { newPerson, newSource } from '../1-model/ids.js';
 import { drawWords } from '../1-model/words.js';
 import { normalize } from './settings.js';
 import { deviceKeys } from './device-keys.js';
 import { keychain } from './keychain.js';
-import { installDebug } from './debug.js';
+import { installDebug, note as debugNote } from './debug.js';
 import { initial, next } from './take-state.js';
 import { takeLayout } from './layout.js';
 import { outline } from './form.js';
@@ -32,11 +35,13 @@ import { hintOf, onboardingSeries, onboardingView } from './onboarding-steps.js'
 import { listen } from './touch.js';
 import { takeFlow } from './take-flow.js';
 import { similarFlow } from './similar-flow.js';
+import { passFlow } from './pass-flow.js';
 import { mediaOf } from './media.js';
 import { playerOf } from './player.js';
 import { live as isLive, count as takesOn } from './take-state.js';
 import { gesturesOf, ZW } from './gestures-take.js';
 import { calmOf } from './calm.js';
+import { levelMeter } from './level.js';
 import { mountSharing } from './sharing-engine.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
 import { hintSvg } from './hint.js';
@@ -60,7 +65,13 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     st: initial(), data: { thumbs: {}, buttonPic: null, entries: [], typing: '', hint: null, sharing: null, drag: null } };
   const ownKeys = await deviceKeys().then((k) => ({ [device]: k.device.public }), () => ({}));
   let indexedAt = Date.now();
-  A.reindex = async () => { indexedAt = Date.now(); A.index = await buildIndex(A.sources, { keys: ownKeys, cache: store }); A.similar?.refresh(); };
+  A.reindex = async () => { indexedAt = Date.now(); A.index = await buildIndex(A.sources, { keys: ownKeys, cache: A.merged?.store ?? store }); A.similar?.refresh(); A.pass?.scan().catch(() => {}); }; // + requests to pass on her takes (21.11.)
+  // All sharing points in one SQLite database on the device (21.11., user; 3-index/merged.js). Opened beside the start,
+  // never in its way: until it is there (and if it cannot be: no OPFS, library not loadable) the parts stay as files.
+  if (globalThis.Worker && navigator.storage?.getDirectory) {
+    const db = openDevice();
+    mergedOf(db).then((m) => { A.merged = m; }, (err) => { db.close(); debugNote({ method: 'sqlite', where: 'open', error: String(err?.message ?? err).slice(0, 200), ms: 0 }); });
+  }
   // New takes of others also while the app is open (21.11., user): every SYNC_MS when seen, at once when coming back
   // (after ≥ 1 min away); never while recording. Cost: one listing per folder of each sharing point (parts.js).
   const SYNC_MS = 5 * 60 * 1000, freshen = (after) => { if (document.visibilityState === 'visible' && A.st.rec === 'idle' && Date.now() - indexedAt > after) A.reindex().catch(() => {}); };
@@ -84,23 +95,40 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
 
   let frame = 0;
   A.paint = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; paint(); }); };
+  /** Similar full (21.11., user): the take's drawing slides there and back in 0.32 s (layout.js fullOf, t = A.data.fullT). */
+  function glideFull(to) {
+    const from = A.data.fullT ?? (to ? 0 : 1), t0 = performance.now(), id = t0;
+    A.data.gliding = id; document.body.classList.add('gliding');
+    const step = (now) => {
+      if (A.data.gliding !== id) return;
+      const f = Math.min(1, (now - t0) / 320), e = 1 - (1 - f) ** 3;
+      A.data.fullT = from + (to - from) * e;
+      if (f >= 1) { A.data.gliding = 0; A.data.fullT = to ? 1 : 0; A.data.takeBox = null; document.body.classList.remove('gliding'); }
+      A.paint();
+      if (f < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
   A.dispatch = (e) => {
     const before = A.st;
     A.st = next(A.st, e);
     if (A.st.strands !== before.strands || A.st.form !== before.form) { settings.auto = Object.keys(A.st.strands).filter((k) => A.st.strands[k]); settings.shape = A.st.form; keep('sign.settings', settings); }
     if (A.st.context !== before.context && !A.st.onboard.on) keep('sign.series', A.st.context);
     if (A.st.similar !== before.similar || A.st.filters !== before.filters || A.st.context !== before.context || A.st.strands !== before.strands) A.similar?.refresh(); // strands on/off = what counts as similar (21.11.)
+    if ((A.st.similar === 'full') !== (before.similar === 'full')) glideFull(A.st.similar === 'full' ? 1 : 0); // the button slides down, the arcs to the screen's edges (21.11.)
     if (A.st.similar === 'closed' && before.similar !== 'closed') { A.similar?.close(); A.data.ranging = false; A.data.kindCloud = null; }
     if (!A.st.share && before.share) { A.data.shareChain = null; A.data.suggest = null; } // what was made to share is shared (or not): the next ↑ shares the line again
     if ((A.st.at !== before.at || A.st.rec !== before.rec) && A.st.wide < 0.02 && !A.similar?.comparing) A.showAt?.();
-    if (A.st.dstrands !== before.dstrands || A.st.pick !== before.pick || A.st.similar !== before.similar) A.similar?.sound?.(); // the double view's sound (20.11.)
+    if (A.st.dstrands !== before.dstrands || A.st.pick !== before.pick || A.st.similar !== before.similar) A.similar?.sound?.(); // the single view's sound (20.11.)
     A.paint();
   };
   A.shake = (role) => { const el = document.querySelector(`[data-role="${role}"]`); el?.classList.add('shake'); setTimeout(() => el?.classList.remove('shake'), 400); navigator.vibrate?.([40, 40, 40]); };
   A.say = (text) => { A.data.note = text; A.paint(); setTimeout(() => { if (A.data.note === text) { A.data.note = ''; A.paint(); } }, 2600); };
   A.keepSettings = () => keep('sign.settings', settings);
   A.take = takeFlow(A);
+  A.pass = passFlow(A); // passing on others' takes: free, or a request to the author (21.11.)
   A.calm = calmOf(A); // the button's times: start when calm, end by itself (20.11.)
+  A.level = levelMeter(A); // the sound level on the audio arc while audio is on (21.11.)
   A.player = playerOf(A, $('#replay'));
   /** The window shows what the button holds: live, or the earlier take's picture (17.11.). */
   A.showAt = () => { const s = A.st; if (isLive(s) || s.rec !== 'idle') return A.player.stop(); const take = s.lines.at(-1).takes[Math.min(s.at, takesOn(s) - 1)]; return take ? A.player.show(take, 0) : A.player.stop(); };
@@ -138,7 +166,12 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     onDraw: (snap) => { A.data.snap = snap; paintSharing(); },
     lastChain: async () => A.take.lastChain(),
     selection: () => Object.keys(A.st.strands).filter((k) => A.st.strands[k]),
-    onSources: async (list) => { A.sources = list; await A.reindex(); },
+    onSources: async (list) => {
+      const key = (x) => x.id ?? x.name, gone = A.sources.filter((o) => !list.some((x) => key(x) === key(o)));
+      A.sources = list;
+      for (const g of gone) A.merged?.forget(cachePrefix(key(g))).catch(() => {}); // access ended: its parts leave the device
+      await A.reindex();
+    },
     words: () => (A.st.onboard.on ? [] : nowWords(A.st.context, A.st.sticky).map((w) => w.text)), // the onboarding's own words ("Name", the drawn ones) find nobody
     onDoor: (state) => { A.data.door = state; A.paint(); },
     onRole: () => { if (A.st.onboard.on) { A.dispatch({ type: 'onboard', patch: { on: false } }); A.dispatch({ type: 'context', text: '' }); keep('sign.series', ''); } }, // Admin, Atlas, Groups: their login is their account, no steps
@@ -173,8 +206,24 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   const size = () => ({ w: innerWidth, h: full.h || innerHeight, keyboard: A.st.keyboard });
   /** A take's own context in the row: every word in the colour of the take now (it is one take, 21.11.). */
   const asNow = (n) => (n.take ? { ...n, tone: 'now', words: n.words.map((w) => ({ ...w, tone: 'now' })) } : { ...n, head: (n.head ?? []).map((w) => ({ ...w, tone: 'now' })), children: n.children.map(asNow) });
+  /**
+   * The take moved (Similar opens, the keyboard lifts it): the picture slides in 0.35 s (CSS on #window), so the drawing
+   * and the chips slide the same way instead of jumping ahead of it (21.11., user: the picture lagged behind) – they
+   * start where they were and move with the same timing (FLIP).
+   */
+  function slide(L) {
+    const box = { x: L.cx, y: L.cy, s: L.rx }, was = A.data.takeBox;
+    A.data.takeBox = box;
+    if (!was || document.body.classList.contains('shaping')) return;
+    const dx = was.x - box.x, dy = was.y - box.y, sc = was.s / box.s;
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2 && Math.abs(sc - 1) < 0.01) return;
+    const els = [$('#take'), $('#now')];
+    for (const el of els) Object.assign(el.style, { transition: 'none', transformOrigin: `${box.x}px ${box.y}px`, transform: `translate(${dx}px, ${dy}px) scale(${sc})` });
+    els[0].getBoundingClientRect(); // the start is drawn, then it moves
+    for (const el of els) Object.assign(el.style, { transition: '', transform: '' });
+  }
   function paint() {
-    const st = A.st, L = takeLayout(size(), st.similar, st.form, A.data.picture ?? 1);
+    const st = A.st, L = takeLayout(size(), st.similar, st.form, A.data.picture ?? 1, A.data.fullT ?? (st.similar === 'full' ? 1 : 0));
     A.L = L;
     const win = $('#window'), m = L.media, focus = $('#focus'); // the picture covers the window (form.js cover); only what lies inside the window is seen (20.11., user)
     Object.assign(win.style, { left: `${m.x}px`, top: `${m.y}px`, width: `${m.w}px`, height: `${m.h}px`, clipPath: `path('${outline(L, 0, m.x, m.y)}')` });
@@ -182,9 +231,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     focus.classList.toggle('gone', st.similar === 'full');
     win.classList.toggle('off', !st.strands.v);
     win.classList.toggle('gone', st.similar === 'full');
-    const svg = takeSvg(st, L, { playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, auto: A.settings.restartMs != null, range: st.filters.range ?? {}, ranging: A.data.ranging, series: isLive(st) && !st.typing ? A.data.kindCounts?.series ?? 0 : 0 });
+    const svg = takeSvg(st, L, { playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, auto: A.settings.restartMs != null, meter: A.settings.restartMs != null || A.settings.stillEndMs > 0, range: st.filters.range ?? {}, ranging: A.data.ranging, series: isLive(st) && !st.typing ? A.data.kindCounts?.series ?? 0 : 0 });
     if ($('#take').dataset.svg !== svg) { $('#take').innerHTML = svg; $('#take').dataset.svg = svg; }
-    $('#take').classList.toggle('gone', st.similar === 'full');
+    if (!A.data.gliding) slide(L); // Similar full glides by itself (glideFull)
     const ob = st.onboard.on ? onboardingView(st.onboard, st.typing ? A.data.typing ?? '' : '') : null; // onboarding: typed into its green chip (21.11.)
     const earlier = !isLive(st) ? st.lines.at(-1)?.takes[st.at] : null; // an earlier take in the button: its own context, in the window and to change (21.11.)
     const edit = earlier && A.data.edit?.id === earlier.id ? A.data.edit : null;
@@ -193,25 +242,26 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const rp = $('#replay'), atMs = earlier && rp && !rp.paused ? rp.currentTime * 1000 : null;
     const shownWords = earlier ? takeWords(ctx).map((w) => ({ ...w, tone: 'now' })) : nowWords(ctx, st.sticky);
     A.data.timedWords = shownWords.some((w) => w.from != null);
-    const nowText = st.strands.x && st.similar !== 'full' ? nowHtml(shownWords, L, ob?.green ?? [], { len: earlier?.ms ?? 0, atMs }) : '';
+    const nowText = st.strands.x ? nowHtml(shownWords, L, ob?.green ?? [], { len: earlier?.ms ?? 0, atMs }) : '';
     if ($('#now').dataset.html !== nowText) { $('#now').innerHTML = nowText; $('#now').dataset.html = nowText; } // written only when it changed: the button's arc repaints often (calm.js)
     const rowEl = $('#row');
     rowEl.style.top = `${L.queueY}px`;
+    Object.assign(rowEl.style, L.row ? { left: `${L.row.x}px`, right: 'auto', width: `${L.row.w}px`, padding: `0 ${Math.round(L.row.w * 0.4)}px` } : { left: '', right: '', width: '', padding: '' }); // Similar full across: the row under the take's column
     rowEl.classList.toggle('typing', st.typing);
-    rowEl.classList.toggle('gone', st.similar === 'full' || !st.strands.x);
+    rowEl.classList.toggle('gone', !st.strands.x);
     const rowText = rowHtml(row, { waiting: ob?.slot === 'own' && !ob.series, all: st.typing, on: st.typing && !ob?.series, caret: st.caret, typing: st.typing && !ob?.series ? A.data.typing : '', offers: ob?.green ?? [], open: A.data.open?.caret });
     const nTemplates = A.data.kindCounts?.template ?? 0; // the templates' bubble at the end of the row (21.11.): spread or tap = their cloud
     const rowAll = rowText + (!earlier && !ob && !st.typing && nTemplates ? `<span class="kind-bubble" data-role="kinds:template"><em>_</em><b>${nTemplates}</b></span>` : '');
     if (rowEl.dataset.html !== rowAll) { rowEl.innerHTML = rowAll; rowEl.dataset.html = rowAll; }
-    const sim = similarHtml(st, A.data.entries ?? [], L, { ...(A.data.similarLists ?? {}), picked: A.data.picked ?? null, search: A.data.search ?? null, me: A.person?.label ?? '', kindCloud: A.data.kindCloud ?? null, searches: A.data.kindCounts?.search ?? 0 });
+    const sim = similarHtml(st, A.data.entries ?? [], L, { ...(A.data.similarLists ?? {}), picked: A.data.picked ?? null, search: A.data.search ?? null, me: A.person?.label ?? '', kindCloud: A.data.kindCloud ?? null, searches: A.data.kindCounts?.search ?? 0, asks: (A.data.asks ?? []).length });
     if ($('#similar').dataset.text !== sim) { $('#similar').innerHTML = sim; $('#similar').dataset.text = sim; }
     const cg = $('#carry'), c = A.data.carry; // what is carried follows the finger
     cg.hidden = !c;
     if (c) Object.assign(cg.style, { left: `${c.x - 34}px`, top: `${c.y - 34}px`, backgroundImage: c.pic ? `url("${c.pic}")` : 'none' });
-    const pv = $('#pickvideo'), db = st.similar === 'double' ? L.doubleBox : null; // the picked result plays in its own element (17.11.): a repaint no longer stops it
+    const pv = $('#pickvideo'), db = st.similar === 'single' ? L.singleBox : null; // the picked result plays in its own element (17.11.): a repaint no longer stops it
     pv.hidden = !db;
-    pv.style.visibility = st.dstrands?.v === false ? 'hidden' : ''; // the picture strand of the double view off: only context and sound (20.11.)
-    if (db) { Object.assign(pv.style, { left: `${db.x}px`, top: `${db.y}px`, width: `${db.w}px`, height: `${db.h}px`, clipPath: `path('${outline(L.double, 0, db.x, db.y)}')` }); const e = (A.data.picked?.key === st.pick ? A.data.picked : null) ?? (A.data.entries ?? []).find((x) => x.key === st.pick); if (e?.thumb && pv.poster !== e.thumb) pv.poster = e.thumb; }
+    pv.style.visibility = st.dstrands?.v === false ? 'hidden' : ''; // the picture strand of the single view off: only context and sound (20.11.)
+    if (db) { Object.assign(pv.style, { left: `${db.x}px`, top: `${db.y}px`, width: `${db.w}px`, height: `${db.h}px`, clipPath: `path('${outline(L.single, 0, db.x, db.y)}')` }); const e = (A.data.picked?.key === st.pick ? A.data.picked : null) ?? (A.data.entries ?? []).find((x) => x.key === st.pick); if (e?.thumb && pv.poster !== e.thumb) pv.poster = e.thumb; }
     else if (pv.src) { pv.pause(); pv.removeAttribute('src'); pv.poster = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; pv.load(); } // transparent: never the WebView's grey placeholder
     $('#note').textContent = A.data.note ?? '';
     const o = st.onboard;
@@ -245,7 +295,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       const at = $('#sharing-html .row')?.scrollLeft ?? 0;
       $('#sharing-html').innerHTML = v.html; $('#sharing-html').dataset.text = v.html;
       const row = $('#sharing-html .row'); if (row && at) row.scrollLeft = at;
-    }    for (const el of $('#sharing-html').querySelectorAll('.tile')) el.classList.toggle('suggest', Boolean(A.data.suggest) && el.textContent.trim().startsWith(A.data.suggest)); // the person of the double view first in sight (21.11.)
+    }    for (const el of $('#sharing-html').querySelectorAll('.tile')) el.classList.toggle('suggest', Boolean(A.data.suggest) && el.textContent.trim().startsWith(A.data.suggest)); // the person of the single view first in sight (21.11.)
 
     A.paint();
   }
@@ -278,7 +328,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   globalThis.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
     if (A.st.typing) return say.blur();
     if (A.st.share) return A.engine?.back?.() ? null : A.engine?.show(false);
-    if (A.st.similar !== 'closed') return A.dispatch({ type: 'similar', level: A.st.similar === 'double' ? 'many' : 'closed' });
+    if (A.st.similar !== 'closed') return A.dispatch({ type: 'similar', level: A.st.similar === 'single' ? 'many' : 'closed' });
     if (A.st.wide > 0.02) return A.dispatch({ type: 'wide', spread: 0 });
     return globalThis.Capacitor.Plugins.App.minimizeApp?.();
   });

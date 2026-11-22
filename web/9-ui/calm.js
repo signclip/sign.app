@@ -9,7 +9,8 @@
 //            the app opens the same; typing or a touch begins the countdown anew. Seen on the button (21.11., no numbers, a
 //            tick per second): the countdown = the pill as wide as set, narrowing from the left onto the button (green);
 //            stillness in a take = the pill growing to the right up to its end, round like the button (red); it opens
-//            and closes moving (≈ 0.2 s), back onto the button with motion or when the take was kept.
+//            and closes moving (≈ 0.2 s), back onto the button with motion or when the take was kept. A ring inside the
+//            button shows what is seen right now: bright = motion, faint = a little, gone = still (21.11., phone test).
 // Depends:   browser; settings.js (calmStep, normalize), layout.js (timerPill), ready.js (watch), take-state.js (live)
 // Test:      calmStep, timerPill in tests/ui.test.mjs; the sensing on a phone.
 // Limits:    0–10 s each, in half seconds; ≈ 15 px per second beyond a catch of 26 px; checked every 100 ms; the camera
@@ -39,6 +40,8 @@ export function calmOf(A) {
     if (stream === watched) return;
     unwatch?.(); unwatch = null; watched = stream;
     if (stream) unwatch = watch(stream, (e) => {
+      const seen = A.st.strands.v ? e.level : e.loud ? 1 : 0, ring = document.querySelector('#take .motion');
+      if (ring) ring.style.opacity = seen >= 1 ? 1 : (seen * 0.45).toFixed(2); // the ring in the button: bright = moving, faint = a little (21.11.)
       if (!(e.moving || (e.loud && !A.st.strands.v))) return; // still: without the picture strand, quiet
       armed = true;
       if (A.st.rec === 'recording') { still = performance.now(); moved = true; }

@@ -4,7 +4,7 @@
 // Purpose:   results = 7-similar/filter.js similar() over the index, for the words of the take now (sticky, the series'
 //            element, what is being typed), then the selection views (similar-view.js passes / ordered). A pile of the
 //            admin's door comes as items from the sharing engine (onLookAll): grouped by person (a hello is one line per
-//            person: name sign, password gestures), a tap opens the double view and plays her pieces from the first;
+//            person: name sign, password gestures), a tap opens the single view and plays her pieces from the first;
 //            a known person on a new device shows her original beside it. The button then decides (16.11.):
 //              hello  ↑ = the sharing menu opens, join pulses, a tap on it = account + answer · ↓ = quiet
 //              join   ↑ = within · ↓ = back to hello        within ↓ = quiet        quiet ↑ = within
@@ -18,7 +18,7 @@ import { passes, ordered, byPerson, MANY } from './similar-view.js';
 import { inBundle, sortedBy } from './similar-zoom.js';
 import { wideOpen, widenWords, applyRange } from './similar-range.js';
 import { nowWords, seriesRow } from './chips.js';
-import { saveSimilar } from '../4-save/save-similar.js';
+import { saveSimilar, readSimilar } from '../4-save/save-similar.js';
 import { deviceKeys } from './device-keys.js';
 import { writeId as writeIdOf } from '../1-model/ids.js';
 
@@ -64,14 +64,34 @@ export function similarFlow(A) {
     for (const c of want.size ? searches.filter((c) => wordsOfSearch(c).some((w) => want.has(w.toLowerCase()))) : searches.slice(0, 6)) put(c, 'search', { words: wordsOfSearch(c) });
     return out.slice(0, 40);
   }
-  /** A search tile: Similar shows that search (its words instead of the window's); tapped again on its sign = back. */
-  function openSearch(e) {
-    s.search = { key: e.key, words: wordsOfSearch(e.chain) };
-    A.data.search = s.search;
+  /**
+   * A saved similar opened (21.11., G4c): its words and choices, its Weite – and what its top line shows: the take
+   * window with its take or line (as a guest), the cloud with its elements exactly so, the element shown single.
+   */
+  async function openSearch(e) {
+    const at = fileOf(e.chain);
+    let r = null;
+    try { r = at ? readSimilar(new TextDecoder().decode(await at.store.read(at.path))) : null; } catch { r = null; }
+    s.search = { key: e.key, words: r?.words ?? wordsOfSearch(e.chain) };
+    A.data.search = s.search; A.data.kindCloud = null;
     navigator.vibrate?.(8);
-    refresh();
+    if (r) {
+      const f = A.st.filters, value = { ...f.value }, on = { ...f.on };
+      const put = (k, list) => { if (list?.length) { value[k] = list; on[k] = true; } };
+      put('initial', r.letters); put('spot', r.spot ? [r.spot] : []); put('name', r.persons); put('sharing', r.sharingPoints.map((x) => x.label));
+      A.dispatch({ type: 'filters', filters: { ...f, value, on, range: Object.keys(r.weite).length ? { ...wideOpen(), ...r.weite } : f.range } });
+      const v = r.view, chainNamed = (name) => { const d = e.chain?.defs.get(name); return d?.id ? A.index.chain(writeIdOf(d.id)) : null; };
+      const focus = v.focus ? chainNamed(v.focus) : null;
+      if (focus) { const refs = kindOf(focus) === 'series' ? [...new Set((focus.lines?.[0]?.text ?? '').match(/:chain\.\d+/g) ?? [])].map((n) => focus.defs.get(n.slice(1))?.id).filter(Boolean).map((id) => A.index.chain(writeIdOf(id))).filter(Boolean) : [focus]; guestLine(refs, false); }
+      s.look = v.elements.length ? v.elements.map(chainNamed).filter(Boolean).map((c) => dress({ key: c.key, chain: c, words: [], t: timeOf(c), person: c.head?.['@'] ?? '', sharing: [c.from?.store].filter(Boolean), thumb: null })) : null;
+      A.dispatch({ type: 'similar', level: !focus && !v.empty ? 'full' : 'many' });
+      refresh();
+      if (v.pick) { const target = s.entries[v.pick - 1]; if (target) pick(target.key); }
+      return true;
+    }
+    return refresh();
   }
-  function closeSearch() { s.search = null; A.data.search = null; refresh(); }
+  function closeSearch() { s.search = null; A.data.search = null; s.look = null; refresh(); }
   /** A kind's bubble spread or tapped: its own cloud in Similar (21.11.); pulled down = the cloud of takes again. */
   function openKind(k) { A.data.kindCloud = k; navigator.vibrate?.(8); if (A.st.similar === 'closed') A.dispatch({ type: 'similar', level: 'many' }); refresh(); }
   function closeKind() { A.data.kindCloud = null; refresh(); }
@@ -82,6 +102,10 @@ export function similarFlow(A) {
     const c = e.chain, top = c?.lines?.[0]?.text ?? '';
     const names = [...new Set(top.match(/:chain\.\d+/g) ?? [])].map((n) => n.slice(1));
     const chains = names.map((n) => c.defs.get(n)?.id).filter(Boolean).map((id) => A.index.chain(writeIdOf(id))).filter(Boolean);
+    return guestLine(chains, true);
+  }
+  /** Chains (takes) into the line as someone else's (a guest line) until changed; close: Similar goes. */
+  function guestLine(chains, close) {
     if (!chains.length) return false;
     A.data.guestAt ??= {};
     const takes = chains.map((tc, i) => {
@@ -94,7 +118,7 @@ export function similarFlow(A) {
     navigator.vibrate?.(15);
     A.dispatch({ type: 'lines', lines: [...A.st.lines.filter((l) => !l.guest), { id: 'guest', guest: true, sticky: '', takes }] });
     A.dispatch({ type: 'at', at: 0 });
-    A.dispatch({ type: 'similar', level: 'closed' });
+    if (close) A.dispatch({ type: 'similar', level: 'closed' });
     return true;
   }
   /** A template tile: its context becomes one's own series – the takes are taken one after another (21.11.). */
@@ -112,15 +136,38 @@ export function similarFlow(A) {
     if (!elements.length) return null;
     return A.dispatch({ type: 'filters', filters: { ...A.st.filters, group: { by: 'template', level: 0 }, value: { ...A.st.filters.value, template: elements }, open: null } });
   }
-  /** ↑ in the cloud: what it shows now kept as a search chain (G4c), to share. → path */
-  async function saveSearch() {
-    const f = A.st.filters, ws = s.search ? s.search.words : A.st.strands.x ? words() : [];
-    const kinds = ['v', 'x', 'a'].filter((k) => A.st.strands[k]); // what counts: the strands that are on in the take (21.11.)
-    const saved = await saveSimilar(A.store, { words: ws, kinds, persons: f.value.name ?? [] }, { device: A.device, person: A.person, deviceKey: await sealKey() }).catch(() => null);
+  /**
+   * ↑ with Similar open (21.11., G4c): the take window and the cloud as they are, as a similar chain to share – the
+   * take in the window (the chosen line, an earlier take) or empty, the element shown single, and – the cloud chosen –
+   * its elements exactly so; words, strands, choices and the Weite as its meta. → path
+   */
+  /**
+   * The cloud chosen, ↑ (21.11., user: what goes over is the choice): its question – words, kinds, sharing points, who,
+   * time, letters, spot, how far – opening as it is seen (full or many, the take window empty for her own take); no
+   * line of mine, no results: she sees what she may see (G4c).
+   */
+  async function shareCloud() {
+    const st = A.st, f = st.filters;
+    const ws = s.search ? s.search.words : st.strands.x ? words() : [];
+    const day = (ms) => new Date(ms).toISOString().slice(0, 10).replace(/-/g, '.');
+    const meta = { words: ws, kinds: ['v', 'x', 'a'].filter((k) => st.strands[k]), persons: f.value.name ?? [], sharingPoints: (f.value.sharing ?? []).map((label) => ({ label })),
+      time: f.on.date && f.value.date ? `${day(f.value.date[0])}_${day(f.value.date[1])}` : null, letters: f.value.initial ?? [], spot: f.value.spot?.[0] ?? null, weite: f.range ?? null };
+    const saved = await saveSimilar(A.store, meta, { device: A.device, person: A.person, deviceKey: await sealKey(), empty: st.similar !== 'full' }).catch((err) => { console.warn('cloud', err); return null; });
     if (!saved) return null;
     A.data.shareChain = saved.path;
     A.reindex();
     return saved.path;
+  }
+  /** The element shown single, ↑ (21.11.): it goes over as a line of mine pointing to it; her name offered (foreign: G4a). */
+  async function shareElement() {
+    const e = A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === A.st.pick);
+    return e ? A.take.shareElement(e) : null;
+  }
+  /** The single view plays the cloud's elements one after another when they were kept (21.11.): the next after this one. */
+  function playOn() {
+    if (A.st.similar !== 'single' || !s.look) return;
+    const i = s.entries.findIndex((e) => e.key === A.st.pick), next = s.entries[i + 1];
+    if (next) setTimeout(() => { if (A.st.similar === 'single') pick(next.key); }, 500);
   }
 
   /** Results now, as view entries (pictures and chips fill in later). */
@@ -145,7 +192,7 @@ export function similarFlow(A) {
     const beside = chainsBeside(found, ws);
     // 21.11. (user): the cloud holds takes only; templates, series and saved similar lie as a bubble where they are used
     // (the row, the line, the top of Similar) – spread on it = their own cloud, to choose from
-    const kinds = { template: found.filter((e) => e.kind === 'template'), series: beside.filter((e) => e.kind === 'series'), search: beside.filter((e) => e.kind === 'search') };
+    const kinds = { template: found.filter((e) => e.kind === 'template'), series: beside.filter((e) => e.kind === 'series'), search: beside.filter((e) => e.kind === 'search'), ask: A.pass?.entries(dress) ?? [] }; // ask: requests to pass on my takes (pass-flow.js)
     A.data.kindCounts = Object.fromEntries(Object.entries(kinds).map(([k, list]) => [k, list.length]));
     A.data.kindPics = Object.fromEntries(Object.entries(kinds).map(([k, list]) => [k, list.map((e) => e.thumb).filter(Boolean).slice(0, 4)]));
     const only = A.data.kindCloud; // a kind's own cloud is open
@@ -227,16 +274,16 @@ export function similarFlow(A) {
   }
 
   /**
-   * A tile tapped: the double view, it plays (a person's pieces one after another, from the first).
+   * A tile tapped: the single view, it plays (a person's pieces one after another, from the first).
    * A hello whose person may be known already (her ID, or her name: known.js candidates), 16.11./17.11.: the account that
    * exists plays above (its first name sign and password gestures), the new device's takes play below in the take window.
    * ← → above = the next account of that name · ↑ on the button = the same person (her account, a new app password) ·
-   * the double view squeezed away, then ↑ = a new account.
+   * the single view squeezed away, then ↑ = a new account.
    */
   async function pick(key) {
     A.dispatch({ type: 'pick', key });
     const e = s.entries.find((x) => x.key === key);
-    A.data.picked = e ?? null; // the double view keeps its result while the results change (20.11.)
+    A.data.picked = e ?? null; // the single view keeps its result while the results change (20.11.)
     const mine = e?.pieces ? e.pieces.map((p) => ({ store: p.from, path: p.path })) : e?.at ? [e.at] : [];
     const folders = e?.pieces?.[0]?.pile === 'hello' ? e.pieces[0].candidates ?? [] : [];
     s.cmp = folders.length ? { key, folders, i: 0, from: e.pieces[0].from, mine } : null;
@@ -259,7 +306,7 @@ export function similarFlow(A) {
     A.paint();
     await play();
   }
-  /** ← → on the double view: the next / the one before of the accounts that may be hers. → true if there is another */
+  /** ← → on the single view: the next / the one before of the accounts that may be hers. → true if there is another */
   function step(dir) {
     const c = s.cmp;
     if (!c || c.folders.length < 2) return false;
@@ -304,11 +351,12 @@ export function similarFlow(A) {
     try { f = await A.media.playable(one); } catch (err) { debugNote({ method: 'play', where: one.path, error: `read: ${err?.message ?? err}`, ms: 0 }); }
     if (s.playing !== p) return;
     if (!f?.url) return;
-    if (f.picture) { v.removeAttribute('src'); v.poster = f.url; v.load(); if (p.queue.length > 1) setTimeout(() => { if (s.playing === p) { p.i += 1; play(); } }, 1500); return; }
+    const onward = () => { p.i += 1; if (s.look && p.i >= p.queue.length) return playOn(); return play(); }; // kept elements: the next one plays after (21.11.)
+    if (f.picture) { v.removeAttribute('src'); v.poster = f.url; v.load(); if (p.queue.length > 1 || s.look) setTimeout(() => { if (s.playing === p) onward(); }, 1500); return; }
     const release = fadeOver(v); // the last frame of the one before fades into this one (21.11.)
     v.poster = A.data.picked?.thumb || BLACK; // its picture, or black, until the first frame (20.11.: no grey placeholder)
-    v.hidden = false; v.src = f.url; v.loop = p.queue.length === 1;
-    v.onended = () => { p.i += 1; play(); };
+    v.hidden = false; v.src = f.url; v.loop = p.queue.length === 1 && !s.look;
+    v.onended = onward;
     start(v, one.path);
     shown(v).then(release);
     A.media.ahead?.([p.queue[(p.i + 1) % p.queue.length]]); // and the next one is read meanwhile
@@ -335,7 +383,7 @@ export function similarFlow(A) {
     navigator.vibrate?.(15);
     A.dispatch({ type: 'lines', lines: [...A.st.lines.filter((l) => !l.guest), { id: 'guest', guest: true, sticky: '', takes }] });
     A.dispatch({ type: 'at', at: 0 });
-    if (A.st.similar === 'double') A.dispatch({ type: 'similar', level: 'many' });
+    if (A.st.similar === 'single') A.dispatch({ type: 'similar', level: 'many' });
     runLine(0);
     return true;
   }
@@ -363,8 +411,8 @@ export function similarFlow(A) {
     const at = e?.pieces?.[0];
     if (!at) return false;
     const pile = at.pile;
-    // whose account (16.11.): the one above confirmed by ↑ · the double view squeezed away = a new one · nobody known = by her ID
-    const into = s.cmp?.key === e.key ? (A.st.similar === 'double' ? { into: s.cmp.folders[s.cmp.i] } : { into: null }) : {};
+    // whose account (16.11.): the one above confirmed by ↑ · the single view squeezed away = a new one · nobody known = by her ID
+    const into = s.cmp?.key === e.key ? (A.st.similar === 'single' ? { into: s.cmp.folders[s.cmp.i] } : { into: null }) : {};
     // ↑ on a hello: the sharing menu opens, join breathes; the account is made when join is tapped there. Only then is
     // she decided (17.11.: the line carried into the window stayed after the account was made).
     const decided = async (run) => { const r = await run(); done(e); return r; };
@@ -375,7 +423,7 @@ export function similarFlow(A) {
     done(e);
     return true;
   }
-  /** A person decided: out of the pile looked at, the double view and the window empty again, the rest of the pile anew. */
+  /** A person decided: out of the pile looked at, the single view and the window empty again, the rest of the pile anew. */
   function done(e) {
     s.look = (s.look ?? []).filter((x) => x !== e);
     s.cmp = null; stopBelow(); tell(); dropGuest(); A.data.picked = null;
@@ -384,7 +432,7 @@ export function similarFlow(A) {
   }
 
   /**
-   * The sound of the result in the double view (20.11.): its own .a.wav, playing along with the picture when the sound
+   * The sound of the result in the single view (20.11.): its own .a.wav, playing along with the picture when the sound
    * strand is on — started, paused and moved with the video, put back in step when they drift (> 0.3 s).
    */
   let soundFor = null, mirrored = false;
@@ -400,7 +448,7 @@ export function similarFlow(A) {
       v.addEventListener('seeked', () => { if (on()) a.currentTime = v.currentTime; });
       v.addEventListener('timeupdate', () => { if (on() && Math.abs(a.currentTime - v.currentTime) > 0.3) a.currentTime = v.currentTime; if (on() && a.paused && !v.paused) a.play().catch(() => {}); });
     }
-    const want = A.st.similar === 'double' && A.st.dstrands?.a && e?.sound;
+    const want = A.st.similar === 'single' && A.st.dstrands?.a && e?.sound;
     a.dataset.on = want ? '1' : '';
     if (!want) { a.pause(); return; }
     if (soundFor !== e.sound.path) {
@@ -414,5 +462,5 @@ export function similarFlow(A) {
   }
 
   const close = () => { if (s.carried) return; s.look = null; s.playing = null; s.cmp = null; A.data.picked = null; stopBelow(); tell(); }; // someone lies in the window: her pile stays until she is decided
-  return { refresh, lookAt, pick, decide, close, step, toLine, dropGuest, sound, openSearch, closeSearch, openKind, closeKind, seriesToLine, takeOver, bundleBy, saveSearch, get carried() { return Boolean(s.carried); }, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
+  return { refresh, lookAt, pick, decide, close, step, toLine, dropGuest, sound, openSearch, closeSearch, openKind, closeKind, seriesToLine, takeOver, bundleBy, shareCloud, shareElement, saveSearch: (...a) => shareCloud(...a), playOn, get carried() { return Boolean(s.carried); }, get looking() { return Boolean(s.look); }, get comparing() { return Boolean(s.cmp); } };
 }

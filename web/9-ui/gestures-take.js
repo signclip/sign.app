@@ -12,7 +12,7 @@
 //   line     tap the line or an older line's small arc = chosen (outlined) · tap a take = look at it ·
 //            squeeze two takes together = joined
 //   row      tap = write (where: between two elements, into a bubble, at the end) · the preset "Name" pulled down = away
-//   above    spread above the take = Similar comes (then full), squeeze = it goes; a tile tapped = double view
+//   above    spread above the take = Similar comes (then full), squeeze = it goes; a tile tapped = single view
 //   Similar  tap a selection view = on/off (date, initial, @, sharing point, spot open their choices) · hold date or
 //            initial = their order turns · drag over the date bar = the span
 //   picture  ← / → = the other camera (at 1×) · tap = focus there · two fingers = the window's form: side by side =
@@ -51,7 +51,7 @@ export function gesturesOf(A) {
   function onEvent(ev, e) {
     if (A.st.share) return sharing(ev, e);
     if (A.data.ranging) return ranging(ev);
-    if (ev.type === 'hold' && ev.role === 'window' && (A.st.similar === 'many' || A.st.similar === 'double')) { A.data.ranging = true; navigator.vibrate?.(10); return A.paint(); } // how far Similar looks: the rings with sectors (21.11.)
+    if (ev.type === 'hold' && ev.role === 'window' && (A.st.similar === 'many' || A.st.similar === 'single')) { A.data.ranging = true; navigator.vibrate?.(10); return A.paint(); } // how far Similar looks: the rings with sectors (21.11.)
     if (ev.type === 'pinch') return pinch(ev);
     const r = ev.role ?? '';
     if (onLine(r) && (ev.type === 'drag' || ev.type === 'swipe' || ev.type === 'drag-end')) return pull(ev); // the line follows the finger (17.11.)
@@ -60,14 +60,19 @@ export function gesturesOf(A) {
     if (ev.type === 'tap') {
       if (r.startsWith('strand:') && !live(A.st) && A.st.rec === 'idle' && A.take.addStrand(r.slice(7))) return null; // an earlier take without it: only this strand is taken, onto it (21.11.)
       if (r.startsWith('strand:')) return A.dispatch({ type: 'strand', kind: r.slice(7) });
-      if (r.startsWith('dstrand:')) { navigator.vibrate?.(8); return A.dispatch({ type: 'dstrand', kind: r.slice(8) }); } // the double view: what one sees and hears (20.11.)
+      if (r.startsWith('dstrand:')) { navigator.vibrate?.(8); return A.dispatch({ type: 'dstrand', kind: r.slice(8) }); } // the single view: what one sees and hears (20.11.)
       if (r === 'line') return A.dispatch({ type: 'select-line', n: A.st.lines.length - 1 });
       if (r.startsWith('old:')) return A.dispatch({ type: 'select-line', n: Number(r.slice(4)) });
       if (r.startsWith('take:')) return A.dispatch({ type: 'at', at: Number(r.slice(5)) });
       if (r.startsWith('tile:')) { // what lies on top of a chain decides where it opens (21.11., user): ?( ) Similar · a line or _() the take window
         const e = A.data.entries[Number(r.slice(5))];
         if (e?.kind === 'search') return A.similar.openSearch(e); // a similar is a view: it opens
-        return A.similar.pick(e?.key); // a take, a series, a template: seen in the double view first; dragged into the take = taken over (similar-flow toLine)
+        return A.similar.pick(e?.key); // a take, a series, a template: seen in the single view first; dragged into the take = taken over (similar-flow toLine)
+      }
+      if (r === 'single' && A.st.similar === 'single') return A.dispatch({ type: 'choose', what: 'element' }); // the element tapped again: it is what goes over (21.11.)
+      if (r === 'screen' && (A.st.similar === 'many' || A.st.similar === 'full') && A.L?.similarBox) { // the cloud tapped where it is empty = chosen (21.11.): ↑ shares its question
+        const b = A.L.similarBox;
+        if (ev.x > b.x && ev.x < b.x + b.w && ev.y > b.y && ev.y < b.y + b.h) { navigator.vibrate?.(8); return A.dispatch({ type: 'choose', what: A.st.sel === 'cloud' ? null : 'cloud' }); }
       }
       if (r.startsWith('kinds:')) return A.similar.openKind(r.slice(6)); // the bubble of templates, series or saved similar: their own cloud (21.11.)
       if (r.startsWith('kind:')) { const k = r.slice(5), f = A.st.filters; return A.dispatch({ type: 'filters', filters: { ...f, on: { ...f.on, [k]: f.on[k] === false } } }); } // which chains the cloud shows
@@ -79,24 +84,32 @@ export function gesturesOf(A) {
       if (r.startsWith('initial:')) return toggleValue('initial', r.slice(8));
       if (r.startsWith('value:')) { const [, name, id] = r.split(':'); return toggleValue(name, id); }
       if (r === 'window') return focusHere(ev);
-      if (r === 'screen' && A.L && A.st.similar !== 'full' && A.st.strands.x && ev.y > A.L.cy + A.L.R + 10 * A.L.k && Math.abs(ev.x - A.L.cx) < A.L.rx + 60 * A.L.k) return openTyping('context'); // anywhere under the bottom arc = write (17.11.)
+      if (r === 'screen' && A.L && A.st.strands.x && ev.y > A.L.cy + A.L.R + 10 * A.L.k && Math.abs(ev.x - A.L.cx) < A.L.rx + 60 * A.L.k) return openTyping('context'); // anywhere under the bottom arc = write (17.11.)
       if (inRow(r)) return openTyping(r);
     }
-    if (r.startsWith('tile:') || r === 'double') { // a result carried into the take window = it lies there as a line (17.11.)
-      const key = r === 'double' ? A.st.pick : A.data.entries[Number(r.slice(5))]?.key;
+    if (r.startsWith('tile:') || r === 'single') { // a result carried into the take window = it lies there as a line (17.11.)
+      const key = r === 'single' ? A.st.pick : A.data.entries[Number(r.slice(5))]?.key;
       if (ev.type === 'drag' && Math.abs(ev.dy) > 14) { A.data.carry = { x: ev.x, y: ev.y, pic: (A.data.entries ?? []).find((x) => x.key === key)?.thumb ?? null }; return A.paint(); }
       if ((ev.type === 'swipe' || ev.type === 'drag-end') && A.data.carry) {
         const c = A.data.carry, L = A.L; A.data.carry = null; A.paint();
         const inWindow = inside(L, c.x, c.y, L.ring * 2) || Math.hypot(c.x - L.button.x, c.y - L.button.y) < L.ring * 2;
         if (inWindow && key) return A.similar.toLine(key);
-        if (r === 'double' && (ev.dir === 'left' || ev.dir === 'right')) return A.similar.step(ev.dir) || nextResult(ev.dir);
+        if (r === 'single' && (ev.dir === 'left' || ev.dir === 'right')) return A.similar.step(ev.dir) || nextResult(ev.dir);
+        return null;
+      }
+    }
+    if (r.startsWith('dstrand:') && A.st.similar === 'single') { // an arc of the result shown single dragged into the take window = that strand taken over (21.11.)
+      if (ev.type === 'drag') { A.data.strandCarry = { kind: r.slice(8), x: ev.x, y: ev.y }; return null; }
+      if ((ev.type === 'swipe' || ev.type === 'drag-end') && A.data.strandCarry) {
+        const c = A.data.strandCarry; A.data.strandCarry = null;
+        if (A.L && inside(A.L, c.x, c.y)) return A.take.takeStrand(A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === A.st.pick), c.kind);
         return null;
       }
     }
     if (ev.type === 'hold' && r.startsWith('filter:')) return A.dispatch({ type: 'filters', filters: turnOrder(A.st.filters, r.slice(7)) });
     if (ev.type === 'drag' && r === 'datebar') return dateSpan(ev);
     if (ev.type === 'swipe') {
-      if (r === 'double' && (ev.dir === 'left' || ev.dir === 'right')) return A.similar.step(ev.dir) || nextResult(ev.dir); // ← → above: the next account that may be hers, else the next result
+      if (r === 'single' && (ev.dir === 'left' || ev.dir === 'right')) return A.similar.step(ev.dir) || nextResult(ev.dir); // ← → above: the next account that may be hers, else the next result
       if (r.startsWith('chip:') && ev.dir === 'down' && r.slice(5) === 'Name' && A.st.onboard.on) { A.dispatch({ type: 'onboard', patch: { dropped: true } }); return A.syncOnboard(); }
       if (ev.dir === 'down' && r === 'search-off') return A.similar.closeSearch(); // pulled down = away (21.11., user: no ✕)
       if (ev.dir === 'down' && r === 'kinds-off') return A.similar.closeKind();
@@ -109,7 +122,7 @@ export function gesturesOf(A) {
     return null;
   }
 
-  /** ← → on a result in the double view: the next / the one before (F5). */
+  /** ← → on a result in the single view: the next / the one before (F5). */
   function nextResult(dir) {
     const list = A.data.entries ?? [], i = list.findIndex((e) => e.key === A.st.pick);
     if (i < 0 || list.length < 2) return null;
@@ -126,6 +139,7 @@ export function gesturesOf(A) {
       if (ev.type === 'swipe' || ev.type === 'drag-end') { scrubFrom = null; return null; }
       return null;
     }
+    if (ev.type === 'swipe' && (ev.dir === 'up' || ev.dir === 'down') && A.data.kindCloud === 'ask' && st.similar === 'single') return A.pass.decide(ev.dir === 'up'); // a request to pass on my take: ↑ allowed, ↓ not (21.11.)
     if (ev.type === 'swipe' && (ev.dir === 'up' || ev.dir === 'down') && (A.similar.carried || (A.similar.looking && st.pick))) return A.similar.decide(ev.dir);
     if (ev.type === 'tap' && A.similar.carried && !live(st)) return play(); // the guest in the window: tap = it stops / plays on
     const across = Math.abs(ev.dx ?? 0) > Math.abs(ev.dy ?? 0);
@@ -145,10 +159,10 @@ export function gesturesOf(A) {
       case 'next': return A.dispatch({ type: 'step', dir: 'left' });
       case 'before': return A.dispatch({ type: 'step', dir: 'right' });
       case 'play': return play();
-      case 'share': A.engine?.show(true); return A.dispatch({ type: 'share', open: true });
+      case 'share': return Promise.resolve(!live(A.st) && A.st.rec === 'idle' ? A.take.shareTake() : null).then(() => { A.engine?.show(true); A.dispatch({ type: 'share', open: true }); }); // the take in the button: that one (21.11.)
       case 'share-line': A.engine?.show(true); return A.dispatch({ type: 'share', open: true }); // what is shared: the chosen line (take-flow lastChain)
-      case 'share-similar': return A.similar.saveSearch().then(() => { A.engine?.show(true); A.dispatch({ type: 'share', open: true }); }); // the cloud as it is: a search chain (21.11.)
-      case 'share-to': { const e = A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === A.st.pick); A.data.suggest ??= e?.person || null; A.engine?.show(true); return A.dispatch({ type: 'share', open: true }); } // the double view: to her (one's answer, if taken)
+      case 'share-cloud': return A.similar.shareCloud().then(() => { A.engine?.show(true); A.dispatch({ type: 'share', open: true }); }); // the cloud chosen: its question, opening as it is seen (21.11., G4c)
+      case 'share-element': return A.similar.shareElement().then((r) => { if (r === 'asked') return; A.engine?.show(true); A.dispatch({ type: 'share', open: true }); }); // the element shown single; not hers to pass on = a request to the author (pass-flow.js)
       case 'line-with': return lineContext(false);
       case 'line-without': return lineContext(true);
       default: return null;

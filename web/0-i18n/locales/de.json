@@ -49,5 +49,7 @@
   "home.copied": "{n} geholt",
   "home.key": "Backup: Papier-Passwort kopieren, dann erneut ziehen",
   "menu.wait": "…",
-  "menu.noDoor": "Tür nicht gefunden: sign-debug.txt"
+  "menu.noDoor": "Tür nicht gefunden: sign-debug.txt",
+  "door.notSigner": "Gerät ist nicht der signer (project.json)",
+  "join.notSigner": "Antwort nicht vom signer versiegelt"
 }

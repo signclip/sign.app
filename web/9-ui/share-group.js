@@ -56,6 +56,18 @@ export async function checkKey(ctx) {
   return `${ctx.device} z_${(await deviceKeys()).device.public}`;
 }
 
+/**
+ * Is this device a signer the project's devices trust (21.11., phone test: the join answers of an admin device that was
+ * not the one in project.json were refused, and a tap on join did nothing)? Trusted = project.json's signer, or
+ * certified by it in the door's join/signer/. No signer named = yes (the description in join/ counts).
+ */
+export async function trustedHere(ctx, store) {
+  const pinned = signerOfText(ctx.doorSigner);
+  if (!pinned) return true;
+  const trusted = await trustedSigners(pinned, await certificatesIn(store).catch(() => []));
+  return trusted[ctx.device] === (await deviceKeys()).device.public;
+}
+
 /** "q_… z_…" (project.json signer) → { q_…: key } as signerKeys gives it, or null. */
 export function signerOfText(text) {
   const m = /^(q_\S+)\s+z_(\S+)$/.exec(String(text ?? '').trim());
@@ -126,7 +138,7 @@ export async function groupUpkeep(store) {
     try {
       const text = new TextDecoder().decode(await store.read(h)), head = readFile(text).head;
       const person = markers.includes(h) ? { id: head.id.n, label: head['@'] } : readHello(text).person;
-      const chosen = hellos.includes(h) ? choices.get(h) : undefined; // the admin's choice in the Doppel (16.11.)
+      const chosen = hellos.includes(h) ? choices.get(h) : undefined; // the admin's choice in the single view (16.11.)
       await advance({ store, person, folder: (chosen !== undefined ? chosen : await knownFolder(store, label, person.id)) ?? undefined }); // her account folder: chosen, else by ID
     } catch { /* wait */ }
   }
@@ -136,8 +148,8 @@ export async function groupUpkeep(store) {
 }
 
 /**
- * The admin's choice in the Doppel (16.11.), kept on the admin device by the u_ of the hello: the account folder above
- * that ↑ confirmed (same person), or '' = Doppel squeezed away, a new account. join ↑ and the upkeep follow it later.
+ * The admin's choice in the single view (16.11.), kept on the admin device by the u_ of the hello: the account folder above
+ * that ↑ confirmed (same person), or '' = single view squeezed away, a new account. join ↑ and the upkeep follow it later.
  * Limits: ≤ 500 choices kept, the oldest go first; another admin device does not know them (it falls back to the ID).
  */
 const uOfHello = (helloPath) => readName(helloPath.slice(helloPath.lastIndexOf('/') + 1))?.u ?? helloPath;
@@ -151,22 +163,26 @@ export const choices = {
   },
 };
 
-/** Signer: tap on a hello circle = welcome: both links sealed for that device. into (admin, 16.11.): the account confirmed in the Doppel, null = new. */
+/** Signer: tap on a hello circle = welcome: both links sealed for that device. into (admin, 16.11.): the account confirmed in the single view, null = new. */
 export async function welcome(ctx, { n, helloPath, store = null }, { into } = {}) {
   const sp = { ...ctx.s.open.get(n), ...(store ? { store } : {}) }; // the door's folder when the admin welcomes (15.11.)
   const g = groupOf(ctx, sp.entry.label);
   const sharingPoints = g ? [g.read, g.drop].map((x) => ({ label: x.label, path: ctx.s.entries[x.n - 1].path, id: null })) : [];
   if (ctx.admin) { // the admin app (14.11.): an own account for the person (QUOTA), its app password sealed into the answer
+    if (!(await trustedHere(ctx, sp.store))) { // her device would refuse the answer: no account made for nothing (21.11.)
+      debugNote({ method: 'join', where: 'welcome', error: `this device ${ctx.device} is not the project's signer`, ms: 0 });
+      return ctx.say(ctx.t('door.notSigner'));
+    }
     await describeJoin(sp.store); // the signer's keys readable through the door
     const asker = readHello(new TextDecoder().decode(await sp.store.read(helloPath))).person;
-    const known = into !== undefined ? into : await knownFolder(sp.store, asker.label, asker.id); // the admin's choice in the Doppel (16.11.), else her ID (paper); her account, a new app password
+    const known = into !== undefined ? into : await knownFolder(sp.store, asker.label, asker.id); // the admin's choice in the single view (16.11.), else her ID (paper); her account, a new app password
     choices.set(helloPath, into); // join ↑ and the upkeep follow the same choice
-    if (known) await welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: userOf(known) });
-    else await welcomeWithAccount({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, quota: ctx.quota ?? QUOTA, atlas: ctx.atlasUser, group: ctx.group })
+    if (known) await welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: userOf(known), gateway: ctx.gateway });
+    else await welcomeWithAccount({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, quota: ctx.quota ?? QUOTA, atlas: ctx.atlasUser, group: ctx.group, gateway: ctx.gateway })
       .catch(async (e) => { // the account is there already (welcomed once, sent back from join): only a new device app password
         const { person } = readHello(new TextDecoder().decode(await sp.store.read(helloPath)));
         if (!/exist/i.test(e.message)) throw e;
-        return welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: person.id.toLowerCase() });
+        return welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: person.id.toLowerCase(), gateway: ctx.gateway });
       });
   } else if (sharingPoints.length) {
     await welcomeToGroup({ store: sp.store, helloPath, group: { sharingPoints }, signer: await signerOf(ctx) });
@@ -263,7 +279,7 @@ async function sayHelloOnce(ctx, label, { door = false } = {}) {
   const drop = door ? doorLinks(ctx.s.open.get(g.read.n)?.store, open) : open; // a door's drop link is hello/ itself
   const keys = await deviceKeys();
   const device = { id: ctx.device, label: ctx.person.label, key: keys.device.public };
-  const helloPath = await sayHello({ store: drop, device, deviceKey: keys.device, person: ctx.person, target: label, pickup: keys.pickup.public, takes: await ctx.helloTakes?.({ door }).catch(() => []) ?? [],
+  const helloPath = await sayHello({ store: drop, device, deviceKey: keys.device, person: ctx.person, target: label, pickup: keys.pickup.public, access: keys.access.public, takes: await ctx.helloTakes?.({ door }).catch(() => []) ?? [],
     onFile: (n) => { ctx.s.sent = n; ctx.draw?.(); } }); // name sign (and at the door the password gestures) as takes of their own; a dot per file on the line
   await joins.set(label, { helloPath, state: 'hello', door });
 }
@@ -318,7 +334,11 @@ export async function followJoins(ctx) {
       const state = own ? 'join-own' : 'join';
       await joins.set(t.label, { ...mine, answer, state, account: own || undefined });
       states.set(t.label, state);
-    } catch { /* not there yet, or not sealed by a signer: wait */ }
+    } catch (e) { // not there yet, or not sealed by a signer: wait – and say why on the next tap (21.11.)
+      const why = String(e?.message ?? e);
+      if (mine.tapped) { states.set(t.label, 'ready'); ctx.s.joinWhy = /sealed by a signer/.test(why) ? 'join.notSigner' : 'notReachable'; }
+      debugNote({ method: 'join', where: t.label, error: why.slice(0, 200), ms: 0 });
+    }
   }
   return states;
 }
@@ -330,12 +350,12 @@ export async function followJoins(ctx) {
 async function takeOwn(ctx, r) {
   let s = null;
   try { s = r.secret ? JSON.parse(r.secret) : null; } catch { return false; }
-  if (!s?.server) return false;
+  if (!s?.server && !Object.keys(s?.grants ?? {}).length) return false;
   const { entries } = await arrive({ secret: r.secret, sharingPoints: r.sharingPoints ?? [], keychain: ctx.keychain });
-  for (const e of entries.filter((x) => x.kind === 'nextcloud' && !ctx.s.entries.some((y) => y.path === x.path))) {
+  for (const e of entries.filter((x) => ['nextcloud', 'gateway'].includes(x.kind) && !ctx.s.entries.some((y) => y.path === x.path))) { // gateway: own sharing point in the object storage, with its grant (21.11.)
     await ctx.edit({ add: { label: e.label, path: e.path, id: e.id }, marks: ['show', 'write'] });
   }
-  return { server: s.server, user: s.user }; // kept with the join: a quiet note later logs exactly this account out
+  return { server: s.server ?? null, user: s.user ?? null }; // kept with the join: a quiet note later logs exactly this account out
 }
 
 /** Renewed links in a join: replace the group's two entries when the paths changed. */

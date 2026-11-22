@@ -1,9 +1,10 @@
 // share-door.js — the admin's door in the sharing menu (15.11., out of share-mount.js): the four piles
-// hello · join · within · quiet, each as Similar tiles; in the Doppel ↑ = on, ↓ = back (8-join/flow.js ADMIN_MOVES).
+// hello · join · within · quiet, each as Similar tiles; in the single view ↑ = on, ↓ = back (8-join/flow.js ADMIN_MOVES).
 //
 // Purpose:   where the door lies: its folder found from its links (provision.doorFolder → ctx.door), else the admin's
 //            tile · hello: every signer's waiting hellos and the renames · join, within, quiet: the admin's door ·
-//            an empty pile shakes and says 0; a door not found says so (and sign-debug.txt has 'door').
+//            an empty pile shakes and says 0; a door not found says so (and sign-debug.txt has 'door') · an admin device
+//            that is not project.json's signer says so in the menu and welcomes nobody (21.11.).
 // Depends:   8-join (door, join, known, rename, provision), share-group.js (welcome, hellosToWelcome)
 // Test:      tests/flow.test.mjs (the way through, without screen), tests/ui.test.mjs
 // Limits:    40 tiles per look · the piles are looked at again every 20 s while the menu is open.
@@ -13,7 +14,7 @@ import { helloTakes, firstPieces, knownFolder } from '../8-join/known.js';
 import { doorView, toWithin, backToHello, moveAccount, deleteFolder } from '../8-join/door.js';
 import { renames, adoptRename, declineRename } from '../8-join/rename.js';
 import { setDisplayName, setEnabled, deleteAccount, sharedWithMe, makeFolder } from '../8-join/provision.js';
-import { hellosToWelcome, welcome, choices } from './share-group.js';
+import { hellosToWelcome, welcome, choices, trustedHere } from './share-group.js';
 import { copyRoute } from '../2-storage/routes.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
@@ -33,13 +34,14 @@ export function doorPart(ctx, { panel, onLookAll }) {
     const door = ctx.admin ? adminStore() : null;
     s.door = door ? await doorView(door).catch(() => s.door) : null;
     s.renames = door ? await renames(door).catch(() => s.renames ?? []) : []; // a person renamed herself: in the hello pile
+    if (door) { const ok = await trustedHere(ctx, door).catch(() => true); if (!ok) s.note = t('door.notSigner'); else if (s.note === t('door.notSigner')) s.note = ''; } // this admin device is not project.json's signer: said at once, not after a welcome (21.11.)
     if (!panel.hidden) draw();
   }
   setInterval(() => { if (!panel.hidden && (ctx.admin || s.hellos.length)) refreshDoor(); }, 20000);
   const pileList = (name) => (name === 'hello' ? [...s.hellos, ...(s.renames ?? [])] : s.door?.[name] ?? []);
   /**
    * Admin (15.11.): one pile as Similar tiles; each person's name sign and password gestures together, a new device of a
-   * known person with the originals (Doppel: new above, original below). In Doppel ↑ = on to the next pile, ↓ = back:
+   * known person with the originals (single view: new above, original below). In the single view ↑ = on to the next pile, ↓ = back:
    * hello ↑ join (welcome) ↓ quiet · join ↑ within ↓ hello anew · within ↓ quiet · quiet ↑ within. ← → = the next take.
    */
   async function lookPile(name) {
@@ -60,7 +62,7 @@ export function doorPart(ctx, { panel, onLookAll }) {
       const from = store ?? x.store ?? s.open.get(x.n)?.store;
       if (!from) continue;
       const group = x.helloPath ?? x.folder;
-      const steps = name === 'hello' ? { up: (pick = {}) => welcome(ctx, x, pick), down: () => backToHello(from, x.helloPath) } // ↑ with the Doppel's choice (16.11.) · ↓ = quiet, the device says hello anew
+      const steps = name === 'hello' ? { up: (pick = {}) => welcome(ctx, x, pick), down: () => backToHello(from, x.helloPath) } // ↑ with the single view's choice (16.11.) · ↓ = quiet, the device says hello anew
         : name === 'join' ? { up: () => toWithin(from, x.helloPath, { into: choices.get(x.helloPath) }), down: () => takeBack(from, x) }
         : name === 'within' ? { down: () => moveAccount(from, x.folder, 'within', 'quiet').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), false).catch(() => {})) }
         : { up: () => moveAccount(from, x.folder, 'quiet', 'within').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), true).catch(() => {})),
@@ -74,7 +76,7 @@ export function doorPart(ctx, { panel, onLookAll }) {
       const wrap = (f) => f && ((...a) => f(...a).then((r) => (r === 'wait' ? r : again().then(() => r))));
       const seen = x.helloPath ? await helloTakes(from, x).catch(() => ({ takes: [], folder: null })) : null; // known: by her person ID first, else by name
       const takes = seen ? seen.takes : [...(await firstPieces(from, x.folder).catch(() => new Map())).values()].map((path) => ({ path }));
-      for (const t of takes) items.push({ ...t, from, group, pile: name, name: x.name ?? null, known: seen?.folder ?? null, candidates: seen?.candidates ?? [], up: wrap(steps.up), down: wrap(steps.down) }); // known: the account folder in within/ to compare with; candidates: ← → in the Doppel
+      for (const t of takes) items.push({ ...t, from, group, pile: name, name: x.name ?? null, known: seen?.folder ?? null, candidates: seen?.candidates ?? [], up: wrap(steps.up), down: wrap(steps.down) }); // known: the account folder in within/ to compare with; candidates: ← → in the single view
     }
     if (items.length) return onLookAll(items);
     s.shake = `hello:${s.piles?.findIndex((p) => p.pile === name)}`; draw(); setTimeout(() => { s.shake = null; draw(); }, 400); // empty: it shakes, the count says 0

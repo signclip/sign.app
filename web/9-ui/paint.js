@@ -9,7 +9,8 @@
 // Limits:    one SVG of ≈ 40 shapes per paint (< 1 ms); the SVG is only replaced when its text changed, so running
 //            CSS animations (pulse, dots) keep their phase.
 
-import { timerPill, arcsOf, lineSlots, wideButton, nowChipSpot, timeline, polar } from './layout.js';
+import { timerPill, arcsOf, lineSlots, wideButton, nowChipSpot, timeline, polar, strandPoints, pieceOfPoints } from './layout.js';
+import { PIECES } from './level.js';
 import { SECTORS, STEPS, READY, SIGN, wideOpen } from './similar-range.js';
 import { edge, curve, outline, pathOf } from './form.js';
 import { partsOf, contextTimes } from './line.js';
@@ -158,13 +159,13 @@ export function rangeSvg(range, L) {
   return out.join('');
 }
 
-/** The SVG text of the take. data: { thumbs: { id: url }, buttonPic, cut (0…1 past the widest), split, calm, timers, auto (calm.js: it starts anew by itself) } */
+/** The SVG text of the take. data: { thumbs: { id: url }, buttonPic, cut (0…1 past the widest), split, calm, timers, auto (calm.js: it starts anew by itself), meter (calm.js: a ring inside the button shows motion now) } */
 export function takeSvg(st, L, data = {}) {
   const out = [];
   const line = st.lines.at(-1), older = st.lines.length - 1;
-  if (L.scale) out.push(`<path class="focus-edge" d="${outline(L)}"/>`);
-  if (st.similar !== 'closed' && st.similar !== 'full' && data.range) out.push(haloSvg(data.range, L)); // how far Similar looks, in each respect (21.11.)
-  if (data.series && st.similar !== 'full') { // the series' bubble at the end of the line (21.11.): spread or tap = their cloud
+  if (L.scale && !L.full) out.push(`<path class="focus-edge" d="${outline(L)}"/>`);
+  if (st.similar !== 'closed' && st.similar !== 'full' && !L.full && data.range) out.push(haloSvg(data.range, L)); // how far Similar looks, in each respect (21.11.)
+  if (data.series && st.similar !== 'full' && !L.full) { // the series' bubble at the end of the line (21.11.): spread or tap = their cloud
     const [x, y] = edge(L, 25, L.lineOff), rr = 15 * L.k; // on the line, right of the button (where no take lies yet)
     out.push(`<g class="kind-dot" data-role="kinds:series"><circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(rr)}"/><text x="${f1(x)}" y="${f1(y - 3 * L.k)}">—</text><text class="n" x="${f1(x)}" y="${f1(y + 7 * L.k)}">${data.series}</text></g>`);
   } // only the inside is seen (20.11., user): the picture itself is clipped to the window (app.js)
@@ -184,6 +185,7 @@ export function takeSvg(st, L, data = {}) {
       out.push(`<path class="old" d="${a.d}"/><path class="hit thin" data-role="old:${n}" d="${a.d}"/>`);
     }
   }
+  if (st.strands.a && L.scale) out.push(soundSvg(L)); // the level on the audio arc (21.11.), its pieces set by level.js
   if (older > 3) { const [x, y] = edge(L, 0, L.lineOff - 34 * L.k); out.push(`<text class="more" x="${f1(x)}" y="${f1(y)}">+${older - 3}</text>`); }
   out.push('<defs>');
   const slots = lineSlots(L, line.takes.length + (st.rec !== 'idle' ? 1 : 0), st.at, data.lineShift ?? 0);
@@ -223,6 +225,7 @@ export function takeSvg(st, L, data = {}) {
     if (data.calm) out.push(calmSvg(data.calm, L));
     out.push(`<g data-role="button" class="button-g ${st.rec}${data.auto && live ? ' auto' : ''}"><circle class="button" cx="${f1(b.x)}" cy="${f1(b.y)}" r="${f1(b.r)}"/>`);
     if (pic && (st.rec !== 'idle' || !live)) out.push(`<image href="${esc(pic)}" x="${f1(b.x - b.r)}" y="${f1(b.y - b.r)}" width="${f1(2 * b.r)}" height="${f1(2 * b.r)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#cb)" class="button-pic"/>`);
+    if (data.meter && live) out.push(`<circle class="motion" cx="${f1(b.x)}" cy="${f1(b.y)}" r="${f1(b.r - 4 * L.k)}"/>`); // motion now, set by calm.js every 0.1 s
     out.push(`${symbol(st, b.x, b.y, b.r, live, data.playing)}<circle class="button-ring" cx="${f1(b.x)}" cy="${f1(b.y)}" r="${f1(b.r + 5 * L.k)}"/></g>`);
   }
   if (data.ranging && st.similar !== 'closed') out.push(rangeSvg(data.range, L)); // the rings with sectors, over the take (21.11.)
@@ -277,4 +280,11 @@ export function rowHtml(row, { caret = null, typing = '', offers = [], all = fal
 }
 
 /** An arc path for the hint layer (the gesture shown by a pale point). */
+/** The sound level's pieces along the audio arc, newest at its upper end (21.11.; level.js sets their width every 0.1 s). */
+export function soundSvg(L) {
+  const pts = strandPoints(L, 'a'), gap = 0.004, out = [];
+  for (let i = 0; i < PIECES; i++) out.push(`<path d="${pathOf(pieceOfPoints(pts, i / PIECES + gap, (i + 1) / PIECES - gap))}"/>`);
+  return `<g class="sound">${out.join('')}</g>`;
+}
+
 export const hintArc = (L, a, b) => pathOf(curve(L, a, b, 7 * L.k));

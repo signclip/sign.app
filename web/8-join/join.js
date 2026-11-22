@@ -120,23 +120,24 @@ export async function takesAlong({ store, takes = [], person, folder = 'hello/',
  * words (front of the name: ['hello'] for the name sign; none = the take's own context words) }] (15.11.).
  * Each take goes whole (every strand and its chain, bytes unchanged, only renamed); the hello comes last and points to them.
  */
-export async function sayHello({ store, device, deviceKey = null, person, target, pickup, takes = [], now = Date.now(), onFile = () => {} }) {
+export async function sayHello({ store, device, deviceKey = null, person, target, pickup, access = null, takes = [], now = Date.now(), onFile = () => {} }) { // access: public half of the access key (grant.js)
   const { defs, refs } = await takesAlong({ store, takes, person, onFile });
   defs.unshift(defLine('sharing-point.1', { hint: device.label, id: `${device.id} z_${device.key}` }));
   const f = await chainFile({ by: person, device: device.id, deviceKey, now, words: ['hello', target], defs,
-    line: ['hello', target, `pickup ${pickup}`, '{:sharing-point.1}', ...(refs.length ? [`{${refs.join(' ')}}`] : [])] });
+    line: ['hello', target, `pickup ${pickup}`, ...(access ? [`access ${access}`] : []), '{:sharing-point.1}', ...(refs.length ? [`{${refs.join(' ')}}`] : [])] });
   const path = `hello/${f.name}`;
   await store.write(path, enc.encode(f.text)); // the hello last: whoever finds it finds its takes
   return path;
 }
 
-/** Signer: what a hello asks. → { person, device: { label, id, key }, target, pickup } */
+/** Signer: what a hello asks. → { person, device: { label, id, key }, target, pickup, access (null = none) } */
 export function readHello(text) {
   const f = readFile(text);
   const d = f.defs.get('sharing-point.1');
   const m = /\(\(hello\) \(([^()]*)\) \(pickup ([0-9A-Z]+)\)/.exec(f.rows[0]?.text ?? '');
   if (!d?.id?.z || !m) throw new Error('not a hello');
-  return { person: { id: f.head.id.n, label: f.head['@'] }, device: { label: d.hint, id: d.id.q, key: d.id.z.slice(2) }, target: m[1], pickup: m[2] };
+  const access = /\(access ([0-9A-Z]+)\)/.exec(f.rows[0]?.text ?? '')?.[1] ?? null;
+  return { person: { id: f.head.id.n, label: f.head['@'] }, device: { label: d.hint, id: d.id.q, key: d.id.z.slice(2) }, target: m[1], pickup: m[2], access };
 }
 
 /**

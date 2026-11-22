@@ -2,7 +2,7 @@
 //
 // Purpose:   zoom is the only way in and out (no swipe, no drag):
 //              closed ──spread above the take──▶ many ──spread again──▶ full (the take fades, only the cloud)
-//              many ──tap one──▶ double (that one large beside the take, its strands shown) ──squeeze──▶ many
+//              many ──tap one──▶ single (that one large beside the take, its strands shown) ──squeeze──▶ many
 //              full ──squeeze──▶ many ──squeeze──▶ closed
 //            What Similar matches is what the take window holds now (its strands, the take chosen or running): first
 //            context, later audio and visual. The filters are "selection views", all of the same kind, shown pale until
@@ -14,7 +14,7 @@
 // Test:      tests/ui.test.mjs
 // Limits:    ≤ MANY tiles in the cloud (the rest by scrolling); initials A–Z plus Ä Ö Ü and digits (# = digits).
 
-export const LEVELS = ['closed', 'many', 'double', 'full'];
+export const LEVELS = ['closed', 'many', 'single', 'full'];
 export const MANY = 40;
 export const FILTERS = ['v', 'x', 'a', 'date', 'initial', 'name', 'sharing', 'spot'];
 export const ORDERED = ['date', 'initial'];
@@ -25,7 +25,7 @@ export const noFilters = () => ({ on: { x: true }, value: {}, open: null, order:
 export function zoomed(level, scale) {
   const out = scale > 1.12, inn = scale < 0.88;
   if (out) return level === 'closed' ? 'many' : level === 'many' ? 'full' : level;
-  if (inn) return level === 'full' ? 'many' : level === 'double' ? 'many' : level === 'many' ? 'closed' : level;
+  if (inn) return level === 'full' ? 'many' : level === 'single' ? 'many' : level === 'many' ? 'closed' : level;
   return level;
 }
 

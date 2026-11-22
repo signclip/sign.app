@@ -1,5 +1,5 @@
 {
-  "about": "The project's door: its read link (join/ answers, sealed per device) and its file-drop link (hello/). Empty = no automatic join; a group text works as before. More doors = tried in order (one may be gone). signer: \"q_… z_…\" of the signer device (↑ on its own tile copies it); set = only answers sealed by it count, empty = the description in join/. atlas: the user that reads every Sign/ and counts; admin: the user that gets only the summary. group: the Nextcloud group every new account joins (Admin and Atlas are not counted as accounts). groups: the user that holds the group folders (15.11.: a group outlives any one person's account). web: where the web app lives; the native app opens its confirm.html there for the Admin password (20.11.).",
+  "about": "The project's door: its read link (join/ answers, sealed per device) and its file-drop link (hello/). Empty = no automatic join; a group text works as before. More doors = tried in order (one may be gone). signer: \"q_… z_…\" of the signer device (↑ on its own tile copies it); set = only answers sealed by it count, empty = the description in join/. atlas: the user that reads every Sign/ and counts; admin: the user that gets only the summary. group: the Nextcloud group every new account joins (Admin and Atlas are not counted as accounts). groups: the user that holds the group folders (15.11.: a group outlives any one person's account). web: where the web app lives; the native app opens its confirm.html there for the Admin password (20.11.). gateway: the Sign gateway of the project's object storage (https://gateway.<domain>); set = the admin's hello back also gives each person her own sharing point there (<user>/Sign/) with a grant for the asking device (21.11.); empty = Nextcloud only.",
   "label": "Sign",
   "doors": [
     {
@@ -12,5 +12,6 @@
   "admin": "Admin",
   "group": "Sign",
   "groups": "Groups",
-  "web": "https://signclip.github.io/sign.app/"
+  "web": "https://signclip.github.io/sign.app/",
+  "gateway": ""
 }

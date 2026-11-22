@@ -8,8 +8,8 @@
 //              audio   60…140  right · context 140…220 bottom · visual 220…300 left (21.11.: no photo dot – ← on the ready button)
 //            Older lines are small arcs under the line (between line and window), newest first.
 //            Similar (21.11.): upright = above the take, wide = beside it; the take keeps its size at the bottom and
-//            Similar the rest (similarShare: ≥ 1/φ³ = 23.6 %; phone 40 / 60 %) · double = both windows one
-//            size · full = the cloud alone. The keyboard lifts the whole take until its typing row is visible.
+//            Similar the rest (similarShare: ≥ 1/φ³ = 23.6 %; phone 40 / 60 %) · single = both windows one
+//            size · full = the cloud down to the button; the arcs glide to the screen's edges (fullOf). The keyboard lifts the whole take until its typing row is visible.
 // Depends:   nothing
 // Test:      tests/ui.test.mjs
 // Limits:    drawn for a 390 px phone, scaled by k = min(long side / 760, short side / 390) (the same upright and
@@ -50,12 +50,14 @@ export function similarShare(t) {
 }
 
 /**
- * The take. size { w, h, keyboard (px covered at the bottom) } · similar: 'closed' | 'many' | 'double' | 'full' ·
+ * The take. size { w, h, keyboard (px covered at the bottom) } · similar: 'closed' | 'many' | 'single' | 'full' ·
  * form { round 0…1, aspect } · picture: the aspect of what the window shows (camera 1:1, a take, a file).
  * → { k, cx, cy, rx, ry, R (= ry), n, button: { x, y, r }, lineOff, nowOff, queueY, lift, scale, media,
- *     similarBox, doubleBox, double (the result's form in the double view) }
+ *     similarBox, singleBox, single (the result's form in the single view) }
  */
-export function takeLayout({ w, h, keyboard = 0 }, similar = 'closed', form = { round: 1, aspect: 1 }, picture = 1) {
+export function takeLayout(size, similar = 'closed', form = { round: 1, aspect: 1 }, picture = 1, full = similar === 'full' ? 1 : 0) {
+  if (full > 0) return fullOf(size, similar === 'full' ? 'many' : similar, form, picture, Math.min(1, full));
+  const { w, h, keyboard = 0 } = size;
   const k = Math.min(Math.max(w, h) / 760, Math.min(w, h) / 390);
   const ring = 42 * k; // the button's radius with its ring
   const room = { w: w - 2 * Math.max(25 * k, 14), h: h - 1.8 * ring - 76 * k - 12 }; // the line's ends, the button above, the row below
@@ -63,8 +65,8 @@ export function takeLayout({ w, h, keyboard = 0 }, similar = 'closed', form = { 
   const wide = isWide({ w, h });
   const S = Math.min(room.w, room.h); // the 1:1 window: no form is larger, one side may be narrower (20.11.)
   const top = 1.8 * ring + 6, below = 76 * k + 12, side = (w - room.w) / 2; // the button above the window, the row under it, the line's ends
-  let cx = w / 2, cy = top + S / 2 + Math.max(0, (room.h - S) / 2), scale = 1, similarBox = null, doubleBox = null, double = null;
-  if (similar === 'many' || similar === 'double') {
+  let cx = w / 2, cy = top + S / 2 + Math.max(0, (room.h - S) / 2), scale = 1, similarBox = null, singleBox = null, single = null;
+  if (similar === 'many' || similar === 'single') {
     // 21.11. (user): the take keeps the size it has alone, at the very bottom with its row; Similar gets the rest, at
     // least 23.6 % (similarShare). Double: both windows the same size, as large as both fit.
     const n = exponent(form.round ?? 1);
@@ -73,27 +75,26 @@ export function takeLayout({ w, h, keyboard = 0 }, similar = 'closed', form = { 
       scale = Math.min(1, wide ? ((1 - share) * w - 2 * side) / (2 * rx0) : ((1 - share) * h - 6 - below) / (1.8 * ring + 2 * ry0));
       if (wide) { cx = share * w + ((1 - share) * w) / 2; similarBox = { x: 12 * k, y: 10 * k, w: share * w - 24 * k, h: h - 20 * k }; }
       else similarBox = { x: 8 * k, y: 10 * k, w: w - 16 * k, h: share * h - 18 * k };
-    } else if (wide) { // side by side at the same height: the double left, the take right
+    } else if (wide) { // side by side at the same height: the single left, the take right
       const gap = 16 * k;
-      scale = Math.min(1, (w - 26 * k - gap - 2 * side) / (4 * rx0), (h - 10 * k - HEAD * k - below) / (2 * ry0)); // 26 px left: the double's own arcs
+      scale = Math.min(1, (w - 26 * k - gap - 2 * side) / (4 * rx0), (h - 10 * k - HEAD * k - below) / (2 * ry0)); // 26 px left: the single's own arcs
       const left = 26 * k + Math.max(0, w - 26 * k - (4 * rx0 * scale + gap + 2 * side)) / 2;
       cx = left + 3 * rx0 * scale + gap + side;
-      double = { cx: left + rx0 * scale, cy: h - below - ry0 * scale, rx: rx0 * scale, ry: ry0 * scale, n };
+      single = { cx: left + rx0 * scale, cy: h - below - ry0 * scale, rx: rx0 * scale, ry: ry0 * scale, n };
       similarBox = { x: 12 * k, y: 10 * k, w: cx - rx0 * scale - side - 20 * k, h: h - 20 * k };
-    } else { // one above the other: the double under Similar's selection views, the take under it
+    } else { // one above the other: the single under Similar's selection views, the take under it
       const gap = 14 * k;
       scale = Math.min(1, (h - 10 * k - HEAD * k - gap - 6 - below) / (4 * ry0 + 1.8 * ring));
-      double = { cx: w / 2, cy: 10 * k + HEAD * k + ry0 * scale, rx: rx0 * scale, ry: ry0 * scale, n };
+      single = { cx: w / 2, cy: 10 * k + HEAD * k + ry0 * scale, rx: rx0 * scale, ry: ry0 * scale, n };
       similarBox = { x: 8 * k, y: 10 * k, w: w - 16 * k, h: HEAD * k + 2 * ry0 * scale };
     }
     cy = h - below - ry0 * scale; // the window's lower edge where it is alone at the most (the row under it)
-    if (double) doubleBox = { x: double.cx - double.rx, y: double.cy - double.ry, w: 2 * double.rx, h: 2 * double.ry };
+    if (single) singleBox = { x: single.cx - single.rx, y: single.cy - single.ry, w: 2 * single.rx, h: 2 * single.ry };
   }
   if (keyboard && scale === 1) { // the keyboard is up (17.11.): the whole take stays in what is left, smaller if it must
     const need = 2 * ry0 + 1.8 * ring + 64 * k, room2 = h - keyboard - 6 * k;
     if (need > room2) scale = Math.max(0.4, (room2 - 64 * k) / (2 * ry0 + 1.8 * ring));
   }
-  if (similar === 'full') { similarBox = { x: 8 * k, y: 10 * k, w: w - 16 * k, h: h - 20 * k }; scale = 0; }
   const s = scale || 1, rx = rx0 * scale, ry = ry0 * scale, n = exponent(form.round);
   const queueY0 = cy + ry + 34 * k;
   const lift = keyboard ? Math.max(0, queueY0 + 26 * k - (h - keyboard)) : 0; // the typing row sits right above the keyboard
@@ -102,15 +103,81 @@ export function takeLayout({ w, h, keyboard = 0 }, similar = 'closed', form = { 
   const [bx, by] = edge(F, 0, lineOff);
   return { k, cx, cy: F.cy, rx, ry, R: ry, n, aspect: clampAspect(form.aspect), round: form.round ?? 1, ring: ring * s, scale, wide, lift,
     button: { x: bx, y: by, r: 31 * k * s }, lineOff,
-    nowOff: -24 * k * s, queueY: queueY0 - lift, media: cover(F, picture), similarBox, doubleBox, double };
+    nowOff: -24 * k * s, queueY: queueY0 - lift, media: cover(F, picture), similarBox, singleBox, single };
+}
+
+const lerp = (a, b, t) => a + (b - a) * t;
+const lengthOf = (pts) => pts.slice(1).reduce((n, p, i) => n + Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]), 0);
+const segment = ([x0, y0], [x1, y1], n) => Array.from({ length: n + 1 }, (_, i) => [lerp(x0, x1, i / n), lerp(y0, y1, i / n)]);
+const ARC_STEPS = 40;
+
+/**
+ * A point on the frame the arcs hug in Similar full: s px along it from the middle of its bottom, + to the right and up,
+ * − to the left and up; rounded corners of radius rc. f: { left, right, bottom, rc }
+ */
+function onFrame(f, s) {
+  const side = s < 0 ? -1 : 1, d = Math.abs(s), cx = (f.left + f.right) / 2, half = Math.max(0, (f.right - f.left) / 2 - f.rc), q = (Math.PI * f.rc) / 2;
+  if (d <= half) return [cx + side * d, f.bottom];
+  if (d <= half + q) { const a = (d - half) / f.rc; return [cx + side * (half + f.rc * Math.sin(a)), f.bottom - f.rc * (1 - Math.cos(a))]; }
+  return [cx + side * (half + f.rc), f.bottom - f.rc - (d - half - q)];
+}
+const frameRun = (f, s0, s1, n) => Array.from({ length: n + 1 }, (_, i) => onFrame(f, s0 + ((s1 - s0) * i) / n));
+
+/**
+ * Similar full (21.11., user): the button slides down, the window goes, the words of the take now stay between, the
+ * context arc lies straight under them; the picture and sound arcs stay as close to its ends as at the window and hug
+ * the screen's edge – as far from it as the window's arcs are, so the sound level still shows; each arc as long as at
+ * the window. Under the context arc the row, lifted above the keyboard while typing. Across (phone and tablet) the
+ * cloud lies beside, the take's things in a column on the right. t 0…1 = how far it slid from the layout `from`.
+ */
+function fullOf(size, from, form, picture, t) {
+  const { w, h, keyboard = 0 } = size, L0 = takeLayout(size, from, form, picture), k = L0.k, s0 = L0.scale || 1;
+  const off = 7 * k * s0, base = keyboard ? h - keyboard + 6 * k : h;
+  const arcs0 = Object.fromEntries(['v', 'x', 'a'].map((kd) => [kd, curve(L0, ARCS[kd][0] + GAP, ARCS[kd][1] - GAP, off, ARC_STEPS)]));
+  const lx = lengthOf(arcs0.x), lv = lengthOf(arcs0.v), la = lengthOf(arcs0.a), g = lengthOf(curve(L0, ARCS.x[0] - GAP, ARCS.x[0] + GAP, off, 6));
+  const m = Math.max(10 * k, w - (L0.cx + L0.rx + off)), rc = 36 * k; // as far from the screen's edge as the window's arcs
+  const colW = L0.wide ? Math.min(w / 2, lx + 2 * g + 2 * rc + 2 * m + 24 * k) : w, colX = w - colW, cx = colX + colW / 2;
+  const rowY = base - 30 * k, xY = rowY - 30 * k, wordsY = xY - 26 * k, buttonY = wordsY - 58 * k; // the row's middle line, the context arc, the words, the button
+  const frame = { left: colX + m, right: w - m, bottom: xY, rc };
+  const target = {
+    a: frameRun(frame, lx / 2 + g + la, lx / 2 + g, ARC_STEPS), // 60° → 140°: from up the right side down to the bottom
+    x: frameRun(frame, lx / 2, -lx / 2, ARC_STEPS), // 140° → 220°: right to left
+    v: frameRun(frame, -(lx / 2 + g), -(lx / 2 + g + lv), ARC_STEPS), // 220° → 300°: from the bottom up the left side
+  };
+  const arcs = Object.fromEntries(['v', 'x', 'a'].map((kd) => [kd, arcs0[kd].map(([x, y], i) => [lerp(x, target[kd][i][0], t), lerp(y, target[kd][i][1], t)])]));
+  const ry1 = 30 * k, F1 = { cx, cy: wordsY - 6 * k, rx: colW / 2 - m, ry: ry1, n: 12 };
+  const F = { cx: lerp(L0.cx, F1.cx, t), cy: lerp(L0.cy, F1.cy, t), rx: lerp(L0.rx, F1.rx, t), ry: lerp(L0.ry, F1.ry, t), n: lerp(L0.n, F1.n, t) };
+  const lineOff = lerp(L0.lineOff, F1.cy - ry1 - buttonY, t); // = 22 px: the button on the flat window's top
+  const [bx, by] = edge(F, 0, lineOff), r = lerp(L0.button.r, 31 * k, t);
+  const box1 = L0.wide ? { x: 12 * k, y: 10 * k, w: colX - 12 * k, h: h - 20 * k } : { x: 22 * k, y: 10 * k, w: w - 44 * k, h: Math.max(60 * k, buttonY - 42 * k - 18 * k) };
+  const b0 = L0.similarBox ?? { x: box1.x, y: box1.y, w: box1.w, h: 0 };
+  const similarBox = { x: lerp(b0.x, box1.x, t), y: lerp(b0.y, box1.y, t), w: lerp(b0.w, box1.w, t), h: lerp(b0.h, box1.h, t) };
+  return { ...L0, ...F, R: F.ry, scale: s0, full: t, arcs, lineOff, button: { x: bx, y: by, r }, nowOff: lerp(L0.nowOff, -24 * k, t),
+    queueY: lerp(L0.queueY, rowY, t), row: L0.wide ? { x: colX, w: colW } : null, lift: 0, similarBox, singleBox: null, single: null, media: L0.media, w, h };
+}
+
+/** A strand's arc as points: around the window, or (Similar full) on its way to the screen's edge. */
+export function strandPoints(L, kind) {
+  return L.full ? L.arcs[kind] : curve(L, ARCS[kind][0] + GAP, ARCS[kind][1] - GAP, 7 * L.k * (L.scale || 1));
+}
+
+/** The piece of a run of points from f0 to f1 (0…1 of its length). */
+export function pieceOfPoints(pts, f0, f1) {
+  const total = lengthOf(pts), out = [];
+  const at = (f) => { const p = along(pts, total * f - total / 2); return [p.x, p.y]; };
+  out.push(at(f0));
+  let run = 0;
+  for (let i = 1; i < pts.length; i++) { run += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); if (run > total * f0 && run < total * f1) out.push(pts[i]); }
+  out.push(at(f1));
+  return out;
 }
 
 /** The arcs of the take: strand arcs, the line arc and the older lines' small arcs, along the window's form. → [{ id, d, mid }] */
 export function arcsOf(L, olderLines = 0) {
   const s = L.scale || 1, out = [], off = 7 * L.k * s;
   for (const kind of ['v', 'x', 'a']) {
-    const [a, b] = ARCS[kind];
-    out.push({ id: `strand:${kind}`, kind, d: pathOf(curve(L, a + GAP, b - GAP, off)), mid: edge(L, (a + b) / 2, off) });
+    const [a, b] = ARCS[kind], pts = strandPoints(L, kind);
+    out.push({ id: `strand:${kind}`, kind, d: pathOf(pts), mid: L.full ? pts[Math.floor(pts.length / 2)] : edge(L, (a + b) / 2, off) });
   }
   out.push({ id: 'line', d: pathOf(curve(L, ARCS.line[0], ARCS.line[1], L.lineOff)), mid: edge(L, 0, L.lineOff) });
   for (let i = 0; i < Math.min(olderLines, OLD_LINES); i++) {

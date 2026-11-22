@@ -21,6 +21,8 @@ svg#hint { pointer-events: none; }
 /* start (15.11.): background, then the shapes appear, then the picture fades in inside the window */
 #take, #now, #row, #window, #focus { opacity: 0; transition: opacity .45s ease-out .1s, transform .35s ease, left .35s ease, top .35s ease, width .35s ease, height .35s ease, clip-path .35s ease; }
 body.ready #take, body.ready #now, body.ready #row, body.ready #window, body.ready #focus { opacity: 1; }
+body.gliding #row, body.gliding #now { transition: opacity .45s ease-out .1s; } /* Similar full: the row and the words follow the glide frame by frame (21.11.) */
+#window.gone, #focus.gone { transition: opacity .18s ease-out; }
 body.shaping #window, body.shaping #focus { transition: opacity .45s ease-out .1s; } /* two fingers form the window: box and clip follow at once, no corner peeks out (20.11.) */
 .gone { opacity: 0 !important; pointer-events: none !important; }
 
@@ -39,6 +41,7 @@ video::-webkit-media-controls { display: none !important; }
 .strand.on { stroke: var(--rc-stroke); }
 .strand.off { stroke: var(--mut); stroke-width: 3; opacity: .5; }
 .strand.live { stroke: var(--b-now); }
+.sound path { fill: none; stroke: var(--b-next); stroke-width: 0; opacity: 0; stroke-linecap: butt; pointer-events: none; transition: stroke-width .09s linear, opacity .09s linear; } /* the sound level on the audio arc (level.js, 21.11.) */
 .hit { fill: none; stroke: transparent; stroke-width: 30; } .hit.thin { stroke-width: 12; }
 .hit-dot { fill: transparent; }
 .line { fill: none; stroke: var(--rc-stroke); stroke-width: 2; opacity: .45; }
@@ -52,6 +55,7 @@ video::-webkit-media-controls { display: none !important; }
 .button-ring { fill: none; stroke: var(--rc-stroke); stroke-width: 1.5; opacity: .5; }
 .calm-base, .calm-goal { fill: var(--card); pointer-events: none; } .calm { stroke-width: 3; pointer-events: none; fill-opacity: .3; } /* the series (21.11.): countdown narrows onto the button, stillness grows to its mark */
 .calm.start { fill: var(--hold); stroke: var(--hold); } .calm.stop { fill: var(--b-now); stroke: var(--b-now); } .calm-goal { stroke: var(--b-now); stroke-width: 1.5; stroke-dasharray: 4 4; } .calm-end { fill: none; stroke: var(--b-now); stroke-width: 4; stroke-linecap: round; pointer-events: none; } /* the end: round like the button (21.11.) */ .timer-tick.start { stroke: var(--hold); }
+.motion { fill: none; stroke: var(--hold); stroke-width: 4; opacity: 0; transition: opacity .15s; pointer-events: none; } /* motion seen now (calm.js, 21.11.): bright = moving, faint = a little, gone = still */
 .timer-tick { stroke: var(--b-later); stroke-width: 1.5; stroke-linecap: round; pointer-events: none; } .timer-catch { stroke: var(--b-now); stroke-width: 3; stroke-linecap: round; pointer-events: none; } .timer-catch.ahead { opacity: .35; }
 .button-g.auto .button-ring, .button-g.auto.recording .button-ring { stroke: var(--hold); stroke-width: 3; opacity: 1; } .button.wide-edge.auto { stroke: var(--hold); } /* it starts anew by itself (20.11.) */
 .button-g.recording .button-ring { stroke: var(--b-now); stroke-width: 3; opacity: 1; stroke-dasharray: 6 5; animation: run 1.2s linear infinite; }
@@ -99,21 +103,21 @@ video::-webkit-media-controls { display: none !important; }
 #note { left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom)); text-align: center; color: var(--mut); font-size: 13px; pointer-events: none; }
 @keyframes breathe { 50% { opacity: .5; } }
 
-/* Similar: the cloud, the double view, the selection views at the edges */
+/* Similar: the cloud, the single view, the selection views at the edges */
 #similar { inset: 0; pointer-events: none; }
 #similar > * { position: absolute; pointer-events: all; }
 .tile { border-radius: 14px; overflow: hidden; background: var(--sc); border: 2px solid var(--sc-stroke); animation: appear .3s ease-out both; }
-.tile img, .double img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tile img, .single img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .tile.picked { border-color: var(--hold); border-width: 3px; }
 #similar .tile { border: 0; border-radius: 0; } /* in the window's form (21.11.): a clip path, the edge an SVG; chips kept inside the rounder corners */
 #similar .tile .tags { left: calc(4px + var(--r, 0) * 14%); right: calc(4px + var(--r, 0) * 14%); bottom: calc(4px + var(--r, 0) * 8%); justify-content: center; }
 .tile-edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; } .tile-edge path { fill: none; stroke: var(--sc-stroke); stroke-width: 4; } .tile.picked .tile-edge path { stroke: var(--hold); stroke-width: 6; }
 .tags { position: absolute; left: 4px; right: 4px; bottom: 4px; display: flex; flex-wrap: wrap; gap: 2px; pointer-events: none; }
 .chip.tag { height: 19px; font-size: 11px; padding: 0 6px; background: var(--c-next); border-width: 1px; }
-.double { overflow: hidden; background: transparent; pointer-events: all; } /* its form is a clip path (the take's form), its edge an SVG */
-.double-edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; } .double-edge path { fill: none; stroke: var(--sc-stroke); stroke-width: 6; }
+.single { overflow: hidden; background: transparent; pointer-events: all; } /* its form is a clip path (the take's form), its edge an SVG */
+.single-edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; } .single-edge path { fill: none; stroke: var(--sc-stroke); stroke-width: 6; }
 #pickvideo { object-fit: cover; background: var(--sc); pointer-events: none; }
-.double video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.single video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .empty { text-align: center; color: var(--sc-stroke); font-size: 28px; }
 .sel { width: 26px; height: 26px; border-radius: 13px; display: flex; align-items: center; justify-content: center; font: 600 13px Inter, system-ui, sans-serif;
   color: var(--mut); background: var(--card); border: 1.5px dashed var(--mut); opacity: .7; }
@@ -123,6 +127,8 @@ video::-webkit-media-controls { display: none !important; }
 .grip { position: absolute; min-width: 26px; height: 28px; padding: 0 5px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 2px; font: 600 13px Inter, system-ui, sans-serif; color: var(--mut); background: var(--paper); border: 1.5px dashed var(--sc-stroke); opacity: .55; }
 .grip.on { opacity: 1; border-style: solid; background: var(--sc); color: #0C447C; } .grip i { font-style: normal; font-size: 8px; letter-spacing: 1px; }
 .sel.strand-sel { position: absolute; }
+.cloud-chosen { position: absolute; border: 2px solid var(--sc-stroke); border-radius: 18px; opacity: .8; pointer-events: none; } /* the cloud chosen: quiet (21.11.) */
+.single-chosen { position: absolute; pointer-events: none; overflow: visible; } .single-chosen path { fill: none; stroke: var(--sc-stroke); stroke-width: 2; opacity: .8; } /* the element chosen */
 /* templates, series, saved similar (21.11.): one bubble each where they are used – row end, line end, top of Similar */
 .kind-bubble { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 30px; padding: 0 10px; margin-left: 6px; border-radius: 15px; background: var(--nest-paper); border: 2px dashed var(--nest-b); font: 700 14px Inter, system-ui, sans-serif; color: var(--ink); }
 .kind-bubble b { font: 600 12px Inter, system-ui, sans-serif; } .kind-bubble.in-similar { margin: 0; }
@@ -136,7 +142,7 @@ video::-webkit-media-controls { display: none !important; }
 .range-back { fill: var(--paper); fill-opacity: .93; stroke: var(--sc-stroke); stroke-width: 1.5; }
 .range-ring { fill: var(--paper); stroke: var(--sc-stroke); stroke-width: 1; } .range-ring.on { fill: var(--sc-stroke); fill-opacity: .45; } .range-ring.later { opacity: .35; }
 .range-sign { font: 700 14px Inter, system-ui, sans-serif; fill: #0C447C; text-anchor: middle; dominant-baseline: central; pointer-events: none; } .range-take { fill: var(--mut); pointer-events: none; } .sel.kind { font-weight: 700; }
-#sharing-html .tile.suggest { box-shadow: 0 0 0 4px var(--hold); animation: breathe 1.4s ease-in-out infinite; } /* the person of the double view (21.11.) */
+#sharing-html .tile.suggest { box-shadow: 0 0 0 4px var(--hold); animation: breathe 1.4s ease-in-out infinite; } /* the person of the single view (21.11.) */
 .bundle { position: absolute; border-radius: 22%; background: var(--nest-paper); border: 2px solid var(--nest-b); display: flex; flex-wrap: wrap; align-content: flex-start; justify-content: center; gap: 3px; padding: 20px 4px 4px; overflow: hidden; animation: appear .3s ease-out both; }
 .bundle b { position: absolute; top: 3px; left: 6px; right: 6px; font: 600 11px Inter, system-ui, sans-serif; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
 .bundle img { border-radius: 4px; object-fit: cover; } .bundle i { position: absolute; right: 6px; bottom: 3px; font: 600 10px Inter, system-ui, sans-serif; font-style: normal; color: var(--ink); background: var(--paper); border-radius: 8px; padding: 0 4px; }
@@ -232,8 +238,8 @@ video::-webkit-media-controls { display: none !important; }
 #sharing-html .confirm-ok { width: 34%; height: 34%; border-radius: 50%; background: var(--rc); border: 3px solid var(--rc-stroke); font: 600 24px Inter, system-ui, sans-serif; color: #4A1B0C; display: flex; align-items: center; justify-content: center;
   animation: breathe 1.4s ease-in-out infinite; }
 #sharing-html .confirm-ok.none { opacity: .35; animation: none; }
-.double .who { position: absolute; left: 8px; right: 8px; top: 8px; display: flex; align-items: center; gap: 6px; font: 600 13px Inter, system-ui, sans-serif; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.6); pointer-events: none; z-index: 2; }
-.double .who small { font-weight: 400; opacity: .8; } .double .who i { margin-left: auto; font-style: normal; letter-spacing: 3px; font-size: 10px; }
+.single .who { position: absolute; left: 8px; right: 8px; top: 8px; display: flex; align-items: center; gap: 6px; font: 600 13px Inter, system-ui, sans-serif; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.6); pointer-events: none; z-index: 2; }
+.single .who small { font-weight: 400; opacity: .8; } .single .who i { margin-left: auto; font-style: normal; letter-spacing: 3px; font-size: 10px; }
 /* the timeline in the spread button (17.11.) */
 .button.wide { fill: var(--rest); } .button.wide-edge { fill: none; stroke: var(--rc-stroke); stroke-width: 3; }
 .tl-band { fill: var(--card); } .tl-pic { opacity: .9; }
@@ -246,8 +252,8 @@ video::-webkit-media-controls { display: none !important; }
 .strip .chip.pick { flex: none; background: var(--paper); border: 1.5px solid var(--sc-stroke); color: #0C447C; }
 .strip .chip.pick.on { background: var(--sc); border-width: 2.5px; font-weight: 600; }
 #carry { width: 68px; height: 68px; border-radius: 16px; background: var(--sc) center / cover; border: 3px solid var(--hold); box-shadow: 0 6px 18px rgba(0,0,0,.25); pointer-events: none; z-index: 5; }
-/* the strands of the double view (20.11.) */
+/* the strands of the single view (20.11.) */
 #similar > svg.dstrands { left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .dstrands .hit { fill: none; stroke: transparent; stroke-width: 30; pointer-events: stroke; cursor: pointer; }
 .strand.none { stroke: var(--mut); stroke-width: 2; opacity: .3; stroke-dasharray: 3 6; }
-.double .tags[hidden] { display: none; }
+.single .tags[hidden] { display: none; }

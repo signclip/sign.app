@@ -9,6 +9,8 @@
 //              webdav     any WebDAV server, read and write or read only
 //              link       public read-only link (/public.php/dav/files/<token>/), no account
 //              local      the device (OPFS / app folder)
+//              gateway    an object storage through the Sign gateway (21.11.): the device's access key signs,
+//                         the gateway gives links (gateway-store.js); the keychain holds the signer's grant (no secret)
 //            Secrets stay in the keychain, found by the sharing point id (q_); entries hold none.
 //            acceptExpected(): shares waiting in the own Nextcloud are taken in by themselves only
 //            when they come from an address the person registered (her own Sciebo).
@@ -22,6 +24,7 @@
 
 import { WebDavStore } from './webdav.js';
 import { webdavUrl, publicWebdavUrl } from './nextcloud.js';
+import { GatewayStore } from './gateway-store.js';
 
 export class ReadOnlyError extends Error {}
 
@@ -52,20 +55,23 @@ export function pathOfSpec(spec) {
     case 'webdav': return spec.url.endsWith('/') ? spec.url : `${spec.url}/`;
     case 'link': return publicWebdavUrl(spec.server, spec.token);
     case 'local': return 'local:';
+    case 'gateway': return spec.path;
     default: throw new Error(`unknown kind: ${spec.kind}`);
   }
 }
 
 /**
  * spec: { kind, label, id (q_), server, user, folder, url, token, readOnly } · secret: password or
- * app password from the keychain (link: the link password) · local: a store for kind 'local'.
+ * app password from the keychain (link: the link password) · local: a store for kind 'local' ·
+ * access: async () => the access key (kind 'gateway'; secret = its grant, 8-join/grant.js).
  * → { entry: { label, path, id, kind, readOnly }, store }
  */
-export function connect(spec, { secret = null, local = null, fetch = globalThis.fetch } = {}) {
+export function connect(spec, { secret = null, local = null, fetch = globalThis.fetch, access = null } = {}) {
   const path = pathOfSpec(spec);
   const readOnly = (spec.kind === 'link' && !spec.write) || Boolean(spec.readOnly); // write: a link that allows editing
   let store;
   if (spec.kind === 'local') store = local;
+  else if (spec.kind === 'gateway') store = new GatewayStore({ path, access, grant: secret, fetch, name: spec.label }); // access: async () => the device's access key
   else if (spec.kind === 'link') store = new WebDavStore({ base: path, user: spec.token, password: secret ?? '', fetch, name: spec.label });
   else store = new WebDavStore({ base: path, user: spec.user, password: secret, fetch, name: spec.label });
   const wrapped = spec.drop ? new DropStore(store) : readOnly ? new ReadOnlyStore(store) : store; // drop: a "File drop" link

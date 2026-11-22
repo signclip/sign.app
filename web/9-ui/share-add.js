@@ -19,12 +19,13 @@ import { startLogin, waitLogin } from '../2-storage/login-flow.js';
 import { Nextcloud, webdavUrl } from '../2-storage/nextcloud.js';
 import { giveStrands, giveAll } from '../2-storage/routes.js';
 import { connect, takeIn, acceptPage, pendingPage, myCloudId, cloudIdParts } from '../2-storage/connect.js';
+import { pairWith } from '../2-storage/gateway-store.js';
 import { newSource } from '../1-model/ids.js';
 import { userId, appPasswordFor } from '../8-join/provision.js';
 import { roleOf } from '../8-join/flow.js';
 import { timeLabel } from '../1-model/filename.js';
 import { describeNew } from '../2-storage/sharing-points.js';
-import { deviceKeys } from './device-keys.js';
+import { deviceKeys, accessKey } from './device-keys.js';
 
 /**
  * A folder brought in that is not a sharing point yet becomes one: its sharing-point.sign, this device as signer,
@@ -130,6 +131,9 @@ export async function bringIn(ctx, given = null) { // given: a text instead of t
     return edit({ add: { label: host, path: `cloud:${what.cloudId}`, id: newSource() } });
   }
   if (what.kind === 'nextcloud' && !what.folder && secret && roleOf(what.user, ctx.project ?? {})) return bringRole(ctx, what, secret); // Atlas, Groups: made in the browser, brought in with their own password (20.11.)
+  if (what.kind === 'gateway' && what.pair) { // an object storage (21.11.): the pairing link makes this device's access key a grant, once
+    try { await pairWith(text.trim(), { access: accessKey, label: ctx.person?.label ?? '' }); } catch { return say(t('notReachable')); }
+  }
   const id = newSource();
   if (secret) await keychain.set(id, secret); // came with the link: the folder opens at once
   if (what.kind === 'login') return loginAt(ctx, what.server, id);

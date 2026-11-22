@@ -37,7 +37,7 @@ const dec = new TextDecoder();
  * Open every sharing point of the list. → Map(n → { entry, spec, store, description }) or
  * { entry, error } · own: store of this device · keychain: { get(q_) } · devices are skipped.
  */
-export async function openAll(entries, { keychain, own, folders = null, fetch = globalThis.fetch }) {
+export async function openAll(entries, { keychain, own, folders = null, fetch = globalThis.fetch, access = null }) {
   const open = new Map();
   for (const [i, entry] of entries.entries()) {
     const spec = specOf(entry);
@@ -48,8 +48,9 @@ export async function openAll(entries, { keychain, own, folders = null, fetch = 
         open.set(i + 1, store ? { entry, spec, store } : { entry, spec, waiting: true }); // not plugged in = waiting
         continue;
       }
-      const secret = spec.kind === 'local' ? null : await keychain.get(entry.id);
-      let { store } = connect(spec, { secret, local: own, fetch });
+      const secret = spec.kind === 'local' ? null : spec.kind === 'gateway' ? await Promise.resolve(keychain?.get?.(entry.id)).catch(() => null) ?? null // the signer's grant (no secret; the access key signs)
+        : await keychain.get(entry.id);
+      let { store } = connect(spec, { secret, local: own, fetch, access });
       if (spec.kind === 'link') { // a public link: read only, read and write, or drop only ("File drop")
         const { read, write } = await store.inner.rights().catch(() => ({ read: true, write: false }));
         if (write) ({ store } = connect({ ...spec, write: true, drop: !read }, { secret, fetch }));

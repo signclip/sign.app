@@ -49,5 +49,7 @@
   "home.copied": "{n} brought here",
   "home.key": "Backup: copy the paper password, then drag again",
   "menu.wait": "…",
-  "menu.noDoor": "door not found: sign-debug.txt"
+  "menu.noDoor": "door not found: sign-debug.txt",
+  "door.notSigner": "this device is not the signer (project.json)",
+  "join.notSigner": "answer not sealed by the signer"
 }

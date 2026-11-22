@@ -2,12 +2,14 @@
 //
 // Purpose:   device key (Ed25519): seals what this device writes (y_), its public half z_ names the device.
 //            pickup key (ECDH P-256): a signer seals a join for it; only this device can open it.
+//            access key (Ed25519, 21.11.): signs the wishes to an object storage's gateway (2-storage/gateway-store.js);
+//            kept apart from the device key, so access can be renewed without a new device (and no wish is a seal).
 //            Both private halves are non-extractable CryptoKeys: they never leave the device, not even
 //            to this code; IndexedDB keeps them as they are (structured clone), no password needed.
 // Depends:   browser (IndexedDB, WebCrypto); 1-model/crypto.js
 // Test:      needs a browser; the keys themselves are tested in tests/join.test.mjs and crypto tests.
 // Limits:    one pair of each per device and browser profile; clearing site data = a new device (it
-//            joins again with a new hello).
+//            joins again with a new hello; a gateway pairs it again with a new link).
 
 import { newDeviceKey, newPickupKey } from '../1-model/crypto.js';
 import { personal } from './persons.js';
@@ -44,11 +46,13 @@ async function kept(name, make) {
 }
 
 let once = null; // one promise for everyone: two callers at the start must not make two different keys (14.11.)
-/** → { device: { privateKey, publicKey, public }, pickup: { privateKey, public } } */
+/** → { device: { privateKey, publicKey, public }, pickup: { privateKey, public }, access: { privateKey, public } } */
 export function deviceKeys() {
-  once ??= (async () => ({ device: await kept('device', newDeviceKey), pickup: await kept('pickup', newPickupKey) }))().catch((err) => { once = null; throw err; });
+  once ??= (async () => ({ device: await kept('device', newDeviceKey), pickup: await kept('pickup', newPickupKey), access: await kept('access', newDeviceKey) }))().catch((err) => { once = null; throw err; });
   return once;
 }
+/** The access key alone (for gateway-store.js). */
+export const accessKey = async () => (await deviceKeys()).access;
 
 /** Remember small things about joins (the path of my hello per group). */
 export const joins = {
