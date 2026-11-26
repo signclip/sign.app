@@ -9,10 +9,10 @@
 //            between brackets = one after the other · bracket directly on bracket = prefix,
 //            applies to every element of the following bracket · symbol bracket directly after
 //            an element = meta of that element · inside a symbol bracket: value first, then meta
-//            about it · short forms :art, :art.n, :art.n.a, :?.1.1_3 · a line break is a space.
+//            about it · short forms :art, :art.n, :art.n.a, :?.1.1_3, computed kinds :~w.1 (G10) · a line break is a space.
 // Limits:    nesting depth is limited only by the call stack (~10,000 levels in practice).
 
-import { SYMBOLS } from './symbols.js';
+import { SYMBOLS, kindOf } from './symbols.js';
 
 export { SYMBOLS };
 const OPEN = '([{';
@@ -72,11 +72,11 @@ function atom(p) {
   }
   if (ch === '{') { p.i++; return { t: 'line', items: sequence(p, '}'), meta: [] }; }
   if (ch === ':') {
-    const m = /^:([a-z]+(?:-[a-z]+)*|[?_])((?:\.\d+(?:_\d+)?)*)/.exec(p.s.slice(p.i));
+    const m = /^:(~?[a-z]+(?:-[a-z]+)*|[?_])((?:\.\d+(?:_\d+)?)*)/.exec(p.s.slice(p.i));
     if (!m) fail(p, 'short form needs a kind, e.g. :v.1');
     p.i += m[0].length;
     const path = m[2] ? m[2].slice(1).split('.') : [];
-    return { t: 'ref', kind: m[1], path, name: m[1] + m[2], meta: [] };
+    return { t: 'ref', kind: kindOf(m[1]), art: m[1], path, name: m[1] + m[2], meta: [] }; // :~w.1 → kind w, art ~w (G10)
   }
   return bareText(p);
 }

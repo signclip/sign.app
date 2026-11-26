@@ -1,7 +1,7 @@
 // ask-take.js — ask for something that is missing: a take that a device or a server fills.
 //
 // Purpose:   no requests/ folder (decision 07.11.): a job is a take _( ) in a new chain on top:
-//              :chain.1!(old chain, hash)  :v.1!(…)~(:chain.1)  :_.1(:m)~(:v.1)
+//              :chain.1!(old chain, hash)  :v.1~(:chain.1)!(…)  :_.1(:m)~(:v.1)
 //              {:_.1}                       "a mask that comes from v.1 is missing"
 //              {:chain.1}
 //            The index lists it under takes(); whoever fills it writes the next chain on top.
@@ -16,6 +16,7 @@ import { hashBytes } from '../1-model/hash.js';
 import { signed } from '../1-model/crypto.js';
 import { timeLabel } from '../1-model/filename.js';
 import { pathOf, partsOf } from '../2-storage/layout.js';
+import { artOf } from '../1-model/symbols.js';
 
 const enc = new TextEncoder();
 
@@ -30,7 +31,7 @@ export async function askTake({ own, chainPath, of, kind, device, person, now = 
   const text = await signed(deviceKey, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": at }), [
     defLine('chain.1', { id: writeId(file.head.id, await hashBytes(bytes)) }),
     defLine(of, { id: writeId(src.id, src.id.hash), echo: ':chain.1' }),
-    defLine('_.1', { body: `(:${kind})`, echo: `:${of}` }),
+    defLine('_.1', { body: `(:${artOf(kind)})`, echo: `:${of}` }), // what is missing: (:~m), G10
   ], [`{:_.1}'t(${at})`, '{:chain.1}']));
   const name = partsOf(chainPath);
   const path = pathOf({ words: name.words, person: person.label, where: name.where, time: at, kind: 'chain', u: uOf(id) });

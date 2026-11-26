@@ -10,7 +10,8 @@
 // Test:      tests/take.test.mjs (fakes) · on real phones: Session 2 test day.
 // Limits:    sound is kept in memory until the end: 10 min mono 48 kHz ≈ 115 MB · picture chunks
 //            arrive every second (timeslice 1000 ms), so a crash loses at most ~1 s.
-// EXTEND(S2, live words): onSound(chunk) feeds whisper.js pieces while recording.
+// Live words (26.11.): the tap tells its length and gives any range of what it has (9-ui/heard.js reads pieces
+//            of it for Whisper while the take runs).
 
 import { constraints, pickVideoType, recorderOptions, measuredFps, deliveredLabel } from './settings.js';
 
@@ -69,17 +70,26 @@ export async function browserTap(stream, AudioContextClass = globalThis.AudioCon
   let held = false; // paused: the blocks are let go
   node.port.onmessage = (e) => { if (!held) blocks.push(e.data); };
   ctx.createMediaStreamSource(stream).connect(node);
+  /** The samples from `from` to `to` (counted in recorded samples, pauses left out), as channels. */
+  const range = (from = 0, to = Infinity) => {
+    const count = blocks[0]?.length ?? 1, total = blocks.reduce((n, b) => n + b[0].length, 0), end = Math.min(total, to), start = Math.max(0, Math.min(from, end));
+    const channels = Array.from({ length: count }, () => new Float32Array(end - start));
+    let at = 0;
+    for (const b of blocks) {
+      const len = b[0].length;
+      if (at + len > start && at < end) { const a = Math.max(start, at), z = Math.min(end, at + len); b.forEach((c, i) => channels[i].set(c.subarray(a - at, z - at), a - start)); }
+      at += len;
+      if (at >= end) break;
+    }
+    return { channels, sampleRate: ctx.sampleRate };
+  };
   return {
     pause() { held = true; },
     resume() { held = false; },
-    stop() {
-      ctx.close();
-      const count = blocks[0]?.length ?? 1;
-      const length = blocks.reduce((n, b) => n + b[0].length, 0);
-      const channels = Array.from({ length: count }, () => new Float32Array(length));
-      let at = 0;
-      for (const b of blocks) { b.forEach((c, i) => channels[i].set(c, at)); at += b[0].length; }
-      return { channels, sampleRate: ctx.sampleRate };
-    },
+    /** How many samples are recorded so far (live words, 26.11.: Whisper reads the take while it runs). */
+    get length() { return blocks.reduce((n, b) => n + b[0].length, 0); },
+    get sampleRate() { return ctx.sampleRate; },
+    range,
+    stop() { ctx.close(); return range(); },
   };
 }

@@ -23,7 +23,7 @@ const PERMS = { read: 1, write: 1 | 2 | 4 | 8, all: 31 };
 export class Nextcloud {
   /** server: https://cloud.example.org · user, password: user and app password of this device. */
   // via: 'webapppassword' in the browser (that Nextcloud app allows CORS for shares, address in its field
-  // "Files sharing"; tested in lab/storage-test) · 'ocs' in the native app (no browser block there).
+  // "Files sharing"; tested in done/2-storage-test) · 'ocs' in the native app (no browser block there).
   constructor({ server, user, password, fetch = globalThis.fetch, via = globalThis.Capacitor ? 'ocs' : 'webapppassword' }) {
     this.via = via;
     this.server = server.replace(/\/$/, '');

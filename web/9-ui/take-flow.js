@@ -7,9 +7,15 @@
 //            onto the line: a series is one line in the chain (add-line.js), the next take of the series lays on it.
 //            Onboarding: the first take is the name sign (localStorage sign.nameSign), the next three the password
 //            gestures (sign.passwords); after the third the hello goes to the project's door (engine.joinProject).
+//            The camera after being away (26.11., user: the picture stood still when coming back to the take): the
+//            phone takes the camera from an app in the background, the stream then ends or simply stops giving
+//            pictures. So the camera is let go when the app is no longer seen (no take running), opened again when
+//            it is seen, and checked whenever the window goes back to the live picture: a stream that ended, or that
+//            gives no new picture within STILL_MS, is closed and opened anew (liveAgain).
 // Depends:   browser; 4-save (save-take, add-line), 5-take (recorder, where), 9-ui (frame, device-keys, chips)
 // Test:      the state it drives is tested in tests/ui.test.mjs; the recorder in tests/take.test.mjs; devices on a phone.
-// Limits:    one take records at a time; a photo is 1080 × 1080 PNG (lossless); preview 96 × 96 JPEG after 150 ms.
+// Limits:    one take records at a time; a photo is 1080 × 1080 PNG (lossless); wake 96 × 96 JPEG after 150 ms;
+//            a camera that stands still is noticed after STILL_MS = 900 ms, opening it anew takes ≈ 0.3–1 s.
 
 import { openDevices, startTake, browserTap } from '../5-take/recorder.js';
 import { createWhere } from '../5-take/where.js';
@@ -33,30 +39,84 @@ async function snapshot(video, side = 1080) {
 }
 
 export function takeFlow(A) {
+  A.sealKey = sealKey; // also for the words from the sound (heard.js)
   const live = document.querySelector('#live');
   const here = createWhere();
-  const t = { camera: null, recorder: null, began: 0, preview: null, lineChain: A.st.lines.at(-1)?.chain ?? null }; // the line's chain is kept with the line (20.11.): it survives a restart
+  const t = { camera: null, recorder: null, began: 0, wake: null, lineChain: A.st.lines.at(-1)?.chain ?? null }; // the line's chain is kept with the line (20.11.): it survives a restart
 
+  const STILL_MS = 900;
+  const alive = (stream) => { const v = stream?.getVideoTracks?.()[0]; return Boolean(v && v.readyState === 'live'); };
+  /** Let the camera go (tracks stopped, the window empty). */
+  function closeCamera() {
+    const s = t.camera;
+    t.camera = null;
+    try { s?.getTracks().forEach((x) => x.stop()); } catch { /* gone already */ }
+    if (live.srcObject === s) live.srcObject = null;
+  }
   async function openCamera() {
-    if (t.camera) return t.camera;
+    if (t.camera && alive(t.camera)) return t.camera;
+    if (t.camera) closeCamera(); // it ended while away (the phone took it): a new one
     t.opening ??= (async () => { // once, even when the button is tapped while it opens
-      const facing = A.settings.facing;
+      const facing = t.facing ?? A.settings.facing;
       const s = await openDevices(navigator.mediaDevices, { facing }).catch(() => null);
       t.camera = s && await mainLens(s, facing).catch(() => s); // the main lens at 1×, never wide angle (20.11.)
-      if (t.camera) { live.srcObject = t.camera; live.play?.().catch(() => {}); }
+      if (t.camera) {
+        live.srcObject = t.camera; live.play?.().catch(() => {});
+        const cam = t.camera, track = cam.getVideoTracks()[0];
+        if (track) track.onended = () => { if (t.camera === cam && !t.recorder) { closeCamera(); liveAgain(); } }; // taken away: opened again as soon as the app is seen
+      }
       t.opening = null;
       return t.camera;
     })();
     return t.opening;
   }
+  /** Does the live picture stand still? → true when no new picture came within ms. */
+  function still(ms = STILL_MS) {
+    return new Promise((done) => {
+      let over = false;
+      const end = (v) => { if (!over) { over = true; done(v); } };
+      const from = live.currentTime;
+      if (live.requestVideoFrameCallback) live.requestVideoFrameCallback(() => end(false));
+      const poll = setInterval(() => { if (live.currentTime !== from) { clearInterval(poll); end(false); } }, 80);
+      setTimeout(() => { clearInterval(poll); end(true); }, ms);
+    });
+  }
+  /**
+   * The live picture is wanted again (the app is seen again, the window goes back from an earlier take, a take is
+   * about to start): open what was let go, start what was paused, and replace a camera that gives no pictures.
+   * Never while a take runs – its stream is not touched. → the stream or null
+   */
+  let again = null;
+  function liveAgain() {
+    if (document.visibilityState !== 'visible' || t.recorder) return Promise.resolve(t.camera);
+    again ??= (async () => {
+      try {
+        if (!t.camera || !alive(t.camera)) return await openCamera();
+        if (live.srcObject !== t.camera) live.srcObject = t.camera;
+        if (live.paused) await live.play().catch(() => {});
+        if (await still()) { if (t.recorder) return t.camera; closeCamera(); return await openCamera(); }
+        return t.camera;
+      } finally { again = null; }
+    })();
+    return again;
+  }
+  // away = the camera is let go (the phone would take it anyway, and nobody is filmed unseen); back = it comes again
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') return void liveAgain();
+    if (!t.recorder && A.st.rec === 'idle') closeCamera();
+  });
+  addEventListener('pageshow', () => { liveAgain(); });
+  globalThis.Capacitor?.Plugins?.App?.addListener?.('resume', () => { liveAgain(); }); // the native app comes to the front
 
   async function start() {
+    await liveAgain(); // a camera that went still while away is replaced before the take, not found black afterwards (26.11.)
     await openCamera();
-    t.began = Date.now(); t.preview = null; A.data.buttonPic = null;
+    t.began = Date.now(); t.wake = null; A.data.buttonPic = null;
     if (t.camera) {
       const tap = await browserTap(t.camera).catch(() => null);
       t.recorder = startTake(t.camera, { MediaRecorder, tapAudio: () => tap });
-      setTimeout(() => stillOf(live).then((b) => { t.preview = b; A.data.buttonPic = URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })); A.paint(); }, () => {}), 150);
+      A.heard?.begin(tap); // the flow sound → context on: Whisper reads it while it runs (26.11.)
+      setTimeout(() => stillOf(live).then((b) => { t.wake = b; A.data.buttonPic = URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })); A.paint(); }, () => {}), 150);
     }
     here.refresh?.();
     navigator.vibrate?.(12);
@@ -67,6 +127,7 @@ export function takeFlow(A) {
 
   /** ↓ far: the take is dropped, nothing is saved; the button starts fresh. */
   async function anew() {
+    A.heard?.cut(); // what was read of it goes too
     if (t.recorder) await t.recorder.stop().catch(() => null);
     t.recorder = null; A.data.buttonPic = null;
     navigator.vibrate?.([12, 50, 12]);
@@ -79,13 +140,15 @@ export function takeFlow(A) {
    */
   let saving = Promise.resolve();
   function keep() {
-    const rec = t.recorder, began = t.began, preview = t.preview;
+    const rec = t.recorder, began = t.began, wake = t.wake, heard = A.heard?.cut() ?? null; // heard: what Whisper read of it so far
     t.recorder = null;
     navigator.vibrate?.([15, 60, 15]);
     A.dispatch({ type: 'rec', to: 'idle' });
     const run = saving.then(async () => {
       const r = rec ? await rec.stop() : { video: null, audio: null, lengthMs: Date.now() - began };
-      return save({ video: r.video, audio: r.audio, lengthMs: r.lengthMs, began, preview });
+      const out = await save({ video: r.video, audio: r.audio, lengthMs: r.lengthMs, began, wake });
+      if (heard && r.audio && A.st.strands.a) A.heard.finish(heard, r.audio, out); // the rest of its words, then the echo – the next take need not wait
+      return out;
     });
     saving = run.catch(() => {});
     return run;
@@ -96,16 +159,16 @@ export function takeFlow(A) {
    * of the other strands (its context) without a picture.
    */
   async function photo() {
-    if (!A.st.strands.v) return save({ lengthMs: 0, began: Date.now(), preview: null });
+    if (!A.st.strands.v) return save({ lengthMs: 0, began: Date.now(), wake: null });
     await openCamera();
     if (!t.camera) return A.shake('button');
     const picture = await snapshot(live);
     navigator.vibrate?.(8);
     const small = await stillOf(live).catch(() => null);
-    return save({ picture, lengthMs: 0, began: Date.now(), preview: small });
+    return save({ picture, lengthMs: 0, began: Date.now(), wake: small });
   }
 
-  async function save({ video = null, audio = null, picture = null, lengthMs, began, preview }) {
+  async function save({ video = null, audio = null, picture = null, lengthMs, began, wake }) {
     const adding = t.addTo; t.addTo = null;
     if (adding) return addStrandSave(adding, { video, audio, lengthMs });
     const st = A.st, on = st.strands, answering = st.similar === 'single' ? A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === st.pick) : null;
@@ -116,10 +179,10 @@ export function takeFlow(A) {
     let saved;
     try {
       saved = await saveTake({ device: A.device, person: A.person, store: A.store, cell: here.now?.() ?? null, now: began, lengthMs, context: kept('x') ? '' : context,
-        video: on.v && !kept('v') ? video : null, picture: on.v && !kept('v') ? picture : null, audio: on.a && !kept('a') ? audio : null, deviceKey: await sealKey(), preview: on.v && video && !kept('v') ? preview : null,
+        video: on.v && !kept('v') ? video : null, picture: on.v && !kept('v') ? picture : null, audio: on.a && !kept('a') ? audio : null, deviceKey: await sealKey(), wake: on.v && video && !kept('v') ? wake : null,
         ...(from && keep.length ? { onto: from.path, ontoStore: from.store, keep } : {}) });
     } catch (err) { console.warn('save', err); A.dispatch({ type: 'discard' }); return A.shake('button'); }
-    const thumb = preview ? URL.createObjectURL(new Blob([preview], { type: 'image/jpeg' })) : null;
+    const thumb = wake ? URL.createObjectURL(new Blob([wake], { type: 'image/jpeg' })) : null;
     const take = { id: saved.chain.path, ms: lengthMs, t: began, context, kinds: Object.keys(on).filter((k) => on[k]), thumb };
     if (thumb) A.data.thumbs[take.id] = thumb;
     const before = A.st.lines.length;
@@ -133,6 +196,7 @@ export function takeFlow(A) {
     await A.onboardTook(saved.paths, take);
     A.engine?.afterTake(saved.paths).catch(() => {});
     A.reindex();
+    return { saved, take };
   }
 
   /**
@@ -215,7 +279,7 @@ export function takeFlow(A) {
   function showLine(n) {
     const line = A.st.lines[n];
     if (!line) return null;
-    A.data.fan = false;
+    A.data.fan = false; A.data.fanShift = null; // the rows are counted anew next time: this line is the open one now
     A.dispatch({ type: 'show-line', n });
     t.lineChain = line.chain ?? null;
     navigator.vibrate?.(10);
@@ -325,5 +389,5 @@ export function takeFlow(A) {
   /** The chain of the line in force (↑ on the button shares it). */
   const lastChain = async () => A.data.shareChain ?? (await chosenChain()) ?? t.lineChain; // what was just made to share (a search, an answer, a template), else a chosen line (20.11.)
 
-  return { here: () => here.now?.() ?? null, saveLine, lineWith, retext, addStrand, takeStrand, shareTake, shareElement, showLine, saveTemplate, setCamera: (stream) => { t.camera = stream; }, openCamera, start, pause, resume, keep, anew, photo, lastChain, get camera() { return t.camera; } };
+  return { here: () => here.now?.() ?? null, saveLine, lineWith, retext, addStrand, takeStrand, shareTake, shareElement, showLine, saveTemplate, setCamera: (stream, facing) => { t.camera = stream; if (facing) t.facing = facing; }, openCamera, liveAgain, start, pause, resume, keep, anew, photo, lastChain, get camera() { return t.camera; } };
 }

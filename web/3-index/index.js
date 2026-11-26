@@ -29,7 +29,7 @@ import { readThroughParts, cachePrefix } from './parts.js';
 
 const norm = (w) => w.normalize('NFC').toLowerCase();
 const add = (map, key, value) => (map.get(key) ?? map.set(key, new Set()).get(key)).add(value);
-const refsIn = (text) => [...(text ?? '').matchAll(/:([a-z?_]+(?:-[a-z]+)*\.\d+)/g)].map((m) => m[1]);
+const refsIn = (text) => [...(text ?? '').matchAll(/:(~?[a-z?_]+(?:-[a-z]+)*\.\d+)/g)].map((m) => m[1]); // :~w.1 too (G10)
 
 export class Index {
   constructor() {

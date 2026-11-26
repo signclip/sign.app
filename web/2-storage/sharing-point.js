@@ -21,6 +21,7 @@ import { writeId } from '../1-model/ids.js';
 import { partsOf } from './layout.js';
 import { ExistsError } from './memory.js';
 import { relationLine, readRelation } from './relations.js';
+import { artOf } from '../1-model/symbols.js';
 
 /** A default name when none is given: the last folder of the path. */
 export function labelOf(path) {
@@ -38,7 +39,7 @@ export function describe({ id, by, time, label, path = null, kinds, join = null,
   }) + (join.where ? `°(${join.where})` : '') + (join.time ? `'t(${join.time})` : '')] : [];
   const defs = [...signers.map((sg, i) => defLine(`sharing-point.${i + 1}`, { hint: sg.label, id: `${sg.id} z_${sg.key}` })), ...rule];
   return fileText(headLine('sharing-point', { '^': label, '=': path, '!': key ? `${id} z_${key}` : id, '@': by, "'t": time }), defs, [
-    `{${kinds.map((k) => `:${k}`).join(' ')}}`,
+    `{${kinds.map((k) => `:${artOf(k)}`).join(' ')}}`, // l → :~l (G10)
   ]);
 }
 

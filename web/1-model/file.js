@@ -1,8 +1,8 @@
 // file.js — one file form for every text file: head, definitions, rows.
 //
 // Purpose:   read and write .sign files (SCHEMA.md, decisions 07.11.):
-//              head         :art!(id)~(…)@(…)°(…)'t(…)          first line, the file itself
-//              definitions  :art.n(…)^(name)=(full path)!(id hash)~(…)@(person)'(part), one per line
+//              head         :art~(…)!(id)@(…)°(…)'t(…)          first line, the file itself
+//              definitions  :art.n(…)^(name)=(full path)~(…)!(id hash)@(person)'(part), one per line (~ before !: 26.11.)
 //              rows         { … } _( ) ^( ){ } ?( ) ( …)        steps, newest on top
 //            A line break inside a bracket is a space; outside, it ends a definition or row.
 // Depends:   notation.js, symbols.js, ids.js, hash.js
@@ -10,11 +10,13 @@
 // Rules:     every element is recorded here _( ) or says where it came from: ~( ) in its
 //            definition = "came from" (a method, a source, or both: ~(mediapipe 0.10 :v.1),
 //            ~(:chain.1)) · a prefix stands in its own bracket {{:a.1}{{:v.1} {:v.2}}} ·
-//            the bottom line may be {:chain.1}: the chain this one builds on.
+//            the bottom line may be {:chain.1}: the chain this one builds on · a computed strand carries ~ before
+//            its letter (G10, checkFile): computed here (a method in ~( )) → :~x.1~(whisper … :a.1); a kind that
+//            exists only computed always: :~w :~l :~m; a reference only (~(:chain.1)) keeps the spelling of its strand.
 // Limits:    the whole file is parsed at once; a line file of 1,000 rows (~100 KB) parses in ~10 ms.
 
 import { parse, write } from './notation.js';
-import { META, KINDS } from './symbols.js';
+import { META, KINDS, artOf } from './symbols.js';
 import { readId } from './ids.js';
 import { storedText } from './hash.js';
 
@@ -54,7 +56,7 @@ function readDef(node) {
   if (!ref) return null;
   const m = metaOf(holder);
   return {
-    name: `${ref.kind}.${ref.path[0]}`, kind: ref.kind, n: Number(ref.path[0]),
+    name: `${ref.art}.${ref.path[0]}`, kind: ref.kind, art: ref.art, n: Number(ref.path[0]), // :~w.1 → name ~w.1, kind w (G10)
     label: body?.t === 'value' ? body.text : null,
     body: body && body.t !== 'value' ? body : null,
     hint: valueOf(m['^']), path: valueOf(m['=']), id: m['!'] ? readId(valueOf(m['!'])) : null,
@@ -83,7 +85,7 @@ export function readFile(text) {
       }
     } else rows.push(readRow(items, line));
   }
-  return { kind: head.kind, head, defs, rows };
+  return { kind: head.kind, art: first.art, head, defs, rows };
 }
 
 function readRow(items, text) { // time and person of a step: the 't and @ nearest the end
@@ -97,15 +99,15 @@ function readRow(items, text) { // time and person of a step: the 't and @ neare
   return row;
 }
 
-/** Head line from parts, meta in the fixed order. */
+/** Head line from parts, meta in the fixed order. kind 'x' or art '~x'; a kind that exists only computed is written :~l (G10). */
 export function headLine(kind, parts) {
-  return `:${kind}` + META.filter((s) => parts[s]).map((s) => `${s}(${parts[s]})`).join('');
+  return `:${kind.startsWith('~') ? kind : artOf(kind)}` + META.filter((s) => parts[s]).map((s) => `${s}(${parts[s]})`).join('');
 }
 
-/** Definition line: :name(label)^(name of a sharing point)=(its full path)!(id hash)~(echo)@(person)'(part). */
+/** Definition line: :name(label)^(name of a sharing point)=(its full path)~(echo)!(id hash)@(person)'(part) – the order of META. */
 export function defLine(name, { label, hint, path, id, echo, person, part, body } = {}) {
   return `:${name}` + (label ? `(${label})` : '') + (body ?? '') + (hint ? `^(${hint})` : '') + (path ? `=(${path})` : '') +
-    (id ? `!(${id})` : '') + (echo ? `~(${echo})` : '') + (person ? `@(${person})` : '') + (part ? `'(${part})` : '');
+    (echo ? `~(${echo})` : '') + (id ? `!(${id})` : '') + (person ? `@(${person})` : '') + (part ? `'(${part})` : '');
 }
 
 /** Whole file: head, definitions, rows (newest first). Ends with one line break. */
@@ -118,11 +120,25 @@ export function checkFile(file) {
   const errors = [];
   if (!(file.kind in KINDS)) errors.push(`unknown kind: :${file.kind}`);
   if (!file.head.id) errors.push('head without !( )');
+  // G10: ~ before the letter = computed. Always for kinds that exist only computed; a method in ~( ) = computed here,
+  // so written with ~; a ~ needs its ~( ). A rule names kinds ({:x :~l}): there the spelling of the kind, never :~x.
+  const method = (echo) => (echo ?? '').split(' ').some((w) => w && !w.startsWith(':'));
+  const spelling = (kind, art, echo, named) => {
+    if (!(kind in KINDS) || !art) return;
+    const tilde = art.startsWith('~');
+    if (KINDS[kind].computed && !tilde) errors.push(`spelling: :${art} → :~${kind}`);
+    else if (named && tilde && !echo) errors.push(`spelling: :${art} without ~( )`);
+    else if (named && !tilde && method(echo)) errors.push(`spelling: :${art} → :~${kind} (computed)`);
+  };
+  spelling(file.kind, file.art, file.head['~'], true);
+  for (const d of file.defs.values()) spelling(d.kind, d.art, d.echo, true);
   const seen = new Set();
   const visit = (n, recorded) => {
     if (!n) return;
+    if (n.t === 'ref' && n.path.length) spelling(n.kind, n.art, null, false);
+    if (n.t === 'ref' && !n.path.length && n.kind in KINDS && n.art !== artOf(n.kind)) errors.push(`spelling: :${n.art} → :${artOf(n.kind)}`);
     if (n.t === 'ref' && n.path.length) {
-      const name = `${n.kind}.${n.path[0]}`;
+      const name = `${n.art}.${n.path[0]}`;
       const def = file.defs.get(name);
       if (!def) errors.push(`not defined: :${name}`);
       else if (!seen.has(name)) {

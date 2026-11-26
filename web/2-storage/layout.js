@@ -3,7 +3,7 @@
 // Purpose:   as few folders as possible (decision 07.11.):
 //              sharing-point.sign        the sharing point describes itself (who, what may go here)
 //              take/<kind>/2026.11/      originals: v/ .v.mp4 · a/ .a.wav · x/ .x.sign (a .json view is made on demand, never stored)
-//              echo/<kind>/2026.11/      computed: l/ .l.parquet · m/ .m.mp4 · x/ Whisper text, cuts
+//              echo/<kind>/2026.11/      computed (:~ in chains, G10): l/ .l.parquet · m/ .m.mp4 · w/ .w.jpg wake · x/ Whisper text, cuts
 //                                        (one folder per strand kind, so a kind can be shared
 //                                        read-only on its own, decision 08.11., 20.02)
 //              chain/2026.11/            chain files: Takes, steps, shares (name starts with ^),

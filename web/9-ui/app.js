@@ -28,6 +28,8 @@ import { takeLayout } from './layout.js';
 import { outline } from './form.js';
 import { takeSvg, fanRows, nowHtml, rowHtml } from './paint.js';
 import { similarHtml } from './paint-similar.js';
+import { morph } from './morph.js';
+import { overHtml } from './paint-over.js';
 import { sharingView } from './paint-sharing.js';
 import { seriesRow, nowWords } from './chips.js';
 import { takeWords } from '../1-model/context-edit.js';
@@ -39,9 +41,11 @@ import { passFlow } from './pass-flow.js';
 import { mediaOf } from './media.js';
 import { playerOf } from './player.js';
 import { live as isLive, count as takesOn } from './take-state.js';
+import { thumbKey } from './line.js';
 import { gesturesOf, ZW } from './gestures-take.js';
 import { calmOf } from './calm.js';
 import { levelMeter } from './level.js';
+import { heardOf } from './heard.js';
 import { mountSharing } from './sharing-engine.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
 import { hintSvg } from './hint.js';
@@ -79,6 +83,31 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   document.addEventListener('visibilitychange', () => freshen(60 * 1000));
   A.index = await buildIndex(A.sources, { keys: ownKeys, cache: store }).catch(() => null);
   A.media = mediaOf(store, () => A);
+  /** The chain whose file lies at a path of a sharing point (a take's id on the line), found once per index. */
+  const byPath = new WeakMap();
+  A.chainAt = (path) => {
+    if (!A.index) return null;
+    if (!byPath.has(A.index)) { const m = new Map(); for (const c of A.index.tables.chains.values()) if (c?.from?.path && !m.has(c.from.path)) m.set(c.from.path, c); byPath.set(A.index, m); }
+    return byPath.get(A.index).get(path) ?? null;
+  };
+  /**
+   * The small picture of a take on the line (26.11., user: they were black after a cut and after a restart). What it
+   * shows is said by line.js thumbKey: the frame its first part begins with – a cut's right half the picture at the
+   * cut, a join the first take's. One that is not there yet is asked for here, whenever it is painted without one
+   * (again after ASK_AGAIN_MS at the earliest), and painted when it arrives. → URL or null
+   */
+  const asked = new Map(), ASK_AGAIN_MS = 15_000;
+  A.thumbOf = (take) => {
+    if (!take) return null;
+    const k = thumbKey(take), have = A.data.thumbs[k.key] ?? (k.at ? null : A.data.thumbs[take.id]);
+    if (have) return have;
+    if (A.data.guestAt?.[take.id]) return A.data.thumbs[take.id] ?? null; // a guest from Similar: similar-flow.js brings its picture
+    if (Date.now() - (asked.get(k.key) ?? 0) < ASK_AGAIN_MS) return A.data.thumbs[take.id] ?? null; // meanwhile: the whole take's picture, if there is one
+    asked.set(k.key, Date.now());
+    const chain = A.chainAt(k.id), where = chain && A.media.visualOf(chain);
+    if (where) A.media.picOf(where, k.at).then((url) => { if (url) { A.data.thumbs[k.key] = url; A.paint(); } }, () => {});
+    return A.data.thumbs[take.id] ?? null;
+  };
 
   // ---------- state, kept on the device ----------
   let st = { ...A.st, form: settings.shape, strands: { v: settings.auto.includes('v'), a: settings.auto.includes('a'), x: settings.auto.includes('x') } };
@@ -103,7 +132,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       if (A.data.gliding !== id) return;
       const f = Math.min(1, (now - t0) / 320), e = 1 - (1 - f) ** 3;
       A.data.fullT = from + (to - from) * e;
-      if (f >= 1) { A.data.gliding = 0; A.data.fullT = to ? 1 : 0; A.data.takeBox = null; document.body.classList.remove('gliding'); }
+      if (f >= 1) { A.data.gliding = 0; A.data.fullT = to ? 1 : 0; document.body.classList.remove('gliding'); }
       A.paint();
       if (f < 1) requestAnimationFrame(step);
     };
@@ -125,13 +154,18 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   A.shake = (role) => { const el = document.querySelector(`[data-role="${role}"]`); el?.classList.add('shake'); setTimeout(() => el?.classList.remove('shake'), 400); navigator.vibrate?.([40, 40, 40]); };
   A.say = (text) => { A.data.note = text; A.paint(); setTimeout(() => { if (A.data.note === text) { A.data.note = ''; A.paint(); } }, 2600); };
   A.keepSettings = () => keep('sign.settings', settings);
+  A.lang = lang;
   A.take = takeFlow(A);
+  A.heard = heardOf(A); // words from the sound by Whisper (26.11.): the audio arc dragged onto the context arc
+  if (A.heard.on()) A.heard.ensure(); // switched on before: the model comes from the browser's cache
   A.pass = passFlow(A); // passing on others' takes: free, or a request to the author (21.11.)
   A.calm = calmOf(A); // the button's times: start when calm, end by itself (20.11.)
   A.level = levelMeter(A); // the sound level on the audio arc while audio is on (21.11.)
   A.player = playerOf(A, $('#replay'));
   /** The window shows what the button holds: live, or the earlier take's picture (17.11.). */
-  A.showAt = () => { const s = A.st; if (isLive(s) || s.rec !== 'idle') return A.player.stop(); const take = s.lines.at(-1).takes[Math.min(s.at, takesOn(s) - 1)]; return take ? A.player.show(take, 0) : A.player.stop(); };
+  // 26.11. (user): another take of the line chosen = the window shows that take, also while one's own take waits paused
+  // (before, the live picture stayed); back on the take that runs or waits = the camera again, opened anew if it went still (take-flow.js liveAgain).
+  A.showAt = () => { const s = A.st; if (isLive(s)) { A.player.stop(); return A.take.liveAgain?.(); } const take = s.lines.at(-1).takes[Math.min(s.at, takesOn(s) - 1)]; return take ? A.player.show(take, 0) : A.player.stop(); };
   A.similar = similarFlow(A);
 
   // ---------- onboarding: the app teaches itself (onboarding-steps.js) ----------
@@ -207,20 +241,41 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   /** A take's own context in the row: every word in the colour of the take now (it is one take, 21.11.). */
   const asNow = (n) => (n.take ? { ...n, tone: 'now', words: n.words.map((w) => ({ ...w, tone: 'now' })) } : { ...n, head: (n.head ?? []).map((w) => ({ ...w, tone: 'now' })), children: n.children.map(asNow) });
   /**
-   * The take moved (Similar opens, the keyboard lifts it): the picture slides in 0.35 s (CSS on #window), so the drawing
-   * and the chips slide the same way instead of jumping ahead of it (21.11., user: the picture lagged behind) – they
-   * start where they were and move with the same timing (FLIP).
+   * The take moves as one (26.11., user: the picture ran a little behind the arcs when the keyboard came or Similar
+   * opened). Before, the picture slid by CSS (left, top, width, height, clip-path) and the drawing by a transform
+   * started beside it: two clocks, and a change in mid-flight began from the wrong spot. Now everything of the take
+   * stands where it belongs at once, and one way – counted here, once per frame – carries all of it from where it was
+   * seen: #window, #focus, #take and #now by the same translate + scale about the take's middle, #row by its own way
+   * up or down. A change that comes while it still moves (the keyboard grows in steps) goes on from where it is.
+   * Not when two fingers form the window (it follows them at once), not while Similar full glides (its own frames),
+   * not when the screen turned.
    */
+  const FLY_MS = 350, calmMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');
+  let fly = null, flew = null; // fly: { dx, dy, sc, row, t0 } what is left to go · flew: the box the take was laid out for last
+  const flyAt = (now) => {
+    if (!fly) return { dx: 0, dy: 0, sc: 1, row: 0, done: true };
+    const f = Math.min(1, Math.max(0, (now - fly.t0) / FLY_MS)), r = (1 - f) ** 3; // slowing down, as the CSS ease did
+    return { dx: fly.dx * r, dy: fly.dy * r, sc: 1 + (fly.sc - 1) * r, row: fly.row * r, done: f >= 1 };
+  };
+  function carry(L, now = performance.now()) {
+    const c = flyAt(now), move = c.done ? '' : `translate(${c.dx.toFixed(2)}px, ${c.dy.toFixed(2)}px) scale(${c.sc.toFixed(4)})`;
+    for (const el of [$('#take'), $('#now')]) { el.style.transformOrigin = `${L.cx.toFixed(1)}px ${L.cy.toFixed(1)}px`; el.style.transform = move; }
+    for (const el of [$('#window'), $('#focus')]) { el.style.transformOrigin = `${(L.cx - parseFloat(el.style.left)).toFixed(1)}px ${(L.cy - parseFloat(el.style.top)).toFixed(1)}px`; el.style.transform = move; }
+    $('#row').style.transform = c.done || !c.row ? '' : `translateY(calc(-50% + ${c.row.toFixed(2)}px))`;
+    if (c.done) fly = null;
+  }
   function slide(L) {
-    const box = { x: L.cx, y: L.cy, s: L.rx }, was = A.data.takeBox;
-    A.data.takeBox = box;
-    if (!was || document.body.classList.contains('shaping')) return;
-    const dx = was.x - box.x, dy = was.y - box.y, sc = was.s / box.s;
-    if (Math.abs(dx) < 2 && Math.abs(dy) < 2 && Math.abs(sc - 1) < 0.01) return;
-    const els = [$('#take'), $('#now')];
-    for (const el of els) Object.assign(el.style, { transition: 'none', transformOrigin: `${box.x}px ${box.y}px`, transform: `translate(${dx}px, ${dy}px) scale(${sc})` });
-    els[0].getBoundingClientRect(); // the start is drawn, then it moves
-    for (const el of els) Object.assign(el.style, { transition: '', transform: '' });
+    const box = { x: L.cx, y: L.cy, s: L.rx, row: L.queueY, w: innerWidth }, was = flew, now = performance.now();
+    flew = box;
+    const direct = !was || was.w !== box.w || A.data.gliding || L.full || document.body.classList.contains('shaping') || calmMotion?.matches;
+    if (direct) { fly = null; return carry(L, now); }
+    const moved = Math.abs(was.x - box.x) >= 1 || Math.abs(was.y - box.y) >= 1 || Math.abs(was.s / box.s - 1) >= 0.005 || Math.abs(was.row - box.row) >= 1;
+    if (!moved) return carry(L, now); // it stands where it stood: what still flies, flies on
+    const c = flyAt(now), seen = { x: was.x + c.dx, y: was.y + c.dy, s: was.s * c.sc, row: was.row + c.row }; // where it is seen right now
+    const first = !fly;
+    fly = { dx: seen.x - box.x, dy: seen.y - box.y, sc: seen.s / box.s, row: seen.row - box.row, t0: now }; // from there to where it belongs now
+    carry(L, now);
+    if (first) requestAnimationFrame(function step(t) { if (!fly) return; carry(A.L, t); if (fly) requestAnimationFrame(step); });
   }
   function paint() {
     const st = A.st, L = takeLayout(size(), st.similar, st.form, A.data.picture ?? 1, A.data.fullT ?? (st.similar === 'full' ? 1 : 0));
@@ -231,9 +286,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     focus.classList.toggle('gone', st.similar === 'full');
     win.classList.toggle('off', !st.strands.v);
     win.classList.toggle('gone', st.similar === 'full');
-    const svg = takeSvg(st, L, { fan: A.data.fan, fanOff: A.data.fanOff, playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, auto: A.settings.restartMs != null, meter: A.settings.restartMs != null || A.settings.stillEndMs > 0, range: st.filters.range ?? {}, ranging: A.data.ranging, series: isLive(st) && !st.typing ? A.data.kindCounts?.series ?? 0 : 0 });
+    const svg = takeSvg(st, L, { w: innerWidth, fan: A.data.fan, fanOff: A.data.fanOff, fanShift: A.data.fanShift, playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, thumbOf: A.thumbOf, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, flow: A.heard?.state, auto: A.settings.restartMs != null, meter: A.settings.restartMs != null || A.settings.stillEndMs > 0, range: st.filters.range ?? {}, ranging: A.data.ranging, series: isLive(st) && !st.typing ? A.data.kindCounts?.series ?? 0 : 0 });
     if ($('#take').dataset.svg !== svg) { $('#take').innerHTML = svg; $('#take').dataset.svg = svg; }
-    if (!A.data.gliding) slide(L);
+    slide(L); // the picture, the drawing, the words and the row: one way, one clock (26.11.)
     A.data.fanRows = fanRows(L); // how many lines the fan shows at once (22.11.) // Similar full glides by itself (glideFull)
     const ob = st.onboard.on ? onboardingView(st.onboard, st.typing ? A.data.typing ?? '' : '') : null; // onboarding: typed into its green chip (21.11.)
     const earlier = !isLive(st) ? st.lines.at(-1)?.takes[st.at] : null; // an earlier take in the button: its own context, in the window and to change (21.11.)
@@ -241,7 +296,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const ctx = earlier ? (edit?.text ?? earlier.context ?? '') : ob?.series ?? st.context;
     const row = earlier ? (st.typing ? seriesRow(ctx, '').map(asNow) : []) : seriesRow(ctx, st.sticky);
     const rp = $('#replay'), atMs = earlier && rp && !rp.paused ? rp.currentTime * 1000 : null;
-    const shownWords = earlier ? takeWords(ctx).map((w) => ({ ...w, tone: 'now' })) : nowWords(ctx, st.sticky);
+    const heardWords = earlier ? takeWords(earlier.heard ?? '') : st.rec !== 'idle' ? (A.data.heardNow ?? []) : []; // from the sound: kept with the take, or read live while it runs (heard.js, 26.11.)
+    const shownWords = [...(earlier ? takeWords(ctx).map((w) => ({ ...w, tone: 'now' })) : nowWords(ctx, st.sticky)), ...heardWords.map((w) => ({ ...w, tone: 'now', heard: true, ...(earlier ? {} : { from: null, to: null }) }))];
     A.data.timedWords = shownWords.some((w) => w.from != null);
     const nowText = st.strands.x ? nowHtml(shownWords, L, ob?.green ?? [], { len: earlier?.ms ?? 0, atMs }) : '';
     if ($('#now').dataset.html !== nowText) { $('#now').innerHTML = nowText; $('#now').dataset.html = nowText; } // written only when it changed: the button's arc repaints often (calm.js)
@@ -254,8 +310,17 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const nTemplates = A.data.kindCounts?.template ?? 0; // the templates' bubble at the end of the row (21.11.): spread or tap = their cloud
     const rowAll = rowText + (!earlier && !ob && !st.typing && nTemplates ? `<span class="kind-bubble" data-role="kinds:template"><em>_</em><b>${nTemplates}</b></span>` : '');
     if (rowEl.dataset.html !== rowAll) { rowEl.innerHTML = rowAll; rowEl.dataset.html = rowAll; }
-    const sim = similarHtml(st, A.data.entries ?? [], L, { ...(A.data.similarLists ?? {}), picked: A.data.picked ?? null, search: A.data.search ?? null, me: A.person?.label ?? '', kindCloud: A.data.kindCloud ?? null, searches: A.data.kindCounts?.search ?? 0, asks: (A.data.asks ?? []).length, spotMap: A.data.spotMap ?? null });
-    if ($('#similar').dataset.text !== sim) { $('#similar').innerHTML = sim; $('#similar').dataset.text = sim; }
+    const sim = similarHtml(st, A.data.entries ?? [], L, { ...(A.data.similarLists ?? {}), picked: A.data.picked ?? null, search: A.data.search ?? null, lang, kindCloud: A.data.kindCloud ?? null, searches: A.data.kindCounts?.search ?? 0, asks: (A.data.asks ?? []).length, spotMap: A.data.spotMap ?? null, spotBase: A.data.spotBase ?? null, near: A.take?.here?.() ?? null });
+    const cloud = $('#similar'), cloudOpen = st.similar !== 'closed';
+    if (cloudOpen !== Boolean(A.data.cloudOpen)) { // Similar appears and goes moving (26.11., user): it comes in while the take glides down, fades while it glides back
+      A.data.cloudOpen = cloudOpen;
+      cloud.classList.toggle('arriving', cloudOpen); cloud.classList.toggle('leaving', !cloudOpen);
+      clearTimeout(A.data.cloudTimer);
+      A.data.cloudTimer = setTimeout(() => { cloud.classList.remove('arriving', 'leaving'); A.paint(); }, cloudOpen ? 420 : 240);
+    }
+    if (!cloud.classList.contains('leaving') && cloud.dataset.text !== sim) { morph(cloud, sim); cloud.dataset.text = sim; } // only what differs is changed (morph.js, 26.11.): a tile that stays keeps its element, nothing trembles
+    const over = overHtml(st, { w: innerWidth, h: innerHeight }, { ...(A.data.similarLists ?? {}), spotMap: A.data.spotMap ?? null, spotBase: A.data.spotBase ?? null, me: A.person?.label ?? '', lang, k: L.k }); // a respect over everything (26.11.)
+    if ($('#over').dataset.text !== over) { morph($('#over'), over); $('#over').dataset.text = over; }
     const cg = $('#carry'), c = A.data.carry; // what is carried follows the finger
     cg.hidden = !c;
     if (c) Object.assign(cg.style, { left: `${c.x - 34}px`, top: `${c.y - 34}px`, backgroundImage: c.pic ? `url("${c.pic}")` : 'none' });
@@ -331,17 +396,15 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   globalThis.Capacitor?.Plugins?.App?.addListener?.('backButton', () => {
     if (A.st.typing) return say.blur();
     if (A.st.share) return A.engine?.back?.() ? null : A.engine?.show(false);
+    if (A.st.filters.full) return A.dispatch({ type: 'filters', filters: { ...A.st.filters, full: null } }); // a respect over everything: back to its rail (26.11.)
+    if (A.st.similar !== 'closed' && A.st.similar !== 'single' && A.st.filters.open) return A.dispatch({ type: 'filters', filters: { ...A.st.filters, open: null, group: null, value: { ...A.st.filters.value, bundle: undefined } } }); // an open rail first (26.11.)
     if (A.st.similar !== 'closed') return A.dispatch({ type: 'similar', level: A.st.similar === 'single' ? 'many' : 'closed' });
     if (A.st.wide > 0.02) return A.dispatch({ type: 'wide', spread: 0 });
     return globalThis.Capacitor.Plugins.App.minimizeApp?.();
   });
   addEventListener('hashchange', () => { if (location.hash) return; if (A.st.share) A.engine?.show(false); else if (A.st.similar !== 'closed') A.dispatch({ type: 'similar', level: 'closed' }); });
 
-  // thumbs of the kept line, then the camera after the first paint (15.11.)
-  for (const line of A.st.lines) for (const take of line.takes) {
-    const chain = [...(A.index?.tables.chains.values() ?? [])].find((c) => c.from?.path === take.id);
-    if (chain) A.media.picOf(A.media.visualOf(chain)).then((url) => { if (url) { A.data.thumbs[take.id] = url; A.paint(); } });
-  }
+  // the small pictures of the kept lines are asked for as they are painted (A.thumbOf, 26.11.); the camera after the first paint (15.11.)
   measure();
   paint();
   requestAnimationFrame(() => document.body.classList.add('ready'));

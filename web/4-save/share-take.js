@@ -4,15 +4,19 @@
 //            what goes = (this once ?? always) ∩ what the sharing point allows.
 //            For each target: copy the chosen strand files, write a chain there that names only
 //            those strands. At home: a new chain on top of the old one (decision 07.11., A):
-//              :chain.1!(old chain, hash)  :v.1!(…)~(:chain.1)  :x.1!(…)~(:chain.1)
+//              :chain.1!(old chain, hash)  :v.1~(:chain.1)!(…)  :x.1~(:chain.1)!(…)
 //              :sharing-point.1^(Kurs 3)=(full path)!(q_…)  where it went
-//              {:v.1 :x.1} {:sharing-point.1}'t(…)      new line on top: what, then where (relations.js)
+//              {:~w.1 :v.1 :x.1} {:sharing-point.1}'t(…)  new line on top: what, then where (relations.js)
 //              {:chain.1}                               bottom: the chain it builds on
 //            Its file name starts with ^(Kurs 3) (a view).
 // Depends:   1-model (file, ids, filename), 2-storage (layout, memory)
 // Test:      tests/share.test.mjs
 // Limits:    one share = small copies + 2 chain files (~0.5–1 KB) · withheld strands are not
 //            named in the target chain, not even by id.
+// Wake (26.11.): :~w goes wherever its :v goes and never without it (it shows the same face; KINDS.follows) –
+//            sharing only landmarks or only text never takes the picture along. In the target chain every computed
+//            strand (~, G10: wake, Whisper text, landmarks) stands in front, outside _( ): {:~w.1 :~x.1 _({:v.1 :x.1})},
+//            its ~( ) with the method only (wake, whisper …), because the names of its sources are counted anew there.
 // EXTEND(S2, always): after every saveTake the app calls shareTake for targets with "always".
 // Whole chain: strands defined further down (own versions) go along; embedded chains
 // (a playlist of others' chains) stay references – the target needs its own access.
@@ -25,15 +29,19 @@ import { hashBytes } from '../1-model/hash.js';
 import { signed } from '../1-model/crypto.js';
 import { pathOf, partsOf } from '../2-storage/layout.js';
 import { ExistsError } from '../2-storage/memory.js';
+import { KINDS, artOf, inOrder, withFollowers } from '../1-model/symbols.js';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-const FILE_KINDS = ['v', 'a', 'x', 'l', 'm'];
+const FILE_KINDS = Object.keys(KINDS).filter((k) => ['take', 'echo'].includes(KINDS[k].folder)); // v a x l m w
 
 /** Kinds that go: this once (if given) or always, but never more than the sharing point allows. */
 export function chooseKinds({ always = [], once = null, allowed = [] }) {
   return (once ?? always).filter((k) => allowed.includes(k));
 }
+
+/** The method in ~( ) without its sources: 'wake :v.1' → 'wake', ':chain.1' → ''. */
+const methodOf = (d) => (d.echo ?? '').split(' ').filter((w) => w && !w.startsWith(':')).join(' ');
 
 /** The chain below, if the bottom line is {:chain.n}. */
 function belowDef(file) {
@@ -53,13 +61,14 @@ async function strandsOfChain(own, byU, file) {
     const below = belowDef(f);
     for (const d of f.defs.values()) {
       if (d.id && FILE_KINDS.includes(d.kind) && !found.has(idKey(d.id))) found.set(idKey(d.id), d);
+      else if (d.id && found.has(idKey(d.id)) && !methodOf(found.get(idKey(d.id))) && methodOf(d)) found.set(idKey(d.id), { ...found.get(idKey(d.id)), echo: d.echo }); // where it was computed, not only ~(:chain.1)
       if (d.kind === 'chain' && d !== below) embedded.push(d.label ?? writeId(d.id));
     }
     const path = below ? (byU.get(uOf(below.id)) ?? []).find((p) => p.endsWith('.chain.sign')) : null;
     f = path ? readFile(dec.decode(await own.read(path))) : null;
   }
   const count = {};
-  const strands = [...found.values()].map((d) => ({ ...d, name: `${d.kind}.${(count[d.kind] = (count[d.kind] ?? 0) + 1)}` }));
+  const strands = [...found.values()].map((d) => { const art = d.art ?? artOf(d.kind); return { ...d, name: `${art}.${(count[art] = (count[art] ?? 0) + 1)}` }; }); // computed keeps its ~
   return { strands, embedded };
 }
 
@@ -96,7 +105,7 @@ export async function shareTake({ own, chainPath, targets, once = null, device, 
   for (const { entry, description, store } of targets) {
     if (description.trusted === false) { report.skipped.push(entry.label); continue; } // sharing-point.sign without admin witness
     const kinds = chooseKinds({ always: entry.always, once, allowed: description.kinds });
-    const chosen = strands.filter((d) => kinds.includes(d.kind));
+    const chosen = strands.filter((d) => withFollowers(kinds).includes(d.kind)); // the wake with its :v
     if (!chosen.length) { report.skipped.push(entry.label); continue; }
     const copied = [];
     for (const d of chosen) {
@@ -104,14 +113,18 @@ export async function shareTake({ own, chainPath, targets, once = null, device, 
     }
     const id = newId({ q: device, n: person.id, now });
     const head = headLine('chain', { '!': writeId(id), '@': file.head['@'], '°': file.head['°'], "'t": file.head["'t"] });
-    const refs = chosen.map((d) => `:${d.name}`).join(' ');
-    const text = await signed(deviceKey, fileText(head, chosen.map((d) => defLine(d.name, { id: writeId(d.id, d.id.hash) })), [`_({${refs}})'t(${file.head["'t"]})`]));
+    const isComputed = (d) => d.name.startsWith('~'), computed = chosen.filter(isComputed), recorded = chosen.filter((d) => !isComputed(d));
+    const refs = (ds) => inOrder(ds.map((d) => d.name)).map((n) => `:${n}`).join(' ');
+    const took = recorded.length ? `_({${refs(recorded)}})` : '';
+    const line = computed.length ? `{${[refs(computed), took].filter(Boolean).join(' ')}}` : took;
+    const defs = chosen.map((d) => defLine(d.name, { id: writeId(d.id, d.id.hash), ...(isComputed(d) ? { echo: methodOf(d) || d.echo } : {}) }));
+    const text = await signed(deviceKey, fileText(head, defs, [`${line}'t(${file.head["'t"]})`]));
     const path = pathOf({ words: name.words, person: name.person, where: name.where, time: name.time, kind: 'chain', u: uOf(id) });
     await writeOnce(store, path, enc.encode(text));
     report.shared.push({ to: entry.label, kinds, paths: [...copied, path] });
     for (const d of chosen) sharedNames.add(d.name);
     const n = shareRows.length + 1;
-    shareRows.push({ label: entry.label, def: defLine(`sharing-point.${n}`, { hint: entry.label, path: entry.path, id: entry.id }), row: `${relationLine({ what: chosen.map((d) => d.name), to: n })}'t(${at})` });
+    shareRows.push({ label: entry.label, def: defLine(`sharing-point.${n}`, { hint: entry.label, path: entry.path, id: entry.id }), row: `${relationLine({ what: inOrder(chosen.map((d) => d.name)), to: n })}'t(${at})` });
   }
 
   if (shareRows.length) {

@@ -19,6 +19,7 @@ import { buildName, timeLabel } from '../1-model/filename.js';
 import { monthOf } from '../2-storage/layout.js';
 import { signed } from '../1-model/crypto.js';
 import { timeRange } from '../7-similar/filter.js';
+import { artOf } from '../1-model/symbols.js';
 
 const enc = new TextEncoder(), dec = new TextDecoder();
 
@@ -35,7 +36,7 @@ export function similarDefs({ words = [], kinds = [], sharingPoints = [], person
     ...(letters.length ? [`(letters ${letters.join(' ')})`] : []),
     ...(spot ? [`(spot ${spot})`] : []),
     ...(steps ? [`(weite ${steps})`] : []),
-    ...(kinds.length ? [`{${kinds.map((k) => `:${k}`).join(' ')}}`] : []),
+    ...(kinds.length ? [`{${kinds.map((k) => `:${artOf(k)}`).join(' ')}}`] : []), // l → :~l (G10)
     ...(points.length ? [`{${points.map((_, i) => `:sharing-point.${i + 1}`).join(' ')}}`] : []),
   ].join(' ');
   return [...points, `:?.1(${body})` + (persons.length ? `@(${persons.join(' ')})` : '') + (time ? `'t(${time})` : '')];

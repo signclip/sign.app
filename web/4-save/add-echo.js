@@ -1,15 +1,15 @@
 // add-echo.js — add something computed to a Take: Whisper text now, landmarks and masks later.
 //
 // Purpose:   an echo is a new file (in echo/) plus a new chain on top (decision 07.11.):
-//              :chain.1!(old chain, hash)  :a.1!(…)~(:chain.1)  :x.1!(new, hash)~(whisper small 3F9A2C1D :a.1)
-//              {:x.1}'t(…)                  "text came from a.1 by Whisper"
+//              :chain.1!(old chain, hash)  :a.1~(:chain.1)!(…)  :~x.1~(whisper small 3F9A2C1D :a.1)!(new, hash)
+//              {:~x.1}'t(…)                 "text came from a.1 by Whisper" (~ before the letter: computed, G10)
 //              {:chain.1}
-//            Names (:x.1) are local to a file, so the new echo may reuse a number used below.
+//            Names (:~x.1) are local to a file, so the new echo may reuse a number used below.
 // Depends:   1-model (file, ids, hash, json, filename), 2-storage/layout
 // Test:      tests/take.test.mjs
 // Limits:    one echo ≈ its file + ~0.5 KB chain · a better model later = one more echo on top;
 //            the old one stays valid.
-// EXTEND(S5, binary echo): landmarks (.l.parquet) and masks (.m.mp4) pass bytes instead of text.
+// EXTEND(S5, binary echo): landmarks :~l (.l.parquet) and masks :~m (.m.mp4) pass bytes instead of text.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
 import { newId, writeId, uOf } from '../1-model/ids.js';
@@ -17,6 +17,7 @@ import { hashBytes } from '../1-model/hash.js';
 import { signed } from '../1-model/crypto.js';
 import { timeLabel, flatWords } from '../1-model/filename.js';
 import { pathOf, partsOf } from '../2-storage/layout.js';
+import { strandName, artOf } from '../1-model/symbols.js';
 
 const enc = new TextEncoder();
 
@@ -28,13 +29,13 @@ export async function addEcho({ own, chainPath, from, kind, row, echo, device, p
   if (!src?.id) throw new Error(`not defined in this chain: :${from}`);
   const at = timeLabel(now);
   const id = newId({ q: device, n: person.id, now });
-  const text = await signed(deviceKey, fileText(headLine(kind, { '!': writeId(id), '~': echo, '@': person.label, "'t": at }), [], [row]));
+  const text = await signed(deviceKey, fileText(headLine(artOf(kind, true), { '!': writeId(id), '~': echo, '@': person.label, "'t": at }), [], [row]));
   const bytes = enc.encode(text);
   const name = partsOf(chainPath);
   const echoPath = pathOf({ words: flatWords(row), echo, person: person.label, time: at, kind, u: uOf(id) });
   await own.write(echoPath, bytes);
 
-  const mine = `${kind}.${kind === src.kind ? src.n + 1 : 1}`;
+  const mine = strandName(kind, src.art === artOf(kind, true) ? src.n + 1 : 1, true); // an echo: ~x.1, ~l.1 (G10); from an echo of the same kind: the next number
   const chainId = newId({ q: device, n: person.id, now });
   const chainText = await signed(deviceKey, fileText(headLine('chain', { '!': writeId(chainId), '@': person.label, "'t": at }), [
     defLine('chain.1', { id: writeId(file.head.id, await hashBytes(oldBytes)) }),

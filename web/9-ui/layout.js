@@ -267,3 +267,35 @@ export function onTake(L, pt, role = '') {
   if (inside({ cx: L.cx, cy: L.cy, rx: L.rx, ry: L.ry, n: L.n }, pt.x, pt.y, band)) return true;
   return Math.abs(pt.y - L.queueY) < 24 * L.k && Math.abs(pt.x - L.cx) < L.rx + band;
 }
+
+/**
+ * Does a point lie where Similar opens – above the take, on a wide screen left of it – clear of the button and the line?
+ * A tap there opens Similar (26.11., user: "öffnet sich auch durch Tippen"), as two fingers spread there do.
+ */
+export function similarSide(L, pt) {
+  if (!L || !pt || !(L.rx > 0) || L.full) return false;
+  if (L.wide) return pt.x < L.cx - L.rx - L.ring;
+  return pt.y < L.button.y - L.ring - 12 * L.k;
+}
+
+/**
+ * Is a point on (or just beside) a strand's arc? (26.11.: the audio arc dragged onto the context arc = the flow sound →
+ * context.) Its angle seen from the window's middle lies within the arc (± 8°), and it is no farther than 44 px outside
+ * the window's edge nor 56 px inside it. Similar full: the arcs lie elsewhere – no.
+ */
+export function onArc(L, pt, kind) {
+  if (!L || !pt || L.full || !ARCS[kind]) return false;
+  const deg = ((Math.atan2(pt.x - L.cx, L.cy - pt.y) * 180) / Math.PI + 360) % 360, [a, b] = ARCS[kind];
+  const within = (d) => d >= a - 8 && d <= b + 8;
+  return (within(deg) || within(deg - 360) || within(deg + 360)) && inside(L, pt.x, pt.y, 44 * L.k) && !inside(L, pt.x, pt.y, -56 * L.k);
+}
+
+/**
+ * The flow sound → context: a short wave across the seam of the two arcs (at 140°), just inside the window's edge –
+ * outside it lies under the context row (which takes the touches there) and a finger could not reach it. → points
+ */
+export function flowPoints(L, { from = ARCS.a[1] - 9, to = ARCS.x[0] + 9, off = -13, amp = 2.6, waves = 3, steps = 42 } = {}) {
+  const s = L.scale || 1, out = [];
+  for (let i = 0; i <= steps; i++) out.push(edge(L, from + ((to - from) * i) / steps, (off + amp * Math.sin((i / steps) * waves * 2 * Math.PI)) * L.k * s));
+  return out;
+}

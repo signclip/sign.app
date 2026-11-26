@@ -7,8 +7,9 @@
 //            What Similar matches is what the take window holds now (its strands, the take chosen or running): first
 //            context, later audio and visual. The filters are "selection views", all of the same kind, shown pale until
 //            tapped: the strands v · x · a, and the metadata date (right edge), initial letter (left edge), @ name,
-//            sharing point (the button's sign) and spot where it was taken (o_). Date and initial are ordered data:
-//            holding them turns their order around. The chips of a take are equal, on one level: an initial filter
+//            sharing point (the button's sign) and spot where it was taken (o_). Each lies at one edge of the cloud
+//            (cloudParts, 26.11.): letters left, date right, spot at the top, who at the bottom; the one arrow at the
+//            head of its rail turns its order. The chips of a take are equal, on one level: an initial filter
 //            matches a take if any of its chips starts with it.
 // Depends:   nothing
 // Test:      tests/ui.test.mjs
@@ -58,11 +59,39 @@ export const initialOf = (word) => { const c = String(word ?? '').trim().charAt(
 export function passes(entry, f) {
   const v = f.value;
   if (f.on.date && v.date && (entry.t < v.date[0] || entry.t > v.date[1])) return false;
-  if (f.on.initial && v.initial?.length && !(entry.words ?? []).some((w) => v.initial.includes(initialOf(w)))) return false;
+  if (f.on.initial && v.initial?.length && !(entry.words ?? []).flatMap((w) => String(w).split(/\s+/)).some((w) => v.initial.some((key) => (key === '#' ? /^\d/.test(w) : w.toLocaleUpperCase('de').startsWith(String(key).toLocaleUpperCase('de')))))) return false; // a letter or the first two (the rail's step, 26.11.), any word of the take
   if (f.on.name && v.name?.length && !v.name.includes(entry.person)) return false;
   if (f.on.sharing && v.sharing?.length && !(entry.sharing ?? []).some((s) => v.sharing.includes(s))) return false;
   if (f.on.spot && v.spot?.length && !v.spot.some((x) => inArea(entry.spot, x))) return false; // a region chosen on the map holds its cells (22.11.)
   return true;
+}
+
+/** Px at k = 1: the gutter round the cloud (its four grips) and how much of its edge each open rail takes. */
+export const RAIL = Object.freeze({ gutter: 34, initial: 40, date: 50, who: 64, spotShare: 0.42, spotMin: 110, tilesMin: 96 });
+
+/**
+ * Where Similar's parts lie (26.11., user: letters left, date right, spot at the top, who at the bottom). Round the
+ * cloud a gutter for the four grips; the respect that is open takes its edge as a rail – the letters and the calendar
+ * as bars, the spot's map as a band, who as a strip – and the tiles keep away from it, so nothing lies over them.
+ * box: Similar's box · open: 'initial' | 'date' | 'spot' | 'who' | null
+ * → { inner (the tiles), rail ({ x, y, w, h } or null), grips: { initial, date, spot, who } (each { x, y } its middle) }
+ */
+export function cloudParts(box, open = null, k = 1) {
+  const g = RAIL.gutter * k, pad = 6 * k;
+  const inner = { x: box.x + g, y: box.y + g, w: box.w - 2 * g, h: box.h - 2 * g };
+  const e = 15 * k; // a grip's middle, 15 px in from the cloud's edge: 28 px high, so 4 px stay free before the tiles (gutter 34)
+  const grips = { initial: { x: box.x + e, y: box.y + box.h / 2 }, date: { x: box.x + box.w - e, y: box.y + box.h / 2 }, spot: { x: box.x + box.w / 2, y: box.y + e }, who: { x: box.x + box.w / 2, y: box.y + box.h - e } };
+  let rail = null;
+  if (open === 'initial') { rail = { x: box.x, y: box.y + 4 * k, w: RAIL.initial * k, h: box.h - 8 * k }; inner.x = rail.x + rail.w + pad; inner.w = box.x + box.w - g - inner.x; }
+  if (open === 'date') { rail = { x: box.x + box.w - RAIL.date * k, y: box.y + 4 * k, w: RAIL.date * k, h: box.h - 8 * k }; inner.w = rail.x - pad - inner.x; }
+  if (open === 'spot') { // the map: 42 % of the cloud, at least 110 px, but the tiles keep 96 px
+    const h = Math.max(Math.min(RAIL.spotMin * k, box.h * 0.6), Math.min(box.h * RAIL.spotShare, box.h - g - RAIL.tilesMin * k));
+    rail = { x: box.x + 4 * k, y: box.y, w: box.w - 8 * k, h };
+    inner.y = rail.y + rail.h + pad; inner.h = box.y + box.h - g - inner.y;
+  }
+  if (open === 'who') { rail = { x: box.x + 4 * k, y: box.y + box.h - RAIL.who * k, w: box.w - 8 * k, h: RAIL.who * k }; inner.h = rail.y - pad - inner.y; }
+  inner.w = Math.max(40 * k, inner.w); inner.h = Math.max(40 * k, inner.h);
+  return { inner, rail, grips };
 }
 
 /** Order entries by the filter that is on (date first, then initial); otherwise as found (best match first). */

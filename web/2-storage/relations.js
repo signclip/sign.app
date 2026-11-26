@@ -8,17 +8,23 @@
 //            backup · consent · quiet (ends a rule)
 //   {:v.1 :x.1} {:sharing-point.1}                                  share this take to 1
 //   {:v :a :x} {:sharing-point.1} (always)                          every new take always to 1
-//   {:l} {:sharing-point.2} (ask)                                   landmarks to 2 only on a tap
+//   {:~l} {:sharing-point.2} (ask)                                  landmarks to 2 only on a tap
 //   {} {:sharing-point.1} {:sharing-point.4} (always)               copy everything from 1 to 4
-//   {:x :l} {:sharing-point.1} {:sharing-point.3} (always)          copy these parts from 1 to 3
-//   {:x :l} {:sharing-point.1} {:sharing-point.3} (show)            show them read-only at 3, no copy
+//   {:x :~l} {:sharing-point.1} {:sharing-point.3} (always)         copy these parts from 1 to 3
+//   {:x :~l} {:sharing-point.1} {:sharing-point.3} (show)           show them read-only at 3, no copy
 //   {:sharing-point.5} (show)                                       bring 5 in, read only
 //   {:sharing-point.2} (show) (write)                               bring 2 in, writing allowed
 //   {} {:sharing-point.1} {:sharing-point.6} (backup)               encrypted backup from 1 to 6
-//   {:x :l} {:sharing-point.9} (consent)                            may be processed at 9 (atlas)
-// Depends:   nothing
+//   {:x :~l} {:sharing-point.9} (consent)                           may be processed at 9 (atlas)
+//   a kind that exists only computed is written with ~ (G10, 26.11.); inside the code it stays the letter ('l').
+//   A rule names kinds: :x = all text, typed and computed (Whisper :~x) – never :~x. A rule never names :~w: the
+//   wake goes with :v (symbols.js withFollowers). Read: :l is still understood as :~l
+//   (lists written before 26.11.), written is only :~l.
+// Depends:   1-model/symbols.js
 // Test:      tests/connect.test.mjs
 // Limits:    one line ≈ 40–90 B; marks are words, a new mark is an addition, nothing changes meaning.
+
+import { artOf, kindOf } from '../1-model/symbols.js';
 
 export const MARKS = ['always', 'ask', 'show', 'write', 'backup', 'consent', 'quiet'];
 const SP = /^:sharing-point\.(\d+)$/;
@@ -27,7 +33,7 @@ const SP = /^:sharing-point\.(\d+)$/;
 export function relationLine({ what = null, from = null, to = null, marks = [], time = null }) {
   for (const m of marks) if (!MARKS.includes(m)) throw new Error(`unknown mark: ${m}`);
   const parts = [];
-  if (what) parts.push(`{${what.map((k) => `:${k}`).join(' ')}}`); // [] = everything: {}
+  if (what) parts.push(`{${what.map((k) => `:${k.includes('.') ? k : artOf(k)}`).join(' ')}}`); // [] = everything: {} · kind l → :~l, name ~w.1 as it is
   for (const n of [from, to]) if (n != null) parts.push(`{:sharing-point.${n}}`);
   for (const m of marks) parts.push(`(${m})`);
   return parts.join(' ') + (time ? `'t(${time})` : '');
@@ -46,7 +52,7 @@ export function readRelation(text) {
     const refs = t.slice(1, -1).split(' ').filter(Boolean);
     const sp = refs.length === 1 && SP.exec(refs[0]);
     if (sp) via.push(Number(sp[1]));
-    else if (refs.every((r) => /^:[a-z]+(\.\d+)?$/.test(r)) && !via.length && what === null) what = refs.map((r) => r.slice(1));
+    else if (refs.every((r) => /^:~?[a-z]+(\.\d+)?$/.test(r)) && !via.length && what === null) what = refs.map((r) => (r.includes('.') ? r.slice(1) : kindOf(r.slice(1))));
     else return null;
   }
   if (!via.length) return null;

@@ -8,13 +8,17 @@
 //            its widest = the mark bends into two round ends, cut there · squeezed below 70 % = the bubble again (21.11.) ·
 //            spread on the empty button: left = a new take by itself (a little: at once,
 //            past the catch: after a countdown), right past the catch = stillness until the take ends (calm.js)
-//   arcs     tap = that strand on/off
+//   arcs     tap = that strand on/off · the audio arc dragged onto the context arc = words from the sound (Whisper)
+//            on/off, a wave across their seam shows it (26.11., heard.js); a tap on the wave = off
 //   line     tap the line or an older line's small arc = chosen (outlined) · tap a take = look at it ·
 //            squeeze two takes together = joined
 //   row      tap = write (where: between two elements, into a bubble, at the end) · the preset "Name" pulled down = away
-//   above    spread above the take = Similar comes (then full), squeeze = it goes; a tile tapped = single view
-//   Similar  tap a selection view = on/off (date, initial, @, sharing point, spot open their choices) · hold date or
-//            initial = their order turns · drag over the date bar = the span
+//   above    spread above the take, or a tap there (26.11.) = Similar comes (spread again: full), squeeze = it goes;
+//            a tile tapped = single view
+//   Similar  the four respects at the cloud's edges (26.11.): tap a grip or spread two fingers there = its rail opens ·
+//            a value tapped = chosen (calendar: a second one = from … to) · the arrow at its head = the order turns ·
+//            spread / squeeze = finer / coarser bundles · the rail pushed out over its edge = closed · spread on the rail
+//            itself = it lies over everything (26.11., paint-over.js), squeeze or its sign = back
 //   picture  ← / → = the other camera (at 1×) · tap = focus there · two fingers = the window's form: side by side =
 //            width, one above the other = height, slanted = corners (rectangle ↔ circle); at most 1:1, snaps to the
 //            picture's format
@@ -25,15 +29,15 @@
 import { buttonMeaning, live, count } from './take-state.js';
 import { joinTakes, cutTake, withContext } from './line.js';
 import { nowWords } from './chips.js';
-import { slotPx, onTake, timeline, wideButton } from './layout.js';
+import { slotPx, onTake, similarSide, onArc, timeline, wideButton } from './layout.js';
 import { zoomed, tapFilter, turnOrder, setFilter } from './similar-view.js';
-import { zoneOf, zoomZone, openBundle, bundlesOf } from './similar-zoom.js';
+import { zoneOf, zoomZone, openBundle, bundlesOf, periodRange } from './similar-zoom.js';
 import { SECTORS, READY, wideOpen, stepRange } from './similar-range.js';
 import { insertGesture, fromField, contextTree } from '../1-model/context.js';
 import { removeBefore, nestBetween, closeAt, unwrapAt, appendWord } from '../1-model/context-edit.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
 import { flipPicture, focusAt, mainLens } from './camera.js';
-import { BOW } from './paint.js';
+import { BOW, fanReach } from './paint.js';
 import { inside, formBy, snap } from './form.js';
 
 const CUT = 1.15, RUN_RATE = 0.5; // past the widest by 15 % = cut · the timeline runs through at half speed
@@ -50,15 +54,19 @@ export function gesturesOf(A) {
 
   function onEvent(ev, e) {
     if (A.st.share) return sharing(ev, e);
+    if (A.st.filters.full && A.st.filters.open === A.st.filters.full && (A.st.similar === 'many' || A.st.similar === 'full')) return over(ev); // a respect over everything (26.11.)
     if (A.data.ranging) return ranging(ev);
     if (ev.type === 'hold' && ev.role === 'window' && (A.st.similar === 'many' || A.st.similar === 'single')) { A.data.ranging = true; navigator.vibrate?.(10); return A.paint(); } // how far Similar looks: the rings with sectors (21.11.)
     if (A.data.fan && ev.type !== 'pinch') return fan(ev); // the lines fanned out: a row = that line, elsewhere = closed
     if (ev.type === 'pinch') return pinch(ev);
     const r = ev.role ?? '';
     if (onLine(r) && (ev.type === 'drag' || ev.type === 'swipe' || ev.type === 'drag-end')) return pull(ev); // the line follows the finger (17.11.)
-    if (A.st.typing && ev.type === 'tap' && !inRow(r)) say.blur(); // a tap anywhere else takes over what is written (blur commits), then does what it does
+    const endsTyping = A.st.typing && ev.type === 'tap' && !inRow(r);
+    if (endsTyping) say.blur(); // a tap anywhere else takes over what is written (blur commits), then does what it does
+    if (r === 'strand:a' && (ev.type === 'drag' || ev.type === 'swipe' || ev.type === 'drag-end')) return flowDrag(ev); // the audio arc dragged onto the context arc = Whisper on/off (26.11.)
     if (r === 'button') return button(ev);
     if (ev.type === 'tap') {
+      if (r === 'flow:a>x') return A.heard?.toggle(); // its wave tapped: off (26.11.)
       if (r.startsWith('strand:') && !live(A.st) && A.st.rec === 'idle' && A.take.addStrand(r.slice(7))) return null; // an earlier take without it: only this strand is taken, onto it (21.11.)
       if (r.startsWith('strand:')) return A.dispatch({ type: 'strand', kind: r.slice(7) });
       if (r.startsWith('dstrand:')) { navigator.vibrate?.(8); return A.dispatch({ type: 'dstrand', kind: r.slice(8) }); } // the single view: what one sees and hears (20.11.)
@@ -80,10 +88,14 @@ export function gesturesOf(A) {
       if (r.startsWith('filter:')) return A.dispatch({ type: 'filters', filters: tapFilter(A.st.filters, r.slice(7)) });
       if (r.startsWith('bundle:')) return openBundleAt(Number(r.slice(7))); // a bundle: only it, one step finer (21.11.)
       if (r.startsWith('grip:')) return grip(r.slice(5));
-      if (r.startsWith('who-ring:')) { const f = A.st.filters; navigator.vibrate?.(6); return A.dispatch({ type: 'filters', filters: { ...f, range: { ...wideOpen(), ...f.range, w: Number(r.slice(9)) } } }); } // a ring of wer = that step of its Weite
+      if (r.startsWith('period:')) return period(r.slice(7)); // a year, month or day on the calendar's rail = only that; again = all (26.11.)
       if (r.startsWith('order:')) { navigator.vibrate?.(6); return A.dispatch({ type: 'filters', filters: turnOrder(A.st.filters, r.slice(6)) }); } // the arrow: the other way round, the cloud sorts so
       if (r.startsWith('initial:')) return toggleValue('initial', r.slice(8));
       if (r.startsWith('value:')) { const [, name, id] = r.split(':'); return toggleValue(name, id); }
+      if (r === 'screen' && A.st.similar === 'closed' && !endsTyping && !A.st.onboard.on && similarSide(A.L, ev)) { // a tap where Similar opens = it comes (26.11., user), as two fingers spread there
+        navigator.vibrate?.(8); location.hash = 'many'; // Android back = closes (hashchange in app.js)
+        return A.dispatch({ type: 'similar', level: 'many' });
+      }
       if (r === 'window') return focusHere(ev);
       if (r === 'screen' && A.L && A.st.strands.x && ev.y > A.L.cy + A.L.R + 10 * A.L.k && Math.abs(ev.x - A.L.cx) < A.L.rx + 60 * A.L.k) return openTyping('context'); // anywhere under the bottom arc = write (17.11.)
       if (inRow(r)) return openTyping(r);
@@ -108,7 +120,8 @@ export function gesturesOf(A) {
       }
     }
     if (ev.type === 'hold' && r.startsWith('filter:')) return A.dispatch({ type: 'filters', filters: turnOrder(A.st.filters, r.slice(7)) });
-    if (ev.type === 'drag' && r === 'datebar') return dateSpan(ev);
+    const mine = railOf(r); // a rail pushed out over its own edge = closed (26.11.), as everything goes that is pushed over an edge
+    if (ev.type === 'swipe' && mine && mine === A.st.filters.open && ev.dir === OUT[mine]) return closeRail(mine);
     if (ev.type === 'swipe') {
       if (r === 'single' && (ev.dir === 'left' || ev.dir === 'right')) return A.similar.step(ev.dir) || nextResult(ev.dir); // ← → above: the next account that may be hers, else the next result
       if (r.startsWith('chip:') && ev.dir === 'down' && r.slice(5) === 'Name' && A.st.onboard.on) { A.dispatch({ type: 'onboard', patch: { dropped: true } }); return A.syncOnboard(); }
@@ -120,6 +133,15 @@ export function gesturesOf(A) {
       }
       if (r === 'window' && (ev.dir === 'left' || ev.dir === 'right') && A.st.rec === 'idle' && A.take.camera) return flip();
     }
+    return null;
+  }
+
+  /** The audio arc pulled by a finger: let go on the context arc = the flow sound → context switches (heard.js). */
+  let flowAt = null;
+  function flowDrag(ev) {
+    if (ev.type === 'drag') { flowAt = { x: ev.x, y: ev.y }; return null; }
+    const at = flowAt; flowAt = null;
+    if (at && onArc(A.L, at, 'x')) return A.heard?.toggle();
     return null;
   }
 
@@ -225,26 +247,46 @@ export function gesturesOf(A) {
   // ---------- spread, squeeze ----------
   /**
    * The lines fanned out (22.11., user): two fingers on the line pulled apart up and down = the older lines above the
-   * button, a row each with its takes (paint.js fanSvg); a row tapped = that line at the button; ↑ ↓ on them = older,
-   * newer; pushed together or a tap beside = closed.
+   * button, a row each with its takes (paint.js fanSvg); a take tapped = that line at the button, on that take; a
+   * row's label tapped = that line, ready for a new take; a finger sideways on a row = its takes slide; ↑ ↓ on them =
+   * older, newer lines; pushed together or a tap beside = closed.
    */
   function fan(ev) {
-    const r = ev.role ?? '';
-    if (ev.type === 'tap') { if (r.startsWith('fan:')) return A.take.showLine(Number(r.slice(4))); A.data.fan = false; return A.paint(); }
-    if (ev.type === 'swipe' && r.startsWith('fan:') && (ev.dir === 'up' || ev.dir === 'down')) {
-      const most = Math.max(0, A.st.lines.length - 1 - (A.data.fanRows ?? 1));
-      A.data.fanOff = Math.max(0, Math.min(most, (A.data.fanOff ?? 0) + (ev.dir === 'up' ? 1 : -1) * Math.max(1, (A.data.fanRows ?? 2) - 1)));
+    const r = ev.role ?? '', [, n, j] = r.startsWith('fan:') ? r.split(':').map(Number) : [];
+    if (ev.type === 'tap') {
+      if (n == null) { A.data.fan = false; return A.paint(); }
+      A.take.showLine(n); // the line comes to the button …
+      if (j != null) A.dispatch({ type: 'at', at: j }); // … standing on the take that was tapped (26.11.)
+      return null;
+    }
+    // a finger sideways on a row = its takes slide under it (26.11., user: scroll a line to see all of it)
+    if (n != null && ev.type === 'drag' && Math.abs(ev.dx) > Math.abs(ev.dy)) {
+      fanFrom ??= { n, at: A.data.fanShift?.[n] ?? 0 };
+      if (fanFrom.n !== n) return null;
+      const most = fanReach(A.L, A.st.lines[n]?.takes.length ?? 0, innerWidth);
+      A.data.fanShift = { ...(A.data.fanShift ?? {}), [n]: Math.max(0, Math.min(most, fanFrom.at - ev.dx)) };
       return A.paint();
+    }
+    if (ev.type === 'swipe' || ev.type === 'drag-end') {
+      const sideways = fanFrom != null;
+      fanFrom = null;
+      if (sideways) return null;
+      if (ev.type === 'swipe' && n != null && (ev.dir === 'up' || ev.dir === 'down')) {
+        const most = Math.max(0, A.st.lines.length - 1 - (A.data.fanRows ?? 1));
+        A.data.fanOff = Math.max(0, Math.min(most, (A.data.fanOff ?? 0) + (ev.dir === 'up' ? 1 : -1) * Math.max(1, (A.data.fanRows ?? 2) - 1)));
+        return A.paint();
+      }
     }
     return null;
   }
+  let fanFrom = null; // the row a finger pushes sideways, and where it stood
   function pinch(ev) {
     const L = A.L, [a, b] = ev.roles ?? [];
     const upright = ev.at?.length === 2 && Math.abs(ev.at[0].y - ev.at[1].y) > Math.abs(ev.at[0].x - ev.at[1].x);
     const byLine = L && Math.abs(ev.centre.y - L.button.y) < 50 * L.k && !inside(L, ev.centre.x, ev.centre.y);
     if (A.st.lines.length > 1 && A.st.rec === 'idle' && upright && (A.data.fan || byLine || [a, b].some((x) => x && onLine(x)))) { // the lines fanned out, or folded again (22.11.)
       if (ev.phase !== 'end') return null;
-      if (ev.scale > 1.15 && !A.data.fan) { A.data.fan = true; A.data.fanOff = 0; navigator.vibrate?.(8); return A.paint(); }
+      if (ev.scale > 1.15 && !A.data.fan) { A.data.fan = true; A.data.fanOff = 0; A.data.fanShift = null; navigator.vibrate?.(8); return A.paint(); }
       if (ev.scale < 0.87 && A.data.fan) { A.data.fan = false; return A.paint(); }
       return null;
     }
@@ -260,7 +302,9 @@ export function gesturesOf(A) {
         const tile = [a, b].find((x) => x?.startsWith('tile:')), te = tile ? A.data.entries?.[Number(tile.slice(5))] : null;
         if (te?.kind === 'template' && ev.scale > 1.12) return A.similar.bundleBy(te); // a template spread open: the cloud bundled by it
         if (bundle && ev.scale > 1.12) return openBundleAt(Number(bundle.slice(7)));
-        const f = A.st.filters, zone = (f.open && f.open !== 'template' ? f.open : null) ?? zoneOf(L.similarBox, ev.centre, L.k) ?? (f.value.bundle && ev.scale < 0.88 ? f.value.bundle.by : null); // a view open: zooming anywhere = its steps (22.11.)
+        const f = A.st.filters;
+        if (f.open && ev.scale > 1.12 && [a, b].some((x) => railOf(x ?? '') === f.open)) { navigator.vibrate?.(10); return A.dispatch({ type: 'filters', filters: { ...f, full: f.open } }); } // spread on the open rail = over everything (26.11.)
+        const zone = (f.open && f.open !== 'template' ? f.open : null) ?? zoneOf(L.similarBox, ev.centre, L.k) ?? (f.value.bundle && ev.scale < 0.88 ? f.value.bundle.by : null); // a view open: zooming anywhere = its steps (22.11.)
         if (zone) { navigator.vibrate?.(6); return A.dispatch({ type: 'filters', filters: zoomZone(f, zone, ev.scale) }); }
       }
       const level = zoomed(A.st.similar, ev.scale);
@@ -536,38 +580,82 @@ export function gesturesOf(A) {
   }
   /** A bundle of the cloud opened: only what is in it, one step finer. */
   function openBundleAt(i) {
-    const groups = bundlesOf(A.data.entries ?? [], A.st.filters), g = groups?.[i];
+    const groups = bundlesOf(A.data.entries ?? [], A.st.filters, { near: A.take?.here?.() }), g = groups?.[i];
     if (!g) return null;
     navigator.vibrate?.(6);
     return A.dispatch({ type: 'filters', filters: openBundle(A.st.filters, g.key) });
   }
-  /** A grip tapped: its zone opens (one by one, sorted by it); open already = closed. */
+  /** A grip tapped: its rail opens (the cloud one by one, sorted by it). Its rail is closed again by pushing it out, or by squeezing. */
   function grip(z) {
-    const f = A.st.filters;
-    if (f.open === z || f.group?.by === z) { const value = { ...f.value }; if (value.bundle?.by === z) delete value.bundle; return A.dispatch({ type: 'filters', filters: { ...f, value, open: null, group: f.group?.by === z ? null : f.group } }); }
-    return A.dispatch({ type: 'filters', filters: zoomZone(f, z, 1.2) });
+    navigator.vibrate?.(6);
+    return A.dispatch({ type: 'filters', filters: zoomZone(A.st.filters, z, 1.2) });
+  }
+  /** Which respect a role on a rail belongs to (the rail itself, its arrow, one of its values). */
+  const OUT = { initial: 'left', date: 'right', spot: 'up', who: 'down' };
+  function railOf(r) {
+    if (r.startsWith('rail:') || r.startsWith('order:')) return r.slice(r.indexOf(':') + 1);
+    if (r.startsWith('initial:')) return 'initial';
+    if (r.startsWith('period:')) return 'date';
+    if (r.startsWith('value:spot:')) return 'spot';
+    if (r.startsWith('value:sharing:') || r.startsWith('value:name:')) return 'who';
+    return null;
+  }
+  /** The rail goes; what was chosen on it stays chosen (its grip stays filled), the cloud is no longer bundled by it. */
+  function closeRail(z) {
+    const f = A.st.filters, value = { ...f.value };
+    if (value.bundle?.by === z) delete value.bundle;
+    navigator.vibrate?.(6);
+    return A.dispatch({ type: 'filters', filters: { ...f, value, open: null, full: null, group: f.group?.by === z ? null : f.group } });
+  }
+  /**
+   * A respect over everything (26.11., paint-over.js): taps choose as on its rail; squeeze = back to the rail (the map:
+   * one step coarser first, below its coarsest back to the rail); spread on the map = finer; its sign at the edge = back.
+   */
+  function over(ev) {
+    const r = ev.role ?? '', f = A.st.filters, z = f.full, back = () => { navigator.vibrate?.(6); return A.dispatch({ type: 'filters', filters: { ...f, full: null } }); };
+    if (ev.type === 'pinch') {
+      if (ev.phase !== 'end' || Math.abs(Math.log(ev.scale)) < 0.12) return null;
+      if (z === 'spot') { const g = f.group?.by === 'spot' ? f.group.level : 2; if (ev.scale < 1 && g <= 0) return back(); navigator.vibrate?.(6); return A.dispatch({ type: 'filters', filters: { ...zoomZone(f, 'spot', ev.scale), full: 'spot' } }); }
+      return ev.scale < 1 ? back() : null;
+    }
+    if (ev.type !== 'tap') return null;
+    if (r === 'full-off') return back();
+    if (r.startsWith('period:')) return period(r.slice(7));
+    if (r.startsWith('initial:')) return toggleValue('initial', r.slice(8));
+    if (r.startsWith('value:')) { const [, name, id] = r.split(':'); return toggleValue(name, id); }
+    if (r.startsWith('who-ring:')) { navigator.vibrate?.(6); return A.dispatch({ type: 'filters', filters: { ...f, range: { ...wideOpen(), ...f.range, w: Number(r.slice(9)) } } }); } // a ring = that step of who's Weite
+    return null;
   }
   function toggleValue(name, id) {
     const f = A.st.filters, now = f.value[name] ?? [], next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id];
+    navigator.vibrate?.(5);
     return A.dispatch({ type: 'filters', filters: { ...setFilter(f, name, next), on: { ...f.on, [name]: next.length > 0 } } }); // chosen = on (21.11.: no sign row to switch it)
   }
-  function dateSpan(ev) {
-    const bar = document.querySelector('.datebar')?.getBoundingClientRect();
-    if (!bar) return null;
-    const f = (y) => Math.max(0, Math.min(1, (y - bar.top) / bar.height));
-    const a = f(ev.y - ev.dy), b = f(ev.y), lo = Math.min(a, b), hi = Math.max(a, b);
-    const ts = (A.data.entries ?? []).map((x) => x.t).filter(Boolean);
-    const newest = Math.max(Date.now(), ...ts), oldest = Math.min(newest - 864e5, ...ts);
-    const at = (p) => (A.st.filters.order.date === 'new' ? newest - p * (newest - oldest) : oldest + p * (newest - oldest));
-    A.data.similarLists = { ...(A.data.similarLists ?? {}), range: [lo, hi] };
-    return A.dispatch({ type: 'filters', filters: { ...setFilter(A.st.filters, 'date', [Math.min(at(lo), at(hi)), Math.max(at(lo), at(hi))]), on: { ...A.st.filters.on, date: true } } });
+  /** The calendar's span: [from, to] in ms, or null = every time. */
+  function setSpan(span) {
+    const f = A.st.filters;
+    return A.dispatch({ type: 'filters', filters: { ...setFilter(f, 'date', span), on: { ...f.on, date: Boolean(span) } } });
+  }
+  /**
+   * A value of the calendar tapped (26.11.): nothing chosen = only that · the one that is chosen = all again · one
+   * outside what is chosen = from … to (the span grows to it) · one inside a span = only that. No dragging: a finger
+   * along the rail scrolls it, a long calendar needs that.
+   */
+  function period(key) {
+    const r = periodRange(key), now = A.st.filters.on.date ? A.st.filters.value.date : null;
+    if (!r) return null;
+    navigator.vibrate?.(5);
+    if (!now) return setSpan(r);
+    if (now[0] === r[0] && now[1] === r[1]) return setSpan(null);
+    if (r[0] >= now[0] && r[1] <= now[1]) return setSpan(r);
+    return setSpan([Math.min(now[0], r[0]), Math.max(now[1], r[1])]);
   }
 
   // ---------- the picture ----------
   async function flip() {
     facing = facing === 'user' ? 'environment' : 'user';
     const fresh = await flipPicture(A.take.camera, facing).then((x) => mainLens(x, facing)).catch(() => null);
-    if (fresh) { document.querySelector('#live').srcObject = fresh; A.take.setCamera?.(fresh); }
+    if (fresh) { document.querySelector('#live').srcObject = fresh; A.take.setCamera?.(fresh, facing); } // the side is remembered: opened anew after being away, it is this one
   }
   function focusHere(ev) {
     const box = document.querySelector('#window').getBoundingClientRect();

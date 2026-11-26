@@ -6,11 +6,14 @@
 //            be joined (squeeze two neighbours together) and cut (spread the button past its widest: cut at the moment
 //            in its middle). Files are never rewritten (SCHEMA): join and cut are new line versions in the chain
 //            (4-save/add-line.js), this model only says which elements and where.
-//              take = { id, ms (length), thumb, context, kinds: ['v', 'a', 'x'], t (start, ms since 1970), parts? }
+//              take = { id, ms (length), thumb, context, kinds: ['v', 'a', 'x'], t (start, ms since 1970), parts?, heard? }
+//              heard = the words Whisper read from its sound, each with 't(from_to) (26.11., heard.js) – not its context
 //              parts = [{ id, from, to }] – what a joined or cut take is made of (references, ms inside each take)
 //            A cut divides every strand at the same moment (17.11.): picture and sound by the reference '(from_to),
 //            the context by time — a word with its own time 't(from_to) (Whisper, ms inside the take) goes to the
 //            side its beginning lies on; a word without a time belongs to the whole take and stays on both sides.
+//            The small picture of a take (26.11.): the frame its first part begins with – thumbKey says which file
+//            and which moment, so a cut's right half shows the picture at the cut and a join the first take's.
 // Depends:   1-model/notation.js (the context's words and their times)
 // Test:      tests/ui.test.mjs
 // Limits:    64 elements per line (as add-line.js MAX_ELEMENTS); a cut needs ≥ MIN_PART_MS on both sides.
@@ -40,6 +43,15 @@ export function addTake(lines, take, sticky = '') {
 
 /** The parts a take stands for: itself whole, or what it was joined or cut from. */
 export const partsOf = (take) => take.parts ?? [{ id: take.id, from: 0, to: take.ms ?? 0, len: take.ms ?? 0 }]; // len: the whole file's length (a part that covers it needs no '( ))
+
+/**
+ * Which small picture a take shows (26.11.): the file of its first part and the moment it begins there.
+ * → { id (the take chain's path), at (ms inside its file), key (one string for both) }
+ */
+export function thumbKey(take) {
+  const p = partsOf(take)[0] ?? { id: take.id, from: 0 }, at = Math.max(0, Math.round(p.from ?? 0));
+  return { id: p.id, at, key: at > 0 ? `${p.id}@${at}` : p.id };
+}
 
 /** Where a moment of a take lies: which part, and the ms inside that part's file. ms is held inside the take. → { i, id, at, start } */
 export function locate(take, ms) {
@@ -83,7 +95,8 @@ export function joinTakes(lines, n, i) {
   const line = lines[n];
   const a = line?.takes[i], b = line?.takes[i + 1];
   if (!a || !b) return lines;
-  const joined = { ...a, id: `${a.id}+${b.id}`, ms: (a.ms ?? 0) + (b.ms ?? 0), parts: [...partsOf(a), ...partsOf(b)], context: [a.context, b.context].filter(Boolean).join(' ') };
+  const heard = [a.heard, b.heard].filter(Boolean).join(' ') || undefined; // words from the sound: each keeps its time in its own file
+  const joined = { ...a, id: `${a.id}+${b.id}`, ms: (a.ms ?? 0) + (b.ms ?? 0), parts: [...partsOf(a), ...partsOf(b)], context: [a.context, b.context].filter(Boolean).join(' '), heard };
   return lines.map((l, j) => (j !== n ? l : { ...l, takes: [...l.takes.slice(0, i), joined, ...l.takes.slice(i + 2)] }));
 }
 
@@ -102,7 +115,8 @@ export function cutTake(lines, n, i, ms) {
   }
   const where = locate(take, ms); // the context's times count inside the file the cut falls into
   const [before, after] = partsOf(take).length === 1 ? splitContext(take.context, where.at) : [take.context, take.context];
-  const a = { ...take, id: `${take.id}<`, ms, parts: left, context: before }, b = { ...take, id: `${take.id}>`, ms: take.ms - ms, parts: right, context: after, thumb: null };
+  const [heardBefore, heardAfter] = partsOf(take).length === 1 ? splitContext(take.heard ?? '', where.at) : [take.heard ?? '', take.heard ?? '']; // the words from the sound go to the side they were said on (26.11.)
+  const a = { ...take, id: `${take.id}<`, ms, parts: left, context: before, heard: heardBefore || undefined }, b = { ...take, id: `${take.id}>`, ms: take.ms - ms, parts: right, context: after, heard: heardAfter || undefined, thumb: null };
   return lines.map((l, j) => (j !== n ? l : { ...l, takes: [...l.takes.slice(0, i), a, b, ...l.takes.slice(i + 1)] }));
 }
 
@@ -153,4 +167,19 @@ export function withContext(lines, n, words, { without = false } = {}) {
     return { ...t, context: [t.context, ...add.map((w) => `(${w})`)].filter(Boolean).join(' ') };
   });
   return changed ? lines.map((l, j) => (j === n ? { ...l, takes } : l)) : lines;
+}
+
+/**
+ * What a line is about, in a few words (26.11., the fan of lines: a row says what it holds): its sticky context, else
+ * the words all its takes share, else the first take's words and "…" when others follow. → text ('' = no words at all)
+ */
+export function lineLabel(line) {
+  const wordsOf = (text) => contextTimes(text).flatMap((x) => x.text.split(/\s+/)).filter(Boolean);
+  const sticky = wordsOf(line?.sticky ?? '');
+  if (sticky.length) return sticky.join(' ');
+  const takes = (line?.takes ?? []).map((t) => wordsOf(t.context));
+  if (!takes.length || !takes[0].length) return '';
+  const shared = takes[0].filter((w) => takes.every((ws) => ws.some((x) => x.toLowerCase() === w.toLowerCase())));
+  if (shared.length) return shared.join(' ');
+  return takes[0].join(' ') + (takes.length > 1 ? ' …' : '');
 }

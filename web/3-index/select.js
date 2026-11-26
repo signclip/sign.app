@@ -11,6 +11,7 @@
 import { draw } from '../1-model/crypto.js';
 import { writeId } from '../1-model/ids.js';
 import { defLine } from '../1-model/file.js';
+import { artOf } from '../1-model/symbols.js';
 
 /** results: ordered list · part: "3" or "1_3" (counted from 1). */
 export function pick(results, part) {
@@ -26,12 +27,12 @@ export function drawFrom(results, n) {
 
 /**
  * Keep a choice as definitions plus one line, e.g. for the next chain:
- * :v.1!(… hash)~(:?.1)  :v.2!(…)~(:?.1)   {:v.1} {:v.2}
+ * :v.1~(:?.1)!(… hash)  :v.2~(:?.1)!(…)   {:v.1} {:v.2}
  * chosen: [{ kind, id }] (id with hash) · source: the similar it came from, e.g. "?.1".
  */
 export function keepChoice(chosen, source) {
   const count = {};
-  const names = chosen.map((c) => `${c.kind}.${(count[c.kind] = (count[c.kind] ?? 0) + 1)}`);
+  const names = chosen.map((c) => { const art = c.art ?? artOf(c.kind); return `${art}.${(count[art] = (count[art] ?? 0) + 1)}`; }); // ~w.1, ~x.1 keep their ~ (G10)
   return {
     defs: chosen.map((c, i) => defLine(names[i], { id: writeId(c.id, c.id.hash), echo: `:${source}` })),
     line: names.map((n) => `{:${n}}`).join(' '),

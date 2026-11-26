@@ -2,7 +2,7 @@
 //            file keys kept by a group key.
 //
 // Purpose:   a group's files are sealed on the device before they leave; Nextcloud, Hetzner, the gateway and the
-//            admin see sizes, times and month folders only. Three levels (md/setup.svg §9):
+//            admin see sizes, times and month folders only. Three levels (md/infrastructure-setup.svg §9):
 //              pickup key (P-256, crypto.js)  opens the group key once: it came sealed in the hello back
 //              group key (AES-256, 32 bytes)  opens the group's runs (2-storage/sealed-store.js), which hold the file keys
 //              file key (AES-256, 32 bytes)   drawn new for every file; opens that file's pieces, nothing else

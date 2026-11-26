@@ -14,7 +14,7 @@
 
 import { readName } from '../1-model/filename.js';
 import { ExistsError } from './memory.js';
-import { KINDS, FOLDERS } from '../1-model/symbols.js';
+import { KINDS, FOLDERS, withFollowers } from '../1-model/symbols.js';
 
 const kindOf = (path) => readName(path.slice(path.lastIndexOf('/') + 1))?.kind ?? null;
 const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -24,7 +24,7 @@ const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
  * removed ones (remove.quietIds). → { copied, kept, failed }
  */
 export async function copyRoute(from, to, { kinds, chains = true, skip = () => false, since = null } = {}) {
-  const want = new Set([...kinds, ...(chains ? ['chain'] : [])]);
+  const want = new Set([...withFollowers(kinds), ...(chains ? ['chain'] : [])]); // v brings its wake (w) along
   const have = new Set((await to.list()).map((f) => f.path));
   const result = { copied: [], kept: [], failed: [] };
   for (const { path } of await from.list()) {
@@ -52,7 +52,7 @@ export function give(nc, { path, to, password = null, expires = null }) {
 /** Folders of chosen strand kinds inside a sharing point root, e.g. x → take/x and echo/x. */
 export function strandFolders(root, kinds) {
   const base = root.replace(/\/$/, '');
-  return kinds.flatMap((k) => (k === 'x' ? ['take', 'echo'] : [KINDS[k]?.folder]).filter(Boolean).map((f) => `${base}/${f}/${k}`));
+  return withFollowers(kinds).flatMap((k) => (k === 'x' ? ['take', 'echo'] : [KINDS[k]?.folder]).filter(Boolean).map((f) => `${base}/${f}/${k}`));
 }
 
 /** give, only chosen strands: one read-only share per strand folder (no copies). → [results] */

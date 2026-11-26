@@ -16,7 +16,8 @@ import { idKey } from '../1-model/ids.js';
 import { similar } from '../7-similar/filter.js';
 import { passes, ordered, byPerson, MANY } from './similar-view.js';
 import { inBundle, sortedBy } from './similar-zoom.js';
-import { areasOf } from './spot-map.js';
+import { areasOf, aroundOf } from './spot-map.js';
+import { baseOf } from './basemap.js';
 import { wideOpen, widenWords, applyRange } from './similar-range.js';
 import { nowWords, seriesRow } from './chips.js';
 import { saveSimilar, readSimilar } from '../4-save/save-similar.js';
@@ -25,11 +26,13 @@ import { writeId as writeIdOf } from '../1-model/ids.js';
 
 const sealKey = async () => (await deviceKeys().catch(() => null))?.device ?? null;
 import { readContext } from '../1-model/context.js';
+import { takeWords } from '../1-model/context-edit.js';
 import { msOf } from '../1-model/time.js';
 import { BLACK } from './player.js';
 import { accountTakes } from '../8-join/known.js';
 import { note as debugNote } from './debug.js';
 import { firstOf, fadeOver, shown } from './ahead.js';
+import { isEcho } from './media.js';
 
 export function similarFlow(A) {
   const s = { look: null, entries: [], playing: null, cmp: null, carried: null };
@@ -174,15 +177,17 @@ export function similarFlow(A) {
   /** Results now, as view entries (pictures and chips fill in later). */
   function compute() {
     const f = A.st.filters;
-    if (s.look) { choices(s.look); const shown = s.look.filter((e) => passes(e, f) && inBundle(e, f.value.bundle, f)); return f.group ? sortedBy(shown, f) : ordered(shown, f); }
+    if (s.look) { choices(s.look); const shown = s.look.filter((e) => passes(e, f) && inBundle(e, f.value.bundle, f)); return f.group ? sortedBy(shown, f, { near: A.take?.here?.() }) : ordered(shown, f); }
     const range = { ...wideOpen(), ...f.range }; // how far it looks in each respect (21.11., similar-range.js)
     const written = s.search ? s.search.words : A.st.strands.x ? words() : []; // the take's context strand on = its words count (21.11., user); a search chain opened: its words
     const ws = range.x > 0 && written.length ? widenWords(written, range.x, A.index.tables.context) : written;
     const hits = similar(A.index, { words: ws, limit: MANY });
     const list = hits.map((h) => {
-      const head = h.entry.head ?? {};
+      let chain = chainOf(h.key), heardBy = false;
+      if (isEcho(chain) && A.index.tables.chains.has(chain.below)) { chain = A.index.tables.chains.get(chain.below); heardBy = true; } // found by what was said in it (Whisper, 26.11.): the take itself
+      const head = (heardBy ? chain.head : h.entry.head) ?? {};
       const old = s.entries.find((e) => e.key === h.key);
-      return old ?? dress({ key: h.key, words: [], t: (() => { try { return msOf(String(head["'t"] ?? '')) || 0; } catch { return 0; } })(), person: head['@'] ?? '', sharing: [h.entry.from?.store].filter(Boolean), spot: head.o ?? null, where: head['°'] ?? null, thumb: null, chain: chainOf(h.key) });
+      return old ?? dress({ key: h.key, words: [], t: (() => { try { return msOf(String(head["'t"] ?? '')) || 0; } catch { return 0; } })(), person: head['@'] ?? '', sharing: [h.entry.from?.store].filter(Boolean), spot: head.id?.o ?? null, where: head['°'] ?? null, thumb: null, chain, heardBy });
     });
     const seen = new Set(), one = list.filter((e) => { const k = e.chain?.key ?? e.key; if (seen.has(k)) return false; seen.add(k); return true; }); // a take once, however many of its strands matched
     const own = (c) => !c || [...c.defs.values()].some((d) => ['v', 'a', 'x', 'l'].includes(d.kind)); // a line (only references to takes) is no result of its own (17.11.: every take showed twice)
@@ -200,7 +205,7 @@ export function similarFlow(A) {
     const takes = only ? kinds[only] ?? [] : found.filter((e) => !e.kind);
     choices(takes);
     const shown = takes.filter((e) => passes(e, f) && inBundle(e, f.value.bundle, f));
-    return f.group ? sortedBy(shown, f) : ordered(shown, f); // zoomed in a zone: sorted by it (21.11.)
+    return f.group ? sortedBy(shown, f, { near: A.take?.here?.() }) : ordered(shown, f); // zoomed in a zone: sorted by it (21.11.); Ort: near → far from here (26.11.)
   }
 
   /**
@@ -211,7 +216,8 @@ export function similarFlow(A) {
     const uniq = (xs) => [...new Set(xs.filter(Boolean))].slice(0, 12).map((x) => ({ id: x, label: x }));
     const stores = (A.sources ?? []).map((x) => x.name);
     A.data.similarLists = { ...(A.data.similarLists ?? {}), names: uniq(all.map((e) => e.person)), sharing: uniq([...stores, ...all.flatMap((e) => e.sharing ?? [])]), spots: uniq(all.map((e) => e.spot)) };
-    const members = {}; // who appears in which sharing point – a group's persons in the wer rings (21.11.)
+    A.data.similarLists.all = all; // what the rails list: every result before a choice narrows them (26.11.)
+    const members = {}; // who appears in which sharing point – a sharing point's persons in the who strip (26.11.; rings 21.11.)
     for (const e of all) for (const sp of e.sharing ?? []) if (e.person) (members[sp] ??= new Set()).add(e.person);
     A.data.similarLists.reach = (A.sources ?? []).map((x) => ({ name: x.name, write: Boolean(x.write), own: x.name === 'own', persons: [...(members[x.name] ?? [])].slice(0, 6) }));
     mapOf(all.map((e) => e.spot));
@@ -231,6 +237,8 @@ export function similarFlow(A) {
       if (mapKey !== key) return;
       A.data.spotMap = shapes;
       A.paint();
+      const base = await baseOf(aroundOf(shapes)).catch(() => null); // the land under them, from the tiles in the app (26.11.)
+      if (mapKey === key && base) { A.data.spotBase = base; A.paint(); }
     }).catch(() => { A.data.spotMap = null; });
   }
 
@@ -241,15 +249,18 @@ export function similarFlow(A) {
    */
   const limit = (job, ms) => Promise.race([job, new Promise((done) => setTimeout(() => done(null), ms))]);
   async function load(e, put) {
+    // 26.11. (user: tiles stayed without picture): what arrives after the limit is still put into its tile – the limit
+    // only frees its turn in the queue, it no longer throws the late answer away.
     if (e.chain) {
       const at = A.media.visualOf(e.chain);
-      await Promise.all([ // chips and picture each on their own: one that hangs does not hold the other
-        limit(A.media.contextTextOf(e.chain).catch(() => null), WAIT_MS).then((text) => { if (text != null) put({ at, sound: A.media.soundOf?.(e.chain) ?? null, words: readContext(text).gestures.flatMap((g) => g.chips.map((c) => c.text)).slice(0, 6) }); }),
-        limit(A.media.picOf(at).catch(() => null), WAIT_MS).then((thumb) => { if (thumb) put({ at, thumb }); }),
-      ]);
+      const text = A.media.contextTextOf(e.chain).catch(() => null), pic = A.media.picOf(at).catch(() => null);
+      text.then((t) => { if (t != null) put({ at, sound: A.media.soundOf?.(e.chain) ?? null, words: readContext(t).gestures.flatMap((g) => g.chips.map((c) => c.text)).slice(0, 6) }); });
+      A.media.heardOf?.(e.chain).then((h) => { if (h) put({ heard: takeWords(h).map((w) => w.text).slice(0, 8) }); }, () => {}); // what was said in it (Whisper, 26.11.)
+      pic.then((thumb) => { if (thumb) put({ at, thumb }); });
+      await Promise.all([limit(text, WAIT_MS), limit(pic, WAIT_MS)]); // chips and picture each on their own: one that hangs does not hold the other
       return;
     }
-    if (e.pieces) { const thumb = await limit(A.media.picOf({ store: e.pieces[0].from, path: e.pieces[0].path }).catch(() => null), WAIT_MS); if (thumb) put({ thumb }); }
+    if (e.pieces) { const pic = A.media.picOf({ store: e.pieces[0].from, path: e.pieces[0].path }).catch(() => null); pic.then((thumb) => { if (thumb) put({ thumb }); }); await limit(pic, WAIT_MS); }
   }
   /** Fill the tiles, AT_ONCE takes at a time (before: one after another, and a hanging one stopped all). */
   async function fill(list) {
@@ -402,6 +413,9 @@ export function similarFlow(A) {
     navigator.vibrate?.(15);
     A.dispatch({ type: 'lines', lines: [...A.st.lines.filter((l) => !l.guest), { id: 'guest', guest: true, sticky: '', takes }] });
     A.dispatch({ type: 'at', at: 0 });
+    // its context as it is written in its file, brackets and all (26.11.): the words of the tile alone lost the nesting,
+    // so "Arbeit (Computer Besprechung)" came back as one word "Arbeit Besprechung" when it was changed afterwards
+    if (e.chain && takes.length === 1) A.media.contextTextOf(e.chain).then((text) => { if (text && A.st.lines.at(-1)?.guest && A.st.lines.at(-1).takes[0]?.id === takes[0].id) A.dispatch({ type: 'lines', lines: A.st.lines.map((l) => (l.guest ? { ...l, takes: l.takes.map((x, i) => (i === 0 ? { ...x, context: text } : x)) } : l)) }); }, () => {});
     if (A.st.similar === 'single') A.dispatch({ type: 'similar', level: 'many' });
     runLine(0);
     return true;

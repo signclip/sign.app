@@ -37,13 +37,19 @@ export function makeEngine(asr, { language = null } = {}) {
 
 /**
  * Start Whisper in its worker. → Promise<{ transcribe(samples16k), label }> once the model is loaded.
- * label = "whisper small q8 <8 chars of the model's commit>" for ~( ) (whisper.js modelLabel).
+ * label = "whisper small q8 <8 chars of the model's commit>" for ~( ) (whisper.js modelLabel). onProgress(0…1, bytes):
+ * while the model's files load (26.11.: the flow from sound to context shows it).
  */
-export function loadWhisper({ language = null, model = MODEL, library = LIBRARY, models = null, url = new URL('./whisper-worker.js', import.meta.url) } = {}) {
+export function loadWhisper({ language = null, model = MODEL, library = LIBRARY, models = null, url = new URL('./whisper-worker.js', import.meta.url), onProgress = null } = {}) {
   const worker = new Worker(url, { type: 'module' });
-  const waiting = new Map();
+  const waiting = new Map(), files = new Map(); // file → { loaded, total }: how far the model's files came (26.11.)
   let n = 0;
   worker.onmessage = ({ data }) => {
+    if (data.progress) { // the model loading: all its files together, 0…1
+      files.set(data.progress.file, data.progress);
+      const sum = (k) => [...files.values()].reduce((s, f) => s + (f[k] || 0), 0);
+      return onProgress?.(sum('total') ? sum('loaded') / sum('total') : 0, sum('total'));
+    }
     const w = waiting.get(data.id);
     if (!w) return;
     waiting.delete(data.id);
@@ -60,5 +66,6 @@ export function loadWhisper({ language = null, model = MODEL, library = LIBRARY,
       const copy = samples16k.slice(); // the worker gets its own copy
       return (await ask({ samples: copy, language }, [copy.buffer])).words;
     },
+    stop: () => worker.terminate(),
   }));
 }

@@ -10,7 +10,7 @@
 //              {:l.1} (quiet)'t(…) · {:chain.1}        what first, the mark behind; a restore skips these ids
 // Depends:   1-model (file, ids, hash, crypto, filename), 2-storage/layout
 // Test:      tests/remove.test.mjs
-// Limits:    one removal ≈ 0.4 KB chain + one copy per file; a strand = 1 file.
+// Limits:    one removal ≈ 0.4 KB chain + one copy per file; a strand = 1 file; removing a :v takes its :~w along.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
 import { newId, writeId, uOf } from '../1-model/ids.js';
@@ -18,6 +18,7 @@ import { hashBytes } from '../1-model/hash.js';
 import { signed } from '../1-model/crypto.js';
 import { timeLabel, readName } from '../1-model/filename.js';
 import { pathOf, partsOf } from '../2-storage/layout.js';
+import { KINDS, inOrder } from '../1-model/symbols.js';
 
 const enc = new TextEncoder(), dec = new TextDecoder();
 const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -39,9 +40,11 @@ async function copyChecked(from, to, path, toPath = path) {
  * chips: { rescue: store|null, similar: bool, training: bool } · atlas: store of atlas (its hello/).
  * → { chain (path of the new chain), removed, rescued, kept, quietToAtlas }
  */
-export async function removeStrands({ own, chainPath, names, chips = {}, atlas = null, device, person, deviceKey = null, now = Date.now() }) {
+export async function removeStrands({ own, chainPath, names: asked, chips = {}, atlas = null, device, person, deviceKey = null, now = Date.now() }) {
   const bytes = await own.read(chainPath);
   const file = readFile(dec.decode(bytes));
+  const followers = [...file.defs.values()].filter((d) => KINDS[d.kind]?.follows && !asked.includes(d.name) && asked.some((n) => (d.echo ?? '').split(' ').includes(`:${n}`)));
+  const names = [...asked, ...followers.map((d) => d.name)]; // the wake leaves with its :v (26.11.)
   const defs = names.map((n) => file.defs.get(n) ?? (() => { throw new Error(`not defined here: :${n}`); })());
   const result = { chain: null, removed: [], rescued: [], kept: [], quietToAtlas: false };
   const leaving = chips.similar || chips.rescue;
@@ -54,7 +57,7 @@ export async function removeStrands({ own, chainPath, names, chips = {}, atlas =
   }
   const id = newId({ q: device, n: person.id, now });
   const at = timeLabel(now);
-  const refs = names.map((n) => `:${n}`).join(' ');
+  const refs = inOrder(names).map((n) => `:${n}`).join(' ');
   const text = await signed(deviceKey, fileText(headLine('chain', { '!': writeId(id), '@': person.label, "'t": at }), [
     defLine('chain.1', { id: writeId(file.head.id, await hashBytes(bytes)) }),
     ...defs.map((d) => defLine(d.name, { id: writeId(d.id, d.id.hash), echo: ':chain.1' })),

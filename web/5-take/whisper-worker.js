@@ -1,7 +1,8 @@
 // whisper-worker.js — Whisper in its own thread: loads the model once, then answers transcribe requests.
 //
 // Purpose:   the screen never waits for the model (whisper-engine.js talks to this worker).
-//            { load: { model, dtype, library, models? } } → { hash } (the model's commit on Hugging Face, for ~( ))
+//            { load: { model, dtype, library, models? } } → { hash } (the model's commit on Hugging Face, for ~( )),
+//                                                  meanwhile { progress: { file, loaded, total } } without id
 //            { samples, language }               → { words: [{ text, start, end }] } (s, as whisper.js expects)
 // Depends:   browser (module worker), the library at LIBRARY (transformers.js, IMPORTS.md), whisper-engine.js
 // Test:      the words are tested through makeEngine in tests/take.test.mjs; this needs a browser.
@@ -24,7 +25,8 @@ self.onmessage = async ({ data }) => {
         env.backends.onnx.wasm.wasmPaths = new URL('./', data.load.library).href; // the runtime next to the library
       }
       const gpu = await navigator.gpu?.requestAdapter?.().catch(() => null); // 'gpu' can exist without an adapter
-      const make = (device) => pipeline('automatic-speech-recognition', data.load.model, { dtype: data.load.dtype, device });
+      const progress_callback = (p) => { if (p?.status === 'progress' && p.file) self.postMessage({ progress: { file: p.file, loaded: p.loaded ?? 0, total: p.total ?? 0 } }); }; // how far the model came (26.11.)
+      const make = (device) => pipeline('automatic-speech-recognition', data.load.model, { dtype: data.load.dtype, device, progress_callback });
       const asr = gpu ? await make('webgpu').catch(() => make('wasm')) : await make('wasm');
       engine = asr;
       return self.postMessage({ id: data.id, hash: data.load.models ? 'local000' : await commitOf(data.load.model) });

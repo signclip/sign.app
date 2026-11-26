@@ -1,5 +1,5 @@
 // sharing-engine.js — what the sharing menu does, without drawing it (16.11., taken over from share-mount.js of the
-// version until 16.11., lab/ui-until-2026-11-16/): the list in force, its rules, the opened sharing points, upkeep,
+// version until 16.11., done/4-first-ui/): the list in force, its rules, the opened sharing points, upkeep,
 // join and the admin's door. paint-sharing.js draws the snapshot it hands to onDraw and calls its handlers with the
 // same roles as before ('sp:N', 'account:i', 'person:id', 'hello:i', 'own:N', 'app:i', 'add:new', 'sp-kind:N:k', 'bridge:a:b').
 //

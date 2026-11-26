@@ -19,11 +19,10 @@ svg#take [data-role], svg#take .hit, svg#take .hit-dot { pointer-events: all; cu
 svg#hint { pointer-events: none; }
 
 /* start (15.11.): background, then the shapes appear, then the picture fades in inside the window */
-#take, #now, #row, #window, #focus { opacity: 0; transition: opacity .45s ease-out .1s, transform .35s ease, left .35s ease, top .35s ease, width .35s ease, height .35s ease, clip-path .35s ease; }
+/* 26.11.: where the take stands is never eased by CSS – picture, drawing, words and row move together by one clock (app.js slide / carry) */
+#take, #now, #row, #window, #focus { opacity: 0; transition: opacity .45s ease-out .1s; will-change: transform; }
 body.ready #take, body.ready #now, body.ready #row, body.ready #window, body.ready #focus { opacity: 1; }
-body.gliding #row, body.gliding #now { transition: opacity .45s ease-out .1s; } /* Similar full: the row and the words follow the glide frame by frame (21.11.) */
 #window.gone, #focus.gone { transition: opacity .18s ease-out; }
-body.shaping #window, body.shaping #focus { transition: opacity .45s ease-out .1s; } /* two fingers form the window: box and clip follow at once, no corner peeks out (20.11.) */
 .gone { opacity: 0 !important; pointer-events: none !important; }
 
 /* the take window */
@@ -41,6 +40,8 @@ video::-webkit-media-controls { display: none !important; }
 .strand.on { stroke: var(--rc-stroke); }
 .strand.off { stroke: var(--mut); stroke-width: 3; opacity: .5; }
 .strand.live { stroke: var(--b-now); }
+.flow-wave { fill: none; stroke: var(--b-next); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; } .flow.loading .flow-wave { stroke-dasharray: 3 4; opacity: .55; } .flow.loading .flow-wave.done { stroke-dasharray: none; opacity: 1; } .flow.ready .flow-wave { stroke: var(--b-now); } .flow.failed .flow-wave { stroke: var(--mut); stroke-dasharray: 2 5; } /* sound → context by Whisper (26.11.) */
+.chip.heard { text-decoration: underline wavy var(--b-now) 1.2px; text-underline-offset: 1px; text-decoration-skip-ink: none; } /* a word Whisper read from the sound */
 .sound path { fill: none; stroke: var(--b-next); stroke-width: 0; opacity: 0; stroke-linecap: butt; pointer-events: none; transition: stroke-width .09s linear, opacity .09s linear; } /* the sound level on the audio arc (level.js, 21.11.) */
 .hit { fill: none; stroke: transparent; stroke-width: 30; } .hit.thin { stroke-width: 12; }
 .hit-dot { fill: transparent; }
@@ -105,7 +106,11 @@ video::-webkit-media-controls { display: none !important; }
 @keyframes breathe { 50% { opacity: .5; } }
 
 /* Similar: the cloud, the single view, the selection views at the edges */
-#similar { inset: 0; pointer-events: none; }
+#similar { inset: 0; pointer-events: none; transform-origin: 50% 40%; }
+#similar.arriving { animation: cloud-in .38s ease-out both; } /* Similar appears (26.11., user): it comes in while the take glides down */
+#similar.leaving { animation: cloud-out .22s ease-in both; } #similar.leaving > * { pointer-events: none; }
+@keyframes cloud-in { from { opacity: 0; transform: translateY(-18px) scale(.94); } to { opacity: 1; transform: none; } }
+@keyframes cloud-out { to { opacity: 0; transform: translateY(-12px) scale(.96); } }
 #similar > * { position: absolute; pointer-events: all; }
 .tile { border-radius: 14px; overflow: hidden; background: var(--sc); border: 2px solid var(--sc-stroke); animation: appear .3s ease-out both; }
 .tile img, .single img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -115,6 +120,7 @@ video::-webkit-media-controls { display: none !important; }
 .tile-edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; } .tile-edge path { fill: none; stroke: var(--sc-stroke); stroke-width: 4; } .tile.picked .tile-edge path { stroke: var(--hold); stroke-width: 6; }
 .tags { position: absolute; left: 4px; right: 4px; bottom: 4px; display: flex; flex-wrap: wrap; gap: 2px; pointer-events: none; }
 .chip.tag { height: 19px; font-size: 11px; padding: 0 6px; background: var(--c-next); border-width: 1px; }
+.single-words { position: absolute; display: flex; justify-content: safe center; gap: 3px; overflow-x: auto; scrollbar-width: none; touch-action: pan-x; padding: 0 10px; pointer-events: all; } .single-words::-webkit-scrollbar { display: none; } .single-words .chip.tag { flex: none; height: 24px; font-size: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.18); } /* all words of the result shown single (26.11.) */
 .single { overflow: hidden; background: transparent; pointer-events: all; } /* its form is a clip path (the take's form), its edge an SVG */
 .single-edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; } .single-edge path { fill: none; stroke: var(--sc-stroke); stroke-width: 6; }
 #pickvideo { object-fit: cover; background: var(--sc); pointer-events: none; }
@@ -124,23 +130,66 @@ video::-webkit-media-controls { display: none !important; }
   color: var(--mut); background: var(--card); border: 1.5px dashed var(--mut); opacity: .7; }
 .sel.on { color: #0C447C; background: var(--sc); border: 2px solid var(--sc-stroke); opacity: 1; }
 .sel.open { box-shadow: 0 0 0 3px var(--sc); }
-/* Similar's zones (21.11.): a pale grip at each edge, filled while open, its step as dots; bundles as pastel bubbles */
-.grip { position: absolute; min-width: 26px; height: 28px; padding: 0 5px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 2px; font: 600 13px Inter, system-ui, sans-serif; color: var(--mut); background: var(--paper); border: 1.5px dashed var(--sc-stroke); opacity: .55; }
-.grip.on { opacity: 1; border-style: solid; background: var(--sc); color: #0C447C; } .grip i { font-style: normal; font-size: 8px; letter-spacing: 1px; }
+/* Similar's four respects (26.11.): a pale grip in the middle of each edge, filled while something of it is chosen;
+   open = its rail along that edge, one arrow at its head for the order */
+.grip { position: absolute; width: 26px; height: 28px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font: 600 13px Inter, system-ui, sans-serif; color: var(--mut); background: var(--paper); border: 1.5px dashed var(--sc-stroke); opacity: .6; }
+.grip.on { opacity: 1; border-style: solid; background: var(--sc); color: #0C447C; }
+.rail { position: absolute; display: flex; background: color-mix(in srgb, var(--paper) 86%, transparent); border: 1.5px solid var(--sc-stroke); border-radius: 16px; overflow: hidden; animation: rail-in .22s ease-out both; }
+.rail.upright { flex-direction: column; align-items: stretch; } .rail.lying { flex-direction: row; align-items: center; }
+.rail-order { flex: none; display: flex; align-items: center; justify-content: center; font: 700 15px Inter, system-ui, sans-serif; font-style: normal; color: #0C447C; background: var(--sc); }
+.rail.upright .rail-order { height: 30px; border-bottom: 1.5px solid var(--sc-stroke); } .rail.lying .rail-order { width: 34px; align-self: stretch; border-right: 1.5px solid var(--sc-stroke); }
+.rail-list { flex: 1; display: flex; scrollbar-width: none; overscroll-behavior: contain; } .rail-list::-webkit-scrollbar { display: none; }
+.rail.upright .rail-list { flex-direction: column; overflow-y: auto; touch-action: pan-y; padding: 2px 0 8px; } .rail.lying .rail-list { flex-direction: row; align-items: center; gap: 6px; overflow-x: auto; touch-action: pan-x; padding: 0 8px; height: 100%; }
+.rail.upright .rail-list span { flex: none; height: 26px; display: flex; align-items: center; justify-content: center; font: 600 13px Inter, system-ui, sans-serif; color: var(--ink); margin: 0 3px; border-radius: 9px; } /* --ink on --paper: both stay as they are in dark mode (≥ 7:1) */
+.rail.upright .rail-list span.head { height: 22px; margin-top: 4px; font-size: 11px; font-weight: 700; color: color-mix(in srgb, var(--ink) 62%, var(--paper)); letter-spacing: .02em; }
+.rail.upright .rail-list span.on { background: var(--sc-stroke); color: #fff; }
+.rail .none { color: var(--sc-stroke); font-size: 20px; padding: 0 10px; }
+.rail.map { background: color-mix(in srgb, var(--sc) 30%, var(--paper)); } .rail.map .rail-list { flex-wrap: nowrap; }
+@keyframes rail-in { from { opacity: 0; } to { opacity: 1; } }
 .sel.strand-sel { position: absolute; }
 .cloud-chosen { position: absolute; background: var(--chosen); border-radius: 18px; pointer-events: none; } /* the cloud chosen: its ground tinted (22.11.) */
 .single-chosen { position: absolute; pointer-events: none; overflow: visible; } .single-chosen path { fill: var(--chosen); stroke: none; } /* the element chosen */
 .fan-back { fill: var(--rest); fill-opacity: .94; } .fan-row { fill: var(--paper); stroke: var(--line); stroke-width: 1.5; } /* the older lines fanned out (22.11.) */
+.fan-label { font: 600 13px Inter, system-ui, sans-serif; fill: var(--ink); dominant-baseline: central; pointer-events: none; } .fan-label.none { fill: var(--mut); } .fan-count { font: 500 10px Inter, system-ui, sans-serif; fill: var(--mut); pointer-events: none; } .fan-more { fill: none; stroke: var(--mut); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; } /* what a row holds, how many, more beside (26.11.) */
 .chosen-band { fill: none; stroke: var(--chosen); stroke-linecap: round; pointer-events: none; } .chosen-rim { fill: var(--chosen); stroke: none; pointer-events: none; } /* a line, the take in the button */
 /* templates, series, saved similar (21.11.): one bubble each where they are used – row end, line end, top of Similar */
 .kind-bubble { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 30px; padding: 0 10px; margin-left: 6px; border-radius: 15px; background: var(--nest-paper); border: 2px dashed var(--nest-b); font: 700 14px Inter, system-ui, sans-serif; color: var(--ink); }
 .kind-bubble b { font: 600 12px Inter, system-ui, sans-serif; } .kind-bubble.in-similar { margin: 0; }
 .kind-dot circle { fill: var(--nest-paper); stroke: var(--nest-b); stroke-width: 2; stroke-dasharray: 4 3; } .kind-dot text { font: 700 12px Inter, system-ui, sans-serif; fill: var(--ink); text-anchor: middle; dominant-baseline: central; pointer-events: none; } .kind-dot text.n { font-size: 9px; }
-.spot-map { position: absolute; overflow: visible; } .view-order { position: absolute; width: 28px; height: 28px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font: 600 15px Inter, system-ui, sans-serif; font-style: normal; color: #0C447C; background: var(--paper); border: 1.5px solid var(--sc-stroke); } .spot-hex { fill: var(--sc); fill-opacity: .85; stroke: var(--sc-stroke); stroke-width: 1.5; } .spot-hex.on { fill: var(--sc-stroke); fill-opacity: .6; } .spot-map text { font: 600 12px Inter, system-ui, sans-serif; fill: #0C447C; text-anchor: middle; pointer-events: none; } /* Ort as a map (22.11.) */
-.who-rings { position: absolute; overflow: visible; } .who-ring { fill: var(--paper); fill-opacity: .9; stroke: var(--sc-stroke); stroke-width: 1.2; } .who-ring.on { fill: var(--sc); } /* wer as rings round me (21.11.) */
-.who-me { position: absolute; transform: translate(-50%, -50%); width: 38px; height: 38px; border-radius: 50%; background: var(--mut); color: #fff; display: flex; align-items: center; justify-content: center; font: 700 13px Inter, system-ui, sans-serif; pointer-events: none; }
-.who-group { position: absolute; border-radius: 50%; background: var(--nest-paper); border: 2px solid var(--nest-b); display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 2px; padding: 4px; } .who-group.on { box-shadow: 0 0 0 3px #0C447C; } .who-group.far { opacity: .6; }
-.who-group b { width: 100%; text-align: center; font: 600 10px Inter, system-ui, sans-serif; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .who-group i { font-style: normal; width: 18px; height: 18px; border-radius: 50%; background: var(--paper); border: 1px solid var(--nest-b); font: 600 9px Inter, system-ui, sans-serif; color: var(--ink); display: flex; align-items: center; justify-content: center; } .who-group i.on { background: #0C447C; color: #fff; }
+.spot-hex { fill: var(--sc); fill-opacity: .85; stroke: var(--sc-stroke); stroke-width: 1.5; } .spot-hex.on { fill: var(--sc-stroke); fill-opacity: .7; } .spot-map text { font: 600 12px Inter, system-ui, sans-serif; fill: #0C447C; text-anchor: middle; pointer-events: none; } /* Ort as a map (22.11.), in its band at the top (26.11.) */
+/* who (26.11.): a sharing point = a pastel bubble with its persons in it; what one only sees is pale */
+.who-group { flex: none; height: 44px; min-width: 44px; padding: 0 8px; border-radius: 22px; background: var(--nest-paper); border: 2px solid var(--nest-b); display: flex; align-items: center; gap: 3px; } .who-group.on { box-shadow: 0 0 0 3px #0C447C; } .who-group.far { opacity: .6; border-style: dashed; }
+.who-group b { font: 600 12px Inter, system-ui, sans-serif; color: var(--ink); white-space: nowrap; max-width: 86px; overflow: hidden; text-overflow: ellipsis; margin-right: 2px; } .who-group i { font-style: normal; flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--paper); border: 1px solid var(--nest-b); font: 600 10px Inter, system-ui, sans-serif; color: var(--ink); display: flex; align-items: center; justify-content: center; } .who-group i.on { background: #0C447C; color: #fff; border-color: #0C447C; }
+/* the base map under the hexagons (26.11., basemap.js): land pale, water blue, borders dashed, towns small */
+.spot-map { position: relative; display: block; overflow: hidden; border-radius: 10px; background: color-mix(in srgb, var(--sc) 55%, var(--paper)); }
+.base-land { fill: var(--paper); stroke: none; } .base-water { fill: color-mix(in srgb, var(--sc) 70%, var(--sc-stroke)); stroke: none; }
+.base-border { fill: none; stroke: var(--mut); stroke-width: 1; stroke-dasharray: 4 3; opacity: .6; }
+.base-river { fill: none; stroke: color-mix(in srgb, var(--sc-stroke) 75%, var(--paper)); stroke-width: 1; stroke-linejoin: round; } .base-river.big { stroke-width: 1.8; }
+.base-town { fill: var(--ink); opacity: .55; } .spot-map .base-name { text-anchor: start; font: 500 11px Inter, system-ui, sans-serif; fill: var(--ink); opacity: .7; paint-order: stroke; stroke: var(--paper); stroke-width: 3px; pointer-events: none; }
+.spot-map .spot-hex { fill-opacity: .55; }
+/* a respect over everything (26.11., paint-over.js) */
+#over { inset: 0; pointer-events: none; z-index: 4; }
+#over > * { position: absolute; pointer-events: all; }
+.over-panel { border-radius: 22px; background: var(--paper); box-shadow: 0 8px 30px rgba(0,0,0,.18); border: 1.5px solid var(--sc-stroke); overflow: hidden; animation: over-in .26s ease-out both; backdrop-filter: blur(6px); }
+@keyframes over-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+.over-panel .spot-map { border-radius: 20px; }
+.over-back { position: absolute; width: 34px; height: 34px; border-radius: 17px; display: flex; align-items: center; justify-content: center; font: 700 15px Inter, system-ui, sans-serif; color: #0C447C; background: var(--sc); border: 1.5px solid var(--sc-stroke); z-index: 2; }
+.over-back.top { top: 8px; left: calc(50% - 17px); } .over-back.bottom { bottom: 8px; left: calc(50% - 17px); } .over-back.left { left: 8px; top: calc(50% - 17px); } .over-back.right { right: 8px; top: calc(50% - 17px); }
+.over-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 34px; color: var(--sc-stroke); }
+.over-panel .who-rings { position: absolute; left: 0; top: 0; overflow: visible; }
+.who-ring { fill: var(--paper); fill-opacity: .9; stroke: var(--sc-stroke); stroke-width: 1.2; } .who-ring.on { fill: var(--sc); fill-opacity: .55; }
+.who-me { position: absolute; transform: translate(-50%, -50%); width: 46px; height: 46px; border-radius: 50%; background: var(--mut); color: #fff; display: flex; align-items: center; justify-content: center; font: 700 14px Inter, system-ui, sans-serif; pointer-events: none; }
+.who-bubble { position: absolute; border-radius: 50%; background: var(--nest-paper); border: 2px solid var(--nest-b); display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 3px; padding: 6px; } .who-bubble.on { box-shadow: 0 0 0 3px #0C447C; } .who-bubble.far { opacity: .6; border-style: dashed; }
+.who-bubble b { width: 100%; text-align: center; font: 600 11px Inter, system-ui, sans-serif; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .who-bubble i { font-style: normal; width: 24px; height: 24px; border-radius: 50%; background: var(--paper); border: 1px solid var(--nest-b); font: 600 10px Inter, system-ui, sans-serif; color: var(--ink); display: flex; align-items: center; justify-content: center; } .who-bubble i.on { background: #0C447C; color: #fff; }
+.cal { position: absolute; inset: 0; overflow-y: auto; touch-action: pan-y; padding: 14px 16px 60px 16px; overscroll-behavior: contain; scrollbar-width: none; } .cal::-webkit-scrollbar { display: none; }
+.cal-year { font: 700 15px Inter, system-ui, sans-serif; color: var(--mut); margin: 6px 0 4px; display: inline-block; padding: 2px 8px; border-radius: 9px; } .cal-year.on { background: var(--sc-stroke); color: #fff; }
+.cal-month { margin: 0 0 14px; } .cal-title { font: 700 14px Inter, system-ui, sans-serif; color: var(--ink); display: inline-block; padding: 3px 8px; border-radius: 9px; margin-bottom: 4px; } .cal-month.on .cal-title { background: var(--sc-stroke); color: #fff; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; } .cal-head { font: 600 10px Inter, system-ui, sans-serif; color: var(--mut); text-align: center; }
+.cal-day { position: relative; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; } .cal-day b { position: relative; font: 600 12px Inter, system-ui, sans-serif; color: var(--ink); } .cal-day.empty b { color: var(--mut); opacity: .5; font-weight: 400; }
+.cal-day em { position: absolute; border-radius: 50%; background: var(--sc); border: 1.5px solid var(--sc-stroke); } .cal-day.on { background: var(--sc-stroke); } .cal-day.on b { color: #fff; } .cal-day.on em { background: transparent; border-color: #fff; }
+.letters-over { position: absolute; inset: 0; padding: 18px 18px 18px 56px; display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 10px; align-content: start; overflow-y: auto; touch-action: pan-y; }
+.letters-over .key { position: relative; height: 58px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font: 700 22px Inter, system-ui, sans-serif; color: var(--ink); background: var(--paper); border: 1.5px solid var(--sc-stroke); }
+.letters-over .key i { position: absolute; right: 6px; bottom: 4px; font: 600 10px Inter, system-ui, sans-serif; font-style: normal; color: var(--mut); } .letters-over .key.on { background: var(--sc-stroke); color: #fff; } .letters-over .key.on i { color: #fff; } .letters-over .key.none { opacity: .3; border-style: dashed; }
 /* how far Similar looks (21.11.): the halo round the take, the rings with sectors over it */
 .halo { fill: none; stroke: var(--sc-stroke); stroke-opacity: .45; stroke-linecap: round; pointer-events: none; } .halo.later { stroke: var(--mut); stroke-opacity: .25; }
 .range-back { fill: var(--paper); fill-opacity: .93; stroke: var(--sc-stroke); stroke-width: 1.5; }
@@ -150,16 +199,7 @@ video::-webkit-media-controls { display: none !important; }
 .bundle { position: absolute; border-radius: 22%; background: var(--nest-paper); border: 2px solid var(--nest-b); display: flex; flex-wrap: wrap; align-content: flex-start; justify-content: center; gap: 3px; padding: 20px 4px 4px; overflow: hidden; animation: appear .3s ease-out both; }
 .bundle b { position: absolute; top: 3px; left: 6px; right: 6px; font: 600 11px Inter, system-ui, sans-serif; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
 .bundle img { border-radius: 4px; object-fit: cover; } .bundle i { position: absolute; right: 6px; bottom: 3px; font: 600 10px Inter, system-ui, sans-serif; font-style: normal; color: var(--ink); background: var(--paper); border-radius: 8px; padding: 0 4px; }
-.letters em { font-style: normal; color: #0C447C; font: 700 13px Inter, system-ui, sans-serif; padding: 2px 4px; }
-.datebar em { pointer-events: all; }
 .tile .sign { position: absolute; top: 3px; left: 5px; font: 700 13px Inter, system-ui, sans-serif; font-style: normal; color: var(--ink); background: var(--paper); border-radius: 8px; padding: 0 5px; z-index: 1; } /* a chain in the cloud: ? search · # choice · — series · _ template (21.11.) */
-.letters { width: 26px; display: flex; flex-direction: column; align-items: center; overflow-y: auto; gap: 1px; }
-.letters span { font: 600 12px Inter, system-ui, sans-serif; color: var(--mut); padding: 1px 4px; border-radius: 6px; }
-.letters span.on { background: var(--sc-stroke); color: #fff; }
-.datebar { width: 20px; border-radius: 10px; background: var(--card); border: 1.5px solid var(--sc-stroke); }
-.datebar b { position: absolute; left: 2px; right: 2px; border-radius: 8px; background: var(--sc-stroke); }
-.datebar em { position: absolute; top: -22px; left: -4px; right: -4px; text-align: center; font-style: normal; color: #0C447C; font: 700 14px Inter, system-ui, sans-serif; }
-.strip { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .chip.pick { background: var(--paper); border-color: var(--sc-stroke); color: #0C447C; } .chip.pick.on { background: var(--sc); border-width: 2px; }
 
 /* the sharing menu */
@@ -252,12 +292,8 @@ video::-webkit-media-controls { display: none !important; }
 .tl-word { font: 600 11px Inter, system-ui, sans-serif; fill: var(--ink); pointer-events: none; } .tick.full { stroke-width: 2; }
 .tl-join { stroke: var(--fg); stroke-width: 2; stroke-dasharray: 2 3; }
 .playhead { stroke: var(--b-now); stroke-width: 3; stroke-linecap: round; }
-.strip { padding: 4px 6px; border-radius: 16px; background: var(--card); border: 1.5px solid var(--sc-stroke); min-height: 38px; align-items: center; touch-action: pan-x; }
-.strip .chip.pick { flex: none; background: var(--paper); border: 1.5px solid var(--sc-stroke); color: #0C447C; }
-.strip .chip.pick.on { background: var(--sc); border-width: 2.5px; font-weight: 600; }
 #carry { width: 68px; height: 68px; border-radius: 16px; background: var(--sc) center / cover; border: 3px solid var(--hold); box-shadow: 0 6px 18px rgba(0,0,0,.25); pointer-events: none; z-index: 5; }
 /* the strands of the single view (20.11.) */
 #similar > svg.dstrands { left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .dstrands .hit { fill: none; stroke: transparent; stroke-width: 30; pointer-events: stroke; cursor: pointer; }
 .strand.none { stroke: var(--mut); stroke-width: 2; opacity: .3; stroke-dasharray: 3 6; }
-.single .tags[hidden] { display: none; }

@@ -24,7 +24,7 @@ export function playerOf(A, video) {
   const whereOf = (id) => {
     if (!spots.has(id)) {
       if (A.data.guestAt?.[id]) return A.data.guestAt[id]; // a result carried into the window: its file, wherever it lies
-      const chain = [...(A.index?.tables.chains.values() ?? [])].find((c) => c.from?.path === id);
+      const chain = A.chainAt?.(id) ?? [...(A.index?.tables.chains.values() ?? [])].find((c) => c.from?.path === id);
       const at = chain && A.media.visualOf(chain);
       if (!at) return null;
       spots.set(id, at);
@@ -59,7 +59,7 @@ export function playerOf(A, video) {
     const open = !(take.ms > 0); // length not known (a guest from Similar): it plays to its own end
     const parts = partsOf(take), where = open ? { i: 0, id: take.id, at: 0, start: 0 } : locate(take, Math.max(0, Math.min(take.ms ?? 0, ms)));
     const me = cur = { take, i: where.i, raf: 0, onTime, onEnd, rate, playing: play };
-    const still = A.data.thumbs?.[take.id] || BLACK;
+    const still = A.thumbOf?.(take) || A.data.thumbs?.[take.id] || BLACK;
     const release = video.dataset.take !== take.id || video.dataset.file !== where.id ? fadeOver(video) : () => {}; // the last frame fades into the next (21.11.)
     if (video.dataset.take !== take.id) { // another take (20.11.): its small picture at once, while its file is read – never the grey placeholder
       video.poster = still;
