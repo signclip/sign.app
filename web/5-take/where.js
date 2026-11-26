@@ -38,6 +38,10 @@ export function createWhere({ geo = globalThis.navigator?.geolocation, load = nu
   return { refresh, now: () => (cell && clock() - at < FRESH ? cell : null) };
 }
 
+/** The outline of a cell, for the map of Similar's spots (22.11.): 'o_…' → [[lat, lon], …]. */
+export async function outlineOf(o, { load = null } = {}) {
+  return (await h3(load)).cellToBoundary(String(o).replace(/^o_/, ''));
+}
 /** The middle of a cell: 'o_851fa19bfffffff' → { lat, lon }. */
 export async function centre(o, { load = null } = {}) {
   const [lat, lon] = (await h3(load)).cellToLatLng(String(o).replace(/^o_/, ''));

@@ -80,13 +80,15 @@ export function bundlesOf(entries, f) {
   }
   const m = new Map();
   for (const e of entries) { const k = bundleKey(e, g.by, ladder[g.level]); if (!m.has(k)) m.set(k, []); m.get(k).push(e); }
-  const down = (g.by === 'date' && f.order?.date !== 'old') || (g.by === 'initial' && f.order?.initial === 'za');
+  const down = backwards(f, g.by);
   return [...m].map(([key, list]) => ({ key, label: key, entries: list })).sort((a, b) => (down ? -1 : 1) * a.key.localeCompare(b.key, 'de', { numeric: true }));
 }
 
 /** One by one, sorted by the zone that was zoomed (date, initial; who and spot by their name), else as found. */
+/** The view's arrow turned (22.11.): date newest first by default, the others A → Z. */
+const backwards = (f, by) => (by === 'date' ? f.order?.date !== 'old' : f.order?.[by] === 'za');
 export function sortedBy(entries, f) {
-  const by = f.group?.by, dir = (by === 'date' && f.order?.date !== 'old') || (by === 'initial' && f.order?.initial === 'za') ? -1 : 1;
+  const by = f.group?.by, dir = backwards(f, by) ? -1 : 1;
   if (!by) return entries;
   if (by === 'date') return [...entries].sort((a, b) => dir * (a.t - b.t));
   const step = LADDERS[by].at(-1);

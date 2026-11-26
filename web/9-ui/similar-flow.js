@@ -16,6 +16,7 @@ import { idKey } from '../1-model/ids.js';
 import { similar } from '../7-similar/filter.js';
 import { passes, ordered, byPerson, MANY } from './similar-view.js';
 import { inBundle, sortedBy } from './similar-zoom.js';
+import { areasOf } from './spot-map.js';
 import { wideOpen, widenWords, applyRange } from './similar-range.js';
 import { nowWords, seriesRow } from './chips.js';
 import { saveSimilar, readSimilar } from '../4-save/save-similar.js';
@@ -213,6 +214,24 @@ export function similarFlow(A) {
     const members = {}; // who appears in which sharing point – a group's persons in the wer rings (21.11.)
     for (const e of all) for (const sp of e.sharing ?? []) if (e.person) (members[sp] ??= new Set()).add(e.person);
     A.data.similarLists.reach = (A.sources ?? []).map((x) => ({ name: x.name, write: Boolean(x.write), own: x.name === 'own', persons: [...(members[x.name] ?? [])].slice(0, 6) }));
+    mapOf(all.map((e) => e.spot));
+  }
+
+  /** The spots as a map (22.11.): when Ort is open, the areas at its zoom step, their outlines from h3 (loaded once). */
+  let mapKey = '';
+  function mapOf(spots) {
+    const f = A.st.filters;
+    if (f.open !== 'spot') return;
+    const areas = areasOf(spots, f.group?.by === 'spot' ? f.group.level : 2), key = areas.map((a) => a.id + a.n).join();
+    if (key === mapKey) return;
+    mapKey = key;
+    import('../5-take/where.js').then(async ({ outlineOf }) => {
+      const shapes = [];
+      for (const a of areas) { const poly = await outlineOf(a.id).catch(() => null); if (poly) shapes.push({ ...a, poly }); }
+      if (mapKey !== key) return;
+      A.data.spotMap = shapes;
+      A.paint();
+    }).catch(() => { A.data.spotMap = null; });
   }
 
   /**

@@ -16,8 +16,10 @@
 
 export const LEVELS = ['closed', 'many', 'single', 'full'];
 export const MANY = 40;
+import { inArea } from './spot-map.js';
+
 export const FILTERS = ['v', 'x', 'a', 'date', 'initial', 'name', 'sharing', 'spot'];
-export const ORDERED = ['date', 'initial'];
+export const ORDERED = ['date', 'initial', 'who', 'spot']; // each view has its arrow (22.11., user: sorting direction everywhere)
 
 export const noFilters = () => ({ on: { x: true }, value: {}, open: null, order: { date: 'new', initial: 'az' }, group: null }); // group: zoomed in a zone (similar-zoom.js)
 
@@ -39,7 +41,7 @@ export function tapFilter(f, name) {
 /** Hold an ordered filter: its order turns. */
 export function turnOrder(f, name) {
   if (!ORDERED.includes(name)) return f;
-  const order = { ...f.order, [name]: name === 'date' ? (f.order.date === 'new' ? 'old' : 'new') : (f.order.initial === 'az' ? 'za' : 'az') };
+  const order = { ...f.order, [name]: name === 'date' ? (f.order.date === 'new' ? 'old' : 'new') : ((f.order[name] ?? 'az') === 'az' ? 'za' : 'az') };
   return { ...f, order };
 }
 
@@ -59,7 +61,7 @@ export function passes(entry, f) {
   if (f.on.initial && v.initial?.length && !(entry.words ?? []).some((w) => v.initial.includes(initialOf(w)))) return false;
   if (f.on.name && v.name?.length && !v.name.includes(entry.person)) return false;
   if (f.on.sharing && v.sharing?.length && !(entry.sharing ?? []).some((s) => v.sharing.includes(s))) return false;
-  if (f.on.spot && v.spot?.length && !v.spot.includes(entry.spot)) return false;
+  if (f.on.spot && v.spot?.length && !v.spot.some((x) => inArea(entry.spot, x))) return false; // a region chosen on the map holds its cells (22.11.)
   return true;
 }
 

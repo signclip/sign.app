@@ -254,7 +254,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const nTemplates = A.data.kindCounts?.template ?? 0; // the templates' bubble at the end of the row (21.11.): spread or tap = their cloud
     const rowAll = rowText + (!earlier && !ob && !st.typing && nTemplates ? `<span class="kind-bubble" data-role="kinds:template"><em>_</em><b>${nTemplates}</b></span>` : '');
     if (rowEl.dataset.html !== rowAll) { rowEl.innerHTML = rowAll; rowEl.dataset.html = rowAll; }
-    const sim = similarHtml(st, A.data.entries ?? [], L, { ...(A.data.similarLists ?? {}), picked: A.data.picked ?? null, search: A.data.search ?? null, me: A.person?.label ?? '', kindCloud: A.data.kindCloud ?? null, searches: A.data.kindCounts?.search ?? 0, asks: (A.data.asks ?? []).length });
+    const sim = similarHtml(st, A.data.entries ?? [], L, { ...(A.data.similarLists ?? {}), picked: A.data.picked ?? null, search: A.data.search ?? null, me: A.person?.label ?? '', kindCloud: A.data.kindCloud ?? null, searches: A.data.kindCounts?.search ?? 0, asks: (A.data.asks ?? []).length, spotMap: A.data.spotMap ?? null });
     if ($('#similar').dataset.text !== sim) { $('#similar').innerHTML = sim; $('#similar').dataset.text = sim; }
     const cg = $('#carry'), c = A.data.carry; // what is carried follows the finger
     cg.hidden = !c;

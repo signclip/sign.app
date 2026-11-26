@@ -11,6 +11,7 @@
 
 import { cloudSpots, initialsOf } from './similar-view.js';
 import { bundlesOf, LADDERS } from './similar-zoom.js';
+import { fitMap } from './spot-map.js';
 import { outline, curve, pathOf } from './form.js';
 import { ARCS, GAP } from './layout.js';
 
@@ -30,7 +31,7 @@ export function tileForm(s, L) {
 }
 
 /** HTML of Similar. entries: [{ key, thumb, words, t, person, sharing, spot }] (ordered, filtered) · L: take layout */
-export function similarHtml(st, entries, L, { names = [], sharing = [], spots = [], range = null, compare = null, picked = null, search = null, reach = [], me = '', kindCloud = null, searches = 0, asks = 0 } = {}) {
+export function similarHtml(st, entries, L, { names = [], sharing = [], spots = [], range = null, compare = null, picked = null, search = null, reach = [], me = '', kindCloud = null, searches = 0, asks = 0, spotMap = null } = {}) {
   if (st.similar === 'closed' || !L.similarBox) return '';
   const box = L.similarBox, f = st.filters, out = [];
   // 21.11.: no row of signs at the top any more – each metadata is zoomed open where it lies (similar-zoom.js): a pale
@@ -77,7 +78,13 @@ export function similarHtml(st, entries, L, { names = [], sharing = [], spots = 
     out.push(`<div class="datebar" data-role="datebar" style="left:${px(box.x + box.w - 52 * L.k)};top:${px(box.y + 14 * L.k)};height:${px(box.h - 44 * L.k)}"><b style="top:${(a * 100).toFixed(1)}%;height:${((b - a) * 100).toFixed(1)}%"></b><em data-role="order:date">${f.order.date === 'new' ? '↓' : '↑'}</em></div>`);
   }
   if (f.open === 'who') out.push(whoRings(f, box, L, reach, me)); // wer as rings round me (21.11.), not a strip
-  const list = f.open === 'spot' ? spots.map((x) => ({ ...x, kind: 'spot' })) : null;
+  for (const z of ['who', 'spot']) if (f.open === z) out.push(`<em class="view-order" data-role="order:${z}" style="left:${px(box.x + box.w - 34 * L.k)};top:${px(z === 'who' ? box.y + box.h - 34 * L.k : box.y + 6 * L.k)}">${(f.order[z] ?? 'az') === 'az' ? '↓' : '↑'}</em>`); // the sorting direction, as at letters and date (22.11.)
+  if (f.open === 'spot' && spotMap?.length) { // Ort as a map (22.11.): the cells where the takes were, hexagons where they lie; tap = this spot
+    const area = { x: box.x + 8 * L.k, y: box.y + 34 * L.k, w: box.w - 16 * L.k, h: box.h - 44 * L.k }, chosen = f.value.spot ?? [];
+    const hexes = fitMap(spotMap, { x: 0, y: 0, w: area.w, h: area.h }, 12 * L.k);
+    out.push(`<svg class="spot-map" style="left:${px(area.x)};top:${px(area.y)};width:${px(area.w)};height:${px(area.h)}">${hexes.map((h) => `<g data-role="value:spot:${esc(h.id)}"><path class="spot-hex${chosen.includes(h.id) ? ' on' : ''}" d="${h.d}"/><text x="${h.x.toFixed(1)}" y="${(h.y + 4).toFixed(1)}">${h.n}</text></g>`).join('')}</svg>`);
+  }
+  const list = f.open === 'spot' && !spotMap?.length ? spots.map((x) => ({ ...x, kind: 'spot' })) : null; // no map (h3 not loaded, offline): the cells as a strip
   if (list) out.push(`<div class="strip" style="left:${px(box.x + 8 * L.k)};width:${px(box.w - 16 * L.k)};top:${px(box.y + 18 * L.k)}">${list.slice(0, 16).map((x) => `<span class="chip pick${(f.value[x.kind] ?? []).includes(x.id) ? ' on' : ''}" data-role="value:${x.kind}:${esc(x.id)}">${esc(x.label)}</span>`).join('')}</div>`);
   return out.join('');
 }

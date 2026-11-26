@@ -260,7 +260,7 @@ export function gesturesOf(A) {
         const tile = [a, b].find((x) => x?.startsWith('tile:')), te = tile ? A.data.entries?.[Number(tile.slice(5))] : null;
         if (te?.kind === 'template' && ev.scale > 1.12) return A.similar.bundleBy(te); // a template spread open: the cloud bundled by it
         if (bundle && ev.scale > 1.12) return openBundleAt(Number(bundle.slice(7)));
-        const f = A.st.filters, zone = zoneOf(L.similarBox, ev.centre, L.k) ?? (f.value.bundle && ev.scale < 0.88 ? f.value.bundle.by : null);
+        const f = A.st.filters, zone = (f.open && f.open !== 'template' ? f.open : null) ?? zoneOf(L.similarBox, ev.centre, L.k) ?? (f.value.bundle && ev.scale < 0.88 ? f.value.bundle.by : null); // a view open: zooming anywhere = its steps (22.11.)
         if (zone) { navigator.vibrate?.(6); return A.dispatch({ type: 'filters', filters: zoomZone(f, zone, ev.scale) }); }
       }
       const level = zoomed(A.st.similar, ev.scale);
