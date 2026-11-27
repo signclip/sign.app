@@ -34,7 +34,7 @@ import { zoomed, tapFilter, turnOrder, setFilter } from './similar-view.js';
 import { zoneOf, zoomZone, openBundle, bundlesOf, periodRange } from './similar-zoom.js';
 import { SECTORS, READY, wideOpen, stepRange } from './similar-range.js';
 import { insertGesture, fromField, contextTree, leadOf } from '../1-model/context.js';
-import { removeBefore, nestBetween, closeAt, unwrapAt, appendWord, toFront, takeOut } from '../1-model/context-edit.js';
+import { removeBefore, nestBetween, closeAt, unwrapAt, appendWord, toFront, takeOut, openAt } from '../1-model/context-edit.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
 import { flipPicture, focusAt, mainLens } from './camera.js';
 import { BOW, fanReach } from './paint.js';
@@ -508,7 +508,8 @@ export function gesturesOf(A) {
     if (take && editing()?.id !== take.id) A.data.edit = { n: A.st.lines.length - 1, i: A.st.at, id: take.id, text: take.context ?? '', was: take.context ?? '' };
     if (!take) A.data.edit = null;
     A.data.join = null; // a tap: the next word is a take of its own
-    A.dispatch({ type: 'caret', at: caretOf(role) });
+    const open = !take && !A.data.edit && openAt(A.st.context); // a bracket left open in front (26.11.): writing goes on inside it
+    A.dispatch({ type: 'caret', at: caretOf(role) ?? (open ? { how: 'in', at: open } : null) });
     A.dispatch({ type: 'typing', on: true });
     say.value = ZW; A.data.typing = ''; // the mark lets an empty field still feel Backspace (Android keyboards send no key there)
     if (document.activeElement !== say) say.focus({ preventScroll: true });

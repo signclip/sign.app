@@ -109,7 +109,15 @@ export function takeFlow(A) {
   addEventListener('pageshow', () => { liveAgain(); });
   globalThis.Capacitor?.Plugins?.App?.addListener?.('resume', () => { liveAgain(); }); // the native app comes to the front
 
-  async function start() {
+  // One at a time (27.11., user: start by itself, pause, go on and the stillness end together hung): a start and a drop
+  // each take a while (camera, recorder) before the state says so – meanwhile calm.js ticks every 100 ms and a finger
+  // taps. While one runs, another start or drop gets the same promise; pause, go on and ← wait for it to end.
+  let busy = null;
+  const once = (fn) => (...args) => busy ?? (busy = Promise.resolve().then(() => fn(...args)).finally(() => { busy = null; }));
+  const start = once(startNow);
+  const anew = once(anewNow);
+  async function startNow() {
+    if (A.st.rec !== 'idle') return; // already recording (a second start arriving late)
     await liveAgain(); // a camera that went still while away is replaced before the take, not found black afterwards (26.11.)
     await openCamera();
     t.began = Date.now(); t.wake = null; A.data.buttonPic = null;
@@ -123,11 +131,12 @@ export function takeFlow(A) {
     navigator.vibrate?.(12);
     A.dispatch({ type: 'rec', to: 'recording' });
   }
-  const pause = () => { t.recorder?.pause(); A.dispatch({ type: 'rec', to: 'paused' }); };
-  const resume = () => { t.recorder?.resume(); A.dispatch({ type: 'rec', to: 'recording' }); };
+  const pause = () => { if (busy || !t.recorder) return; t.recorder.pause(); A.dispatch({ type: 'rec', to: 'paused' }); };
+  const resume = () => { if (busy || !t.recorder) return; t.recorder.resume(); A.dispatch({ type: 'rec', to: 'recording' }); };
 
   /** ↓ while recording (26.11.: a little = the video anew, the context stays; far = the context goes too, all = true): the take is dropped, nothing is saved; the button starts fresh. */
-  async function anew(all = false) {
+  async function anewNow(all = false) {
+    if (A.st.rec === 'idle' && !t.recorder) return; // dropped already
     A.heard?.cut(); // what was read of it goes too
     if (t.recorder) await t.recorder.stop().catch(() => null);
     t.recorder = null; A.data.buttonPic = null;
@@ -143,6 +152,8 @@ export function takeFlow(A) {
    */
   let saving = Promise.resolve();
   function keep(step = 'inner') {
+    if (busy) return busy.then(() => (A.st.rec !== 'idle' ? keep(step) : null)); // still starting: kept once it runs
+    if (A.st.rec === 'idle' && !t.recorder) return Promise.resolve(null); // kept already (a second ← arriving late)
     const rec = t.recorder, began = t.began, wake = t.wake, heard = A.heard?.cut() ?? null; // heard: what Whisper read of it so far
     t.recorder = null;
     navigator.vibrate?.([15, 60, 15]);
@@ -423,5 +434,5 @@ export function takeFlow(A) {
   /** The chain of the line in force (↑ on the button shares it). */
   const lastChain = async () => A.data.shareChain ?? (await chosenChain()) ?? t.lineChain; // what was just made to share (a search, an answer, a template), else a chosen line (20.11.)
 
-  return { here: () => here.now?.() ?? null, saveLine, lineWith, retext, addStrand, takeStrand, shareTake, shareElement, showLine, saveTemplate, setCamera: (stream, facing) => { t.camera = stream; if (facing) t.facing = facing; }, openCamera, liveAgain, start, pause, resume, keep, keepAndPlay, anew, photo, wordsOnElement, lastChain, get camera() { return t.camera; } };
+  return { get busy() { return Boolean(busy); }, here: () => here.now?.() ?? null, saveLine, lineWith, retext, addStrand, takeStrand, shareTake, shareElement, showLine, saveTemplate, setCamera: (stream, facing) => { t.camera = stream; if (facing) t.facing = facing; }, openCamera, liveAgain, start, pause, resume, keep, keepAndPlay, anew, photo, wordsOnElement, lastChain, get camera() { return t.camera; } };
 }

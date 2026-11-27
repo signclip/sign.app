@@ -13,7 +13,8 @@
 //            button shows what is seen right now: bright = motion, faint = a little, gone = still (21.11., phone test).
 // Depends:   browser; settings.js (calmStep, normalize), layout.js (timerPill), ready.js (watch), take-state.js (live)
 // Test:      calmStep, timerPill in tests/ui.test.mjs; the sensing on a phone.
-// Limits:    0–10 s each, in half seconds, stillness at least 1 s (26.11.); ≈ 15 px per second beyond a catch of 26 px; checked every 100 ms; the camera
+// Limits:    0–10 s each, in half seconds, stillness at least 1 s (26.11.); ≈ 15 px per second beyond a catch of 26 px; checked every 100 ms,
+//            nothing new while a start or drop runs (take-flow busy, 27.11.), a start that found no camera again after 2 s; the camera
 //            is watched only while a time is set; the catch is shown and felt (a short vibration).
 
 import { calmStep, normalize } from './settings.js';
@@ -22,7 +23,7 @@ import { calmShapes } from './paint.js';
 import { watch } from './ready.js';
 import { live } from './take-state.js';
 
-const EVERY_MS = 100, CLOSE_MS = 220, EASE_MS = 60, STILL_SEEN_MS = 250; // the pill opens and closes in ≈ 0.2 s; stillness shows after 0.25 s
+const EVERY_MS = 100, CLOSE_MS = 220, EASE_MS = 60, STILL_SEEN_MS = 250, RETRY_MS = 2000; // the pill opens and closes in ≈ 0.2 s; stillness shows after 0.25 s
 const run = (fn) => Promise.resolve().then(fn).catch(() => {});
 const on = (s) => s.restartMs != null || s.stillEndMs > 0;
 
@@ -57,9 +58,10 @@ export function calmOf(A) {
     sense(on(s));
     if (!on(s)) return show(null);
     const recording = st.rec === 'recording';
-    const step = calmStep(s, { idle, freeMs: now - free, armed, recording, stillMs: now - still, moved, auto });
+    // nothing new while a start or a drop is on its way (27.11.: it was asked again every 100 ms until the state changed)
+    const step = A.take.busy ? null : calmStep(s, { idle, freeMs: now - free, armed, recording, stillMs: now - still, moved, auto });
     if (step) { show(null); navigator.vibrate?.(step === 'pause' ? [20, 60, 20] : 10); } // the pill closes moving
-    if (step === 'start') { starting = true; return run(A.take.start); }
+    if (step === 'start') { starting = true; return run(A.take.start).then(() => { if (A.st.rec === 'idle') { starting = false; free = performance.now() + RETRY_MS; } }); } // no camera: again in 2 s, not every tick
     if (step === 'keep') return run(A.take.keep); // the series goes on: the button is free, the countdown begins
     if (step === 'pause') return run(A.take.pause); // waits for ← (keep) or ↓ far (drop)
     if (step === 'drop') { armed = false; return run(A.take.anew); }

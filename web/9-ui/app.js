@@ -342,7 +342,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     Object.assign(rowEl.style, L.row ? { left: `${L.row.x}px`, right: 'auto', width: `${L.row.w}px`, padding: `0 ${Math.round(L.row.w * 0.4)}px` } : { left: '', right: '', width: '', padding: '' }); // Similar full across: the row under the take's column
     rowEl.classList.toggle('typing', st.typing);
     rowEl.classList.toggle('gone', !st.strands.x);
-    const rowText = rowHtml(row, { waiting: ob?.slot === 'own' && !ob.series, all: st.typing, on: st.typing && !ob?.series, caret: st.caret, typing: st.typing && !ob?.series ? A.data.typing : '', offers: ob?.green ?? [], open: A.data.open ?? undefined, join: Boolean(A.data.join) });
+    const rowText = rowHtml(row, { waiting: ob?.slot === 'own' && !ob.series, all: st.typing, on: st.typing && !ob?.series, caret: st.caret, typing: st.typing && !ob?.series ? A.data.typing : '', offers: ob?.green ?? [], open: A.data.open ?? undefined, join: Boolean(A.data.join), known: A.index ? (w) => A.index.tables.context.has(w.normalize('NFC').toLowerCase()) : null });
     const nTemplates = A.data.kindCounts?.template ?? 0; // the templates' bubble at the end of the row (21.11.): spread or tap = their cloud
     const rowAll = rowText + (!earlier && !ob && !st.typing && nTemplates ? `<span class="kind-bubble" data-role="kinds:template"><em>_</em><b>${nTemplates}</b></span>` : '');
     if (rowEl.dataset.html !== rowAll) { rowEl.innerHTML = rowAll; rowEl.dataset.html = rowAll; }

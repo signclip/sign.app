@@ -271,7 +271,7 @@ export function leadOf(text) {
 export function insertGesture(text, at, how, add) {
   const nodes = parse(text), more = parse(add).filter((n) => n.t !== 'sym');
   const real = (list) => list.map((n, ix) => [n, ix]).filter(([n]) => n.t !== 'sym');
-  const asGroup = (n) => { if (n.body.t !== 'group') n.body = { t: 'group', items: [n.body], meta: [] }; return n.body.items; };
+  const asGroup = (n) => { if (n.body.t !== 'group') n.body = { t: 'group', items: n.body.t === 'value' && n.body.text === '' ? [] : [n.body], meta: [] }; return n.body.items; }; // "()" = an open, empty bracket (26.11.)
   const end = () => { nodes.push(...more); return { text: write(nodes), at: [real(nodes).length - 1] }; };
   if (how === 'first' && !at?.length && more.length) { nodes.unshift(...more); return { text: write(nodes), at: [more.length - 1] }; }
   if (!at?.length || !more.length) return end();

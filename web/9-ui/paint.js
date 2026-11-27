@@ -14,7 +14,7 @@ import { PIECES } from './level.js';
 import { SECTORS, STEPS, READY, SIGN, wideOpen } from './similar-range.js';
 import { edge, curve, outline, pathOf } from './form.js';
 import { partsOf, contextTimes, lineLabel } from './line.js';
-import { chipWidth, NEST_COLORS } from './chips.js';
+import { chipWidth } from './chips.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const f1 = (n) => Number(n).toFixed(1);
@@ -319,7 +319,7 @@ export function nowHtml(words, L, offers = [], { len = 0, atMs = null } = {}) {
  * puts the caret there; what is typed shows at the caret. caret: { at: path | null, how: 'after' | 'in' | 'first' } | null
  * (null = at the end). open: where a "(" was typed (21.11.), shown until its ")". → HTML
  */
-export function rowHtml(row, { caret = null, typing = '', offers = [], all = false, waiting = false, on = false, open, join = false } = {}) {
+export function rowHtml(row, { caret = null, typing = '', offers = [], all = false, waiting = false, on = false, open, join = false, known = null } = {}) {
   const same = (a, b) => (a ?? []).length === (b ?? []).length && (a ?? []).every((x, i) => x === b[i]);
   const here = (at, how) => on && caret && caret.how === how && same(caret.at, at);
   // 22.11. (user): a "(" just typed opens a pastel bubble at once, from there to the end of its level, until ")"
@@ -345,8 +345,8 @@ export function rowHtml(row, { caret = null, typing = '', offers = [], all = fal
     return `${mine && typing ? typed : ''}<i class="gap${mine ? ' caret' : ''}" data-role="gap:${how}:${(at ?? []).join('.')}"></i>`;
   };
   const hidden = (n) => !all && (n.take ? n.i === 0 : n.children.every(hidden)); // the take now shows inside the window; the row: what comes
-  const chip = (w) => `<span class="chip ${w.tone}${offers.includes(w.text) ? ' offer' : ''}">${esc(w.text)}</span>`;
-  const edge = (k) => (k == null ? '' : ` style="--nc:${NEST_COLORS[k % NEST_COLORS.length]}"`); // the edge says which nesting (20.11.)
+  const chip = (w) => `<span class="chip ${w.tone}${offers.includes(w.text) ? ' offer' : ''}${known && !known(w.text) ? ' new' : ''}">${esc(w.text)}</span>`; // new = no take with it yet (27.11.)
+  const edge = (c) => (c == null ? '' : ` style="--nc:${c}"`); // the edge says which main nesting, darker inside (20.11., 27.11.)
   /** A level's elements, each with its gap behind; the open bracket wraps the rest of its level. */
   const list = (nodes, path) => {
     const items = nodes.map((c) => node(c) + (c.at && !hidden(c) ? gap(c.at) : ''));

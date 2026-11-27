@@ -25,7 +25,7 @@ import { parse, write } from './notation.js';
 
 const real = (list) => list.map((n, ix) => [n, ix]).filter(([n]) => n.t !== 'sym');
 const inner = (n) => { while (n?.t === 'group' && real(n.items).length === 1 && ['prefix', 'group'].includes(real(n.items)[0][0].t)) n = real(n.items)[0][0]; return n; };
-const asGroup = (n) => { if (n.body.t !== 'group') n.body = { t: 'group', items: [n.body], meta: [] }; return n.body.items; };
+const asGroup = (n) => { if (n.body.t !== 'group') n.body = { t: 'group', items: n.body.t === 'value' && n.body.text === '' ? [] : [n.body], meta: [] }; return n.body.items; }; // "()" = an open, empty bracket (26.11.)
 
 /** Where a caret stands: the list it writes into, the index there (as insertGesture), the path of that bracket ([] = the row) and the bracket node. */
 function positionOf(nodes, caret) {
@@ -211,4 +211,26 @@ export function takeOut(text, at) {
   if (!hit) return null;
   hit.list.splice(hit.ix, 1);
   return write(nodes).trim();
+}
+
+/**
+ * The bracket left open and empty in front (26.11., stepOn: the last element went, the prefixes stay): its path in the
+ * row, so writing goes on inside it – a new nesting begins only after ")" or a tap elsewhere. → path, or null
+ *   openAt('((Obst)()) (Kaffee)') → [0] · openAt('((A)((B)()))') → [0, 0] · openAt('(Hallo)') → null
+ */
+export function openAt(text) {
+  let nodes;
+  try { nodes = parse(text ?? ''); } catch { return null; }
+  const path = [];
+  let list = nodes;
+  for (;;) {
+    const first = real(list)[0];
+    if (!first) return null;
+    const n = inner(first[0]);
+    if (n.t !== 'prefix') return null;
+    path.push(0);
+    const items = n.body?.t === 'group' ? n.body.items : n.body?.t === 'value' && n.body.text === '' ? [] : [n.body];
+    if (!real(items).length) return path;
+    list = items;
+  }
 }

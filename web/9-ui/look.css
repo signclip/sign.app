@@ -75,6 +75,7 @@ video::-webkit-media-controls { display: none !important; }
 .chip.now, .chip.sticky { background: var(--c-now); border-color: var(--nc, var(--b-now)); font-weight: 600; }
 .chip.next { border-color: var(--nc, var(--b-next)); }
 .chip.later { background: var(--c-later); border-color: var(--nc, var(--b-later)); }
+#row .chip.new { background: #fff; border-style: dashed; } /* a word with no take yet: white, dashed; one already taken: filled (27.11.) */
 .chip.offer { background: var(--mint); border-color: var(--mint-b); color: #085041; border-style: dashed; }
 .chip.typing { } /* the word being typed: in the colour of its take at once, the caret behind it (22.11.) */
 .chip.timed { position: relative; overflow: hidden; } .chip .when { position: absolute; bottom: 2px; height: 3px; border-radius: 2px; background: var(--b-now); pointer-events: none; } /* a word with its own time: where in the take (21.11.) */
