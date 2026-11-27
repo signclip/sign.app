@@ -22,6 +22,8 @@ export const ARCS = Object.freeze({ line: [-60, 60], a: [60, 140], x: [140, 220]
 export const PHI = (1 + Math.sqrt(5)) / 2;
 export const GAP = 3; // degrees left free between two arcs
 export const LINE_SIDE = 4; // takes shown on each side of the button
+/** The older lines between the button and the window (27.11., user): a row each, 44 px apart, at most 4 at once (more by scrolling), the window keeps ≥ 60 % of its size. */
+export const STACK = Object.freeze({ row: 44, most: 4, keep: 0.6 });
 export const OLD_LINES = 3;
 
 const rad = (deg) => (deg * Math.PI) / 180;
@@ -61,10 +63,16 @@ export function takeLayout(size, similar = 'closed', form = { round: 1, aspect: 
   const k = Math.min(Math.max(w, h) / 760, Math.min(w, h) / 390);
   const ring = 42 * k; // the button's radius with its ring
   const room = { w: w - 2 * Math.max(25 * k, 14), h: h - 1.8 * ring - 76 * k - 12 }; // the line's ends, the button above, the row below
+  // the lines stacked between the button and the window (27.11., user): as many rows as there are older lines, at most
+  // STACK.most, and only as many as leave the window ≥ 60 % of its size; t = on the way (0…1)
+  const want = similar === 'closed' ? size.stack ?? null : null;
+  const fitRows = Math.max(0, Math.floor((room.h - STACK.keep * Math.min(room.w, room.h)) / (STACK.row * k)));
+  const stackRows = want ? Math.min(want.rows ?? 0, STACK.most, fitRows) : 0, stack = stackRows * STACK.row * k * Math.max(0, Math.min(1, want?.t ?? 1));
+  room.h -= stack;
   const { rx: rx0, ry: ry0 } = fit(room, form.aspect);
   const wide = isWide({ w, h });
   const S = Math.min(room.w, room.h); // the 1:1 window: no form is larger, one side may be narrower (20.11.)
-  const top = 1.8 * ring + 6, below = 76 * k + 12, side = (w - room.w) / 2; // the button above the window, the row under it, the line's ends
+  const top = 1.8 * ring + 6 + stack, below = 76 * k + 12, side = (w - room.w) / 2; // the button above the window (and the stacked lines), the row under it, the line's ends
   let cx = w / 2, cy = top + S / 2 + Math.max(0, (room.h - S) / 2), scale = 1, similarBox = null, singleBox = null, single = null;
   if (similar === 'many' || similar === 'single') {
     // 21.11. (user): the take keeps the size it has alone, at the very bottom with its row; Similar gets the rest, at
@@ -102,7 +110,7 @@ export function takeLayout(size, similar = 'closed', form = { round: 1, aspect: 
   const lineOff = ring * 0.8 * s; // through the button: it overlaps the window a little (08.11.)
   const [bx, by] = edge(F, 0, lineOff);
   return { k, cx, cy: F.cy, rx, ry, R: ry, n, aspect: clampAspect(form.aspect), round: form.round ?? 1, ring: ring * s, scale, wide, lift,
-    button: { x: bx, y: by, r: 31 * k * s }, lineOff,
+    button: { x: bx, y: by - stack, r: 31 * k * s }, lineOff, stack, stackRows, lineDy: -stack,
     nowOff: -24 * k * s, queueY: queueY0 - lift, media: cover(F, picture), similarBox, singleBox, single };
 }
 
@@ -180,9 +188,10 @@ export function arcsOf(L, olderLines = 0) {
     out.push({ id: `strand:${kind}`, kind, d: pathOf(pts), mid: L.full ? pts[Math.floor(pts.length / 2)] : edge(L, (a + b) / 2, off) });
   }
   let run = curve(L, ARCS.line[0], ARCS.line[1], L.lineOff);
+  if (L.lineDy) run = run.map(([x, y]) => [x, y + L.lineDy]); // the lines stacked below it: the open line goes up with the button (27.11.)
   if (L.home) { const j = run.findIndex(([x, y]) => x > L.button.x && y < L.cy); if (j > 1) run = [...run.slice(0, j), [L.button.x, run[j - 1][1]]]; } // a line chosen: it ends at the button on the right (26.11.)
   out.push({ id: 'line', d: pathOf(run), mid: edge(L, 0, L.lineOff) });
-  for (let i = 0; i < Math.min(olderLines, OLD_LINES); i++) {
+  for (let i = 0; i < (L.stack ? 0 : Math.min(olderLines, OLD_LINES)); i++) { // the stacked lines shown in full: no small arcs for them
     const o = L.lineOff - (14 + 6 * i) * L.k * s, span = 46 - 6 * i;
     out.push({ id: `old:${i}`, d: pathOf(curve(L, -span, span, o)), mid: edge(L, 0, o) });
   }
@@ -203,7 +212,7 @@ export function lineSlots(L, count, at, shift = 0) {
     if (a < 0.02 || a > LINE_SIDE + 0.5) continue;
     const d = Math.sign(off) * (a < 1 ? step * 1.25 * a : step * (a + 0.25)); // along the line, through the button without a jump
     const p = along(run, d + moved);
-    out.push({ i, x: p.x, y: p.y, r: 15 * L.k * s * (a < 1 ? 0.7 + 0.3 * a : 1), off });
+    out.push({ i, x: p.x, y: p.y + (L.lineDy ?? 0), r: 15 * L.k * s * (a < 1 ? 0.7 + 0.3 * a : 1), off });
   }
   return out;
 }
@@ -315,4 +324,47 @@ export function flowPoints(L, { from = ARCS.a[1] - 9, to = ARCS.x[0] + 9, off = 
   const s = L.scale || 1, out = [];
   for (let i = 0; i <= steps; i++) out.push(edge(L, from + ((to - from) * i) / steps, (off + amp * Math.sin((i / steps) * waves * 2 * Math.PI)) * L.k * s));
   return out;
+}
+
+/**
+ * The stacked lines (27.11., user: between the button and the window, as the line looks now – an arc with its takes –
+ * several, scrolled upright). Row i (1 = right under the open line) holds the i-th newest older line (after off); its arc is the line's
+ * own arc, its upper part (stackArc), moved down by i rows; its takes sit centred on it, slid by shift px. drag: px the
+ * finger moved the rows (up = older). → [{ n, dy, d (the arc), takes: [{ j, x, y, r }] }]
+ */
+export function stackRows(L, lines, { off = 0, drag = 0, shift = {} } = {}) {
+  const rows = L.stackRows ?? 0, older = lines.length - 1, out = [];
+  if (!rows || older < 1) return out;
+  const row = STACK.row * L.k, step = slotPx(L), r = 15 * L.k * (L.scale || 1), base = stackArc(L), half = lengthOf(base) / 2 - r;
+  const from = drag > 0 ? 0 : 1, to = rows + (drag < 0 ? 1 : 0);
+  // by time (27.11., user: stacked by time first): the newest older line right under the open one, whatever line was
+  // brought to the button before (show-line moves it to the end of the list)
+  const when = (n) => Math.max(...lines[n].takes.map((t) => t.t ?? 0), 0), order = [...Array(older).keys()].sort((a, b) => when(b) - when(a) || b - a);
+  for (let i = from; i <= to; i++) {
+    const n = order[off + i - 1], dy = (L.lineDy ?? 0) + i * row + drag;
+    if (n == null) continue;
+    const m = lines[n].takes.length, slide = shift[n] ?? 0, takes = [];
+    for (let j = 0; j < m; j++) {
+      const d = (j - (m - 1) / 2) * step - slide;
+      if (Math.abs(d) > half) continue; // past the arc's ends: slide the line to see it
+      const p = along(base, d);
+      takes.push({ j, x: p.x, y: p.y + dy, r });
+    }
+    out.push({ n, i, dy, d: pathOf(base.map(([x, y]) => [x, y + dy])), takes });
+  }
+  return out;
+}
+/** A stacked line's arc: the open line's arc as far as it stays within 0.7 rows of its top (a round window bends early, a square one late) – so the rows do not reach down beside the window. */
+function stackArc(L) {
+  const run = curve(L, -88, 88, L.lineOff, 160), y0 = Math.min(...run.map(([, y]) => y)), lim = y0 + 0.7 * STACK.row * L.k;
+  const mid = Math.floor(run.length / 2);
+  let a = mid, b = mid;
+  while (a > 0 && run[a - 1][1] <= lim) a--;
+  while (b < run.length - 1 && run[b + 1][1] <= lim) b++;
+  return run.slice(a, b + 1);
+}
+/** How far a stacked line's takes slide (27.11.): 0 … what does not fit on its arc. */
+export function stackReach(L, takes) {
+  const base = stackArc(L), r = 15 * L.k * (L.scale || 1);
+  return Math.max(0, (takes - 1) * slotPx(L) / 2 - (lengthOf(base) / 2 - r));
 }

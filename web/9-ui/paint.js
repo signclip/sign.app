@@ -9,11 +9,11 @@
 // Limits:    one SVG of ≈ 40 shapes per paint (< 1 ms); the SVG is only replaced when its text changed, so running
 //            CSS animations (pulse, dots) keep their phase.
 
-import { timerPill, arcsOf, lineSlots, wideButton, nowChipSpot, timeline, polar, strandPoints, pieceOfPoints, flowPoints } from './layout.js';
+import { timerPill, arcsOf, lineSlots, wideButton, nowChipSpot, timeline, polar, strandPoints, pieceOfPoints, flowPoints, stackRows, STACK } from './layout.js';
 import { PIECES } from './level.js';
 import { SECTORS, STEPS, READY, SIGN, wideOpen } from './similar-range.js';
 import { edge, curve, outline, pathOf } from './form.js';
-import { partsOf, contextTimes, lineLabel } from './line.js';
+import { partsOf, contextTimes } from './line.js';
 import { chipWidth } from './chips.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -196,7 +196,7 @@ export function takeSvg(st, L, data = {}) {
   }
   if (st.strands.a && L.scale) out.push(soundSvg(L)); // the level on the audio arc (21.11.), its pieces set by level.js
   if (data.flow?.on && !L.full) out.push(flowSvg(L, data.flow)); // sound → context by Whisper (26.11.)
-  if (older > 3) { const [x, y] = edge(L, 0, L.lineOff - 34 * L.k); out.push(`<text class="more" x="${f1(x)}" y="${f1(y)}">+${older - 3}</text>`); }
+  if (older > 3 && !L.stack) { const [x, y] = edge(L, 0, L.lineOff - 34 * L.k); out.push(`<text class="more" x="${f1(x)}" y="${f1(y)}">+${older - 3}</text>`); }
   out.push('<defs>');
   const slots = lineSlots(L, line.takes.length + (st.rec !== 'idle' ? 1 : 0), st.at, data.lineShift ?? 0);
   const thumbOf = (t) => ({ cx: t.x, cy: t.y, rx: t.r * Math.min(1, L.aspect), ry: t.r * Math.min(1, 1 / L.aspect), n: L.n }); // a take on the line: the window's form (20.11.)
@@ -240,63 +240,32 @@ export function takeSvg(st, L, data = {}) {
     out.push(`${symbol(st, b.x, b.y, b.r, live, data.playing)}<circle class="button-ring" cx="${f1(b.x)}" cy="${f1(b.y)}" r="${f1(b.r + 5 * L.k)}"/></g>`);
   }
   if (data.ranging && st.similar !== 'closed') out.push(rangeSvg(data.range, L)); // the rings with sectors, over the take (21.11.)
-  if (data.fan && st.lines.length > 1) out.push(fanSvg(st, L, data)); // the older lines fanned out above the button (22.11.)
+  if (L.stackRows && st.lines.length > 1) out.push(stackSvg(st, L, data)); // the older lines between the button and the window (27.11.)
   return out.join('');
 }
 
-export const FAN = Object.freeze({ row: 56, thumb: 22, step: 50, label: 96, side: 10 }); // px at k = 1
-/** How many rows of the fan fit above the button. */
-export const fanRows = (L) => Math.max(1, Math.floor((L.button.y - L.button.r - 18 * L.k) / (FAN.row * L.k)));
-/** How far a row of the fan can be pushed to the left (px): until its last take stands at the row's right end. */
-export function fanReach(L, takes, w) {
-  const k = L.k, room = w - 2 * FAN.side * k - FAN.label * k - 12 * k;
-  return Math.max(0, takes * FAN.step * k - room);
-}
 /**
- * The older lines fanned out (22.11., user): a row each above the button, the newest older one nearest. 26.11. (user:
- * "horizontal scrollen und auswählen, indem ich da wirklich etwas sehen kann"): a row spans the screen, says in front
- * what the line is about (line.js lineLabel), shows its takes larger, in the window's form, and is pushed sideways with
- * a finger to see them all (data.fanShift[n] px); a take tapped = that line at the button, standing on that take
- * (data-role fan:n:j), the row's label tapped = the line, ready for a new take (fan:n). Phone 390 × 844: 3 rows of
- * 56 px, 5 takes of 44 px in sight; ↑ ↓ on the rows shows older or newer lines (data.fanOff).
+ * The older lines between the button and the window (27.11., user: as the line looks now, an arc with its takes, several,
+ * scrolled upright; nothing else drawn). layout.js stackRows sets where they stand; here they are drawn like the line: the arc,
+ * its takes in the window's form, clipped to the room between the open line and the window. Roles: fan:n (the arc) ·
+ * fan:n:j (a take) – gestures-take.js fan().
  */
-export function fanSvg(st, L, data = {}) {
-  const k = L.k, b = L.button, rows = fanRows(L), older = st.lines.length - 1, off = Math.min(data.fanOff ?? 0, Math.max(0, older - rows));
-  const W = data.w ?? 2 * L.cx, out = [], defs = [], top = b.y - b.r - 10 * k - rows * FAN.row * k;
-  const x0 = FAN.side * k, x1 = W - FAN.side * k, first = x0 + FAN.label * k + 8 * k + FAN.thumb * k;
-  out.push(`<rect class="fan-back" x="0" y="${f1(top - 8 * k)}" width="100%" height="${f1(b.y - b.r - top + 8 * k)}"/>`);
-  for (let i = 0; i < rows && off + i < older; i++) {
-    const n = older - 1 - off - i, line = st.lines[n], cy = b.y - b.r - 10 * k - (i + 0.5) * FAN.row * k, h = (FAN.row - 6) * k;
-    const shift = Math.max(0, Math.min(fanReach(L, line.takes.length, W), data.fanShift?.[n] ?? 0)), label = lineLabel(line);
-    defs.push(`<clipPath id="fr${n}"><rect x="${f1(x0 + FAN.label * k + 4 * k)}" y="${f1(cy - h / 2)}" width="${f1(x1 - x0 - FAN.label * k - 6 * k)}" height="${f1(h)}" rx="${f1(8 * k)}"/></clipPath>`);
-    out.push(`<g data-role="fan:${n}"><rect class="fan-row" x="${f1(x0)}" y="${f1(cy - h / 2)}" width="${f1(x1 - x0)}" height="${f1(h)}" rx="${f1(h / 2)}"/>`,
-      `<text class="fan-label${label ? '' : ' none'}" x="${f1(x0 + 14 * k)}" y="${f1(cy)}" style="font-size:${f1(13 * k)}px">${esc(clip(label || '·', 11))}</text><text class="fan-count" x="${f1(x0 + 14 * k)}" y="${f1(cy + 15 * k)}" style="font-size:${f1(10 * k)}px">${line.takes.length}${dayOf(line) ? ` · ${dayOf(line)}` : ''}</text></g>`,
-      `<g clip-path="url(#fr${n})">`);
-    line.takes.forEach((t, j) => {
-      const x = first + j * FAN.step * k - shift;
-      if (x < x0 + FAN.label * k - FAN.thumb * k || x > x1 + FAN.thumb * k) return; // out of sight
-      const T = { cx: x, cy, rx: FAN.thumb * k * Math.min(1, L.aspect), ry: FAN.thumb * k * Math.min(1, 1 / L.aspect), n: L.n }, d = outline(T), pic = data.thumbOf?.(t) ?? data.thumbs?.[t.id];
-      defs.push(`<clipPath id="f${n}-${j}"><path d="${d}"/></clipPath>`);
-      out.push(`<g data-role="fan:${n}:${j}"><path class="thumb" d="${d}"/>${pic ? `<image href="${esc(pic)}" x="${f1(x - T.rx)}" y="${f1(cy - T.ry)}" width="${f1(2 * T.rx)}" height="${f1(2 * T.ry)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#f${n}-${j})"/>` : ''}<path class="thumb-edge" d="${d}"/></g>`);
-    });
-    out.push('</g>');
-    if (fanReach(L, line.takes.length, W) - shift > 1) out.push(`<path class="fan-more" d="M${f1(x1 - 12 * k)} ${f1(cy - 5 * k)}l${f1(5 * k)} ${f1(5 * k)}l${f1(-5 * k)} ${f1(5 * k)}"/>`); // more to the right
-    if (shift > 1) out.push(`<path class="fan-more" d="M${f1(x0 + FAN.label * k + 1 * k)} ${f1(cy - 5 * k)}l${f1(-5 * k)} ${f1(5 * k)}l${f1(5 * k)} ${f1(5 * k)}"/>`);
+export function stackSvg(st, L, data = {}) {
+  const rows = stackRows(L, st.lines, { off: data.fanOff ?? 0, drag: data.stackDrag ?? 0, shift: data.fanShift ?? {} });
+  if (!rows.length) return '';
+  const row = STACK.row * L.k, top = L.button.y + row / 2, bottom = L.button.y + L.stack + row / 2, W = data.w ?? 2 * L.cx;
+  const form = (t) => ({ cx: t.x, cy: t.y, rx: t.r * Math.min(1, L.aspect), ry: t.r * Math.min(1, 1 / L.aspect), n: L.n });
+  const defs = [`<clipPath id="stack-room"><rect x="0" y="${f1(top)}" width="${f1(W)}" height="${f1(Math.max(0, bottom - top))}"/></clipPath>`], out = [];
+  for (const r of rows) {
+    out.push(`<path class="line" d="${r.d}"/><path class="hit" data-role="fan:${r.n}" d="${r.d}"/>`);
+    for (const t of r.takes) {
+      const take = st.lines[r.n].takes[t.j], T = form(t), d = outline(T), pic = data.thumbOf?.(take) ?? data.thumbs?.[take?.id];
+      defs.push(`<clipPath id="s${r.n}-${t.j}"><path d="${d}"/></clipPath>`);
+      out.push(`<g data-role="fan:${r.n}:${t.j}"><path class="thumb" d="${d}"/>${pic ? `<image href="${esc(pic)}" x="${f1(t.x - T.rx)}" y="${f1(t.y - T.ry)}" width="${f1(2 * T.rx)}" height="${f1(2 * T.ry)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#s${r.n}-${t.j})"/>` : ''}<path class="thumb-edge" d="${d}"/></g>`);
+    }
   }
-  if (off + rows < older) out.push(`<text class="more" x="${f1(b.x)}" y="${f1(top - 12 * k)}">↑ ${older - off - rows}</text>`);
-  return `<defs>${defs.join('')}</defs>${out.join('')}`;
+  return `<defs>${defs.join('')}</defs><g class="stack" clip-path="url(#stack-room)">${out.join('')}</g>`;
 }
-/** When a line was made (26.11., user: the lines stacked by time): its last take's day – heute · gestern (Intl, any language) · 24.11. · 24.11.25. */
-function dayOf(line) {
-  const t = line?.takes?.at(-1)?.t;
-  if (!(t > 1e11)) return ''; // no clock time (an old or a guest line)
-  const d = new Date(t), now = new Date(), day = (x) => Math.floor((x - x.getTimezoneOffset() * 6e4) / 864e5), ago = day(now) - day(d);
-  if (ago === 0 || ago === 1) return new Intl.RelativeTimeFormat(globalThis.document?.documentElement?.lang || 'de', { numeric: 'auto' }).format(-ago, 'day'); // heute · gestern, in the app's language
-  const dm = `${d.getDate()}.${d.getMonth() + 1}.`;
-  return d.getFullYear() === now.getFullYear() ? dm : `${dm}${String(d.getFullYear()).slice(2)}`;
-}
-/** A text cut to n letters, with … when something was cut. */
-const clip = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
 
 /**
  * The chips of the take now, bent along the bottom arc inside the window. A word with its own time (21.11.): a thin bar

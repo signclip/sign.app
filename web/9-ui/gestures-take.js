@@ -29,7 +29,7 @@
 import { buttonMeaning, live, count } from './take-state.js';
 import { joinTakes, cutTake, withContext, nestStep } from './line.js';
 import { nowWords, stepAfter } from './chips.js';
-import { slotPx, onTake, similarSide, onArc, timeline, wideButton } from './layout.js';
+import { slotPx, onTake, similarSide, onArc, timeline, wideButton, STACK, stackReach } from './layout.js';
 import { zoomed, tapFilter, turnOrder, setFilter } from './similar-view.js';
 import { zoneOf, zoomZone, openBundle, bundlesOf, periodRange } from './similar-zoom.js';
 import { SECTORS, READY, wideOpen, stepRange } from './similar-range.js';
@@ -37,7 +37,7 @@ import { insertGesture, fromField, contextTree, leadOf } from '../1-model/contex
 import { removeBefore, nestBetween, closeAt, unwrapAt, appendWord, toFront, takeOut, openAt } from '../1-model/context-edit.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
 import { flipPicture, focusAt, mainLens } from './camera.js';
-import { BOW, fanReach } from './paint.js';
+import { BOW } from './paint.js';
 import { inside, formBy, snap } from './form.js';
 
 const CUT = 1.15, RUN_RATE = 0.5; // past the widest by 15 % = cut · the timeline runs through at half speed
@@ -297,40 +297,50 @@ export function gesturesOf(A) {
 
   // ---------- spread, squeeze ----------
   /**
-   * The lines fanned out (22.11., user): two fingers on the line pulled apart up and down = the older lines above the
-   * button, a row each with its takes (paint.js fanSvg); a take tapped = that line at the button, on that take; a
-   * row's label tapped = that line, ready for a new take; a finger sideways on a row = its takes slide; ↑ ↓ on them =
-   * older, newer lines; pushed together or a tap beside = closed.
+   * The lines stacked between the button and the window (27.11., user; opened by two fingers on the line pulled apart up
+   * and down, or the line pulled up): the older lines as the line looks, an arc with its takes (layout.js stackRows).
+   * A take tapped = that line at the button, on that take; its arc tapped = that line, ready; a finger upright = the
+   * rows follow it (up = older), resting on a row when it lets go; sideways on a row = its takes slide; pushed together
+   * or a tap beside = closed.
    */
   function fan(ev) {
     const r = ev.role ?? '', [, n, j] = r.startsWith('fan:') ? r.split(':').map(Number) : [];
+    const row = STACK.row * A.L.k, older = A.st.lines.length - 1, most = Math.max(0, older - (A.L.stackRows ?? 1));
     if (ev.type === 'tap') {
       if (n == null) { A.data.fan = false; return A.paint(); }
+      A.data.fan = false; // chosen: the stack folds, the line stands at the button
       A.take.showLine(n); // the line comes to the button …
       if (j != null) A.dispatch({ type: 'at', at: j }); // … standing on the take that was tapped (26.11.)
-      return null;
+      return A.paint();
+    }
+    if (ev.type === 'drag' && !fanFrom && (fanUp || Math.abs(ev.dy) > Math.abs(ev.dx))) { // upright: the rows follow the finger
+      fanUp = true;
+      const off = A.data.fanOff ?? 0;
+      A.data.stackDrag = Math.max(-(most - off) * row - row / 3, Math.min(off * row + row / 3, ev.dy)); // a third of a row past the ends, no further
+      return A.paint();
     }
     // a finger sideways on a row = its takes slide under it (26.11., user: scroll a line to see all of it)
-    if (n != null && ev.type === 'drag' && Math.abs(ev.dx) > Math.abs(ev.dy)) {
+    if (n != null && ev.type === 'drag' && !fanUp) {
       fanFrom ??= { n, at: A.data.fanShift?.[n] ?? 0 };
       if (fanFrom.n !== n) return null;
-      const most = fanReach(A.L, A.st.lines[n]?.takes.length ?? 0, innerWidth);
-      A.data.fanShift = { ...(A.data.fanShift ?? {}), [n]: Math.max(0, Math.min(most, fanFrom.at - ev.dx)) };
+      const reach = stackReach(A.L, A.st.lines[n]?.takes.length ?? 0);
+      A.data.fanShift = { ...(A.data.fanShift ?? {}), [n]: Math.max(-reach, Math.min(reach, fanFrom.at - ev.dx)) };
       return A.paint();
     }
     if (ev.type === 'swipe' || ev.type === 'drag-end') {
-      const sideways = fanFrom != null;
-      fanFrom = null;
+      const sideways = fanFrom != null, upright = fanUp;
+      fanFrom = null; fanUp = false;
       if (sideways) return null;
-      if (ev.type === 'swipe' && n != null && (ev.dir === 'up' || ev.dir === 'down')) {
-        const most = Math.max(0, A.st.lines.length - 1 - (A.data.fanRows ?? 1));
-        A.data.fanOff = Math.max(0, Math.min(most, (A.data.fanOff ?? 0) + (ev.dir === 'up' ? 1 : -1) * Math.max(1, (A.data.fanRows ?? 2) - 1)));
-        return A.paint();
-      }
+      const moved = A.data.stackDrag ?? 0;
+      A.data.stackDrag = 0;
+      const rowsBy = upright ? Math.round(-moved / row) + (ev.type === 'swipe' && ev.dir === 'up' ? 1 : ev.type === 'swipe' && ev.dir === 'down' ? -1 : 0) : ev.type === 'swipe' && (ev.dir === 'up' || ev.dir === 'down') ? (ev.dir === 'up' ? 1 : -1) : 0;
+      A.data.fanOff = Math.max(0, Math.min(most, (A.data.fanOff ?? 0) + rowsBy)); // a flick goes one row further
+      return A.paint();
     }
     return null;
   }
   let fanFrom = null; // the row a finger pushes sideways, and where it stood
+  let fanUp = false; // a finger moving the stacked lines upright (27.11.)
   let lifting = false; // a finger on the line going up: the fan opens when it lets go (26.11.)
   function pinch(ev) {
     const L = A.L, [a, b] = ev.roles ?? [];

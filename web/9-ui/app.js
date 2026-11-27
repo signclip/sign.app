@@ -27,7 +27,7 @@ import { installDebug, note as debugNote } from './debug.js';
 import { initial, next } from './take-state.js';
 import { takeLayout, markedButton } from './layout.js';
 import { outline } from './form.js';
-import { takeSvg, fanRows, nowHtml, rowHtml } from './paint.js';
+import { takeSvg, nowHtml, rowHtml } from './paint.js';
 import { similarHtml } from './paint-similar.js';
 import { morph } from './morph.js';
 import { overHtml } from './paint-over.js';
@@ -302,6 +302,17 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // the button moving to the right and back when a line is chosen (26.11.): 300 ms, eased, one frame after another
   let markT = 0, markAt = 0, markFrame = 0;
   const ease = (t) => t * t * (3 - 2 * t);
+  // the same for the stacked lines (27.11.): how far they are open, and how many rows they ask for while folding
+  let stackT = 0, stackAt = 0, stackFrame = 0, stackWant = 0;
+  function stackStep(want) {
+    const now = performance.now(), dt = stackAt ? Math.min(100, now - stackAt) : 0;
+    stackAt = now;
+    if (matchMedia?.('(prefers-reduced-motion: reduce)').matches) stackT = want;
+    else stackT = want > stackT ? Math.min(want, stackT + dt / 300) : Math.max(want, stackT - dt / 300);
+    if (stackT !== want && !stackFrame) stackFrame = requestAnimationFrame(() => { stackFrame = 0; paint(); });
+    if (stackT === want) stackAt = 0;
+    return stackT;
+  }
   function markStep(want) {
     const now = performance.now(), dt = markAt ? Math.min(100, now - markAt) : 0;
     markAt = now;
@@ -312,7 +323,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     return markT;
   }
   function paint() {
-    const st = A.st, L0 = takeLayout(size(), st.similar, st.form, A.data.picture ?? 1, A.data.fullT ?? (st.similar === 'full' ? 1 : 0));
+    const st = A.st, open = Boolean(A.data.fan) && st.similar === 'closed' && st.lines.length > 1;
+    const stackT = stackStep(open ? 1 : 0); // the lines stacked between button and window open and fold in 0.3 s (27.11.)
+    if (open) stackWant = st.lines.length - 1;
+    const L0 = takeLayout({ ...size(), stack: stackT > 0 ? { rows: stackWant, t: ease(stackT) } : null }, st.similar, st.form, A.data.picture ?? 1, A.data.fullT ?? (st.similar === 'full' ? 1 : 0));
     const mark = markStep(st.chosenLine != null && st.similar !== 'full' && st.wide < 0.02 ? 1 : 0);
     const L = mark > 0 ? markedButton(L0, innerWidth, ease(mark)) : L0; // a line chosen: the button to the right (26.11.)
     A.L = L;
@@ -325,7 +339,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const svg = takeSvg(st, L, { w: innerWidth, fan: A.data.fan, fanOff: A.data.fanOff, fanShift: A.data.fanShift, playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, thumbOf: A.thumbOf, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, flow: A.heard?.state, auto: A.settings.restartMs != null, meter: A.settings.restartMs != null || A.settings.stillEndMs > 0, range: st.filters.range ?? {}, ranging: A.data.ranging, series: isLive(st) && !st.typing ? A.data.kindCounts?.series ?? 0 : 0 });
     if ($('#take').dataset.svg !== svg) { $('#take').innerHTML = svg; $('#take').dataset.svg = svg; }
     slide(L); // the picture, the drawing, the words and the row: one way, one clock (26.11.)
-    A.data.fanRows = fanRows(L); // how many lines the fan shows at once (22.11.) // Similar full glides by itself (glideFull)
+    A.data.fanRows = L.stackRows ?? 0; // how many older lines stand between button and window at once (27.11.) // Similar full glides by itself (glideFull)
     const ob = st.onboard.on ? onboardingView(st.onboard, st.typing ? A.data.typing ?? '' : '') : null; // onboarding: typed into its green chip (21.11.)
     const earlier = !isLive(st) ? st.lines.at(-1)?.takes[st.at] : null; // an earlier take in the button: its own context, in the window and to change (21.11.)
     const edit = earlier && A.data.edit?.id === earlier.id ? A.data.edit : null;
