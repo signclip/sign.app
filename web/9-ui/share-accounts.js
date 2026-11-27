@@ -3,20 +3,34 @@
 // Purpose:   Atlas counts every account's Sign/ and writes only the summary (shared with the admin) · Admin: the
 //            accounts with their space (↓ rests, ↑ wakes, apart/together = more/less space), one account with its
 //            devices and groups · Groups: a new group folder named by the context words.
+//            Given (27.11., user: B): in an account looked at, every group where this person gave the admin her view
+//            (2-storage/sealed-keys.js giveView) as a tile "(Kino) ✓"; tap = her files of that group come into Similar
+//            like any sharing point (read only), tap again = out. The admin account's bubble shows how many persons gave
+//            the admin something. Looked through: ≤ 30 group folders, one listing of e2e/key/ each, at most every 5 min.
 // Depends:   8-join (provision, join, known), 3-index/atlas.js, share-group.js (makeOrRenew)
 // Test:      tests/ui.test.mjs
 // Limits:    ≤ once an hour counted (EVERY_MS) · the accounts of one group (project.json group).
 
 import { devicesOf, quietDevice } from '../8-join/join.js';
 import { accountTakes } from '../8-join/known.js';
-import { listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled, groupsOf, setGroup, matchAccounts, sharesOf, unshare, findPeople } from '../8-join/provision.js';
+import { nextQuota, sharedWithMe, shareFolder, makeFolder, matchAccounts, sharesOf, unshare, findPeople } from '../8-join/provision.js';
+import { listAccounts, setQuota, setEnabled, groupsOf, setGroup, held, quietDeviceThere } from '../8-join/accounts.js'; // Nextcloud, the object storage, or both (27.11.)
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
-import { makeOrRenew, groupOf } from './share-group.js';
+import { makeOrRenew, groupOf, signerOf } from './share-group.js';
 import { answerFor, withHello } from '../8-join/join.js';
 import { readName } from '../1-model/filename.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { webdavUrl } from '../2-storage/nextcloud.js';
 import { shown } from '../1-model/time.js';
+import { openKeys } from '../2-storage/sealed-keys.js';
+import { SealedStore } from '../2-storage/sealed-store.js';
+import { signerKeys } from '../2-storage/sharing-point.js';
+import { descriptionNow } from './share-swarm.js';
+import { deviceKeys } from './device-keys.js';
+import { readHello } from '../8-join/join.js';
+import { ReadOnlyStore } from '../2-storage/connect.js';
+
+export const GIVEN_GROUPS = 30, GIVEN_MS = 5 * 60_000; // groups looked through for views given to the admin; how often
 
 const dec = new TextDecoder();
 
@@ -45,6 +59,7 @@ export function accountPart(ctx, { words, onLookAll, project }) {
   /** The admin reads atlas's summary (shared into the admin's files as summary/) → Map(user → counts). */
   async function atlasSummary() {
     try {
+      if (!ctx.admin?.server) return new Map(); // the object storage alone: no atlas counts yet
       const store = new WebDavStore({ base: webdavUrl(ctx.admin.server, ctx.admin.user), user: ctx.admin.user, password: ctx.admin.password, name: 'admin' });
       return readSummary(new TextDecoder().decode(await store.read(SUMMARY)));
     } catch { return new Map(); }
@@ -91,7 +106,7 @@ export function accountPart(ctx, { words, onLookAll, project }) {
     s.accounts = [];
     say(t('menu.wait'));
     try {
-      const [list, counts] = await Promise.all([listAccounts(ctx.admin, { group: project?.group, skip: [project?.atlas, project?.admin, project?.groups, ctx.admin?.user] }), atlasSummary()]);
+      const [list, counts] = await Promise.all([listAccounts(ctx.admin, { doorThere: ctx.doorThere, group: project?.group, skip: [project?.atlas, project?.admin, project?.groups, ctx.admin?.user] }), atlasSummary()]);
       s.accounts = list.map((a) => ({ ...a, counts: counts.get(a.user) ?? null })); // takes and strands from atlas
       say('');
     } catch { s.accounts = null; return say(t('notReachable')); }
@@ -104,38 +119,85 @@ export function accountPart(ctx, { words, onLookAll, project }) {
     return [{ label: '←', go: () => { s.accounts = null; s.account = null; draw(); } }, ...matchAccounts(s.accounts, words()).map((a) => ({ // the context words find accounts, like Similar
       label: `${a.enabled ? '' : '◌ '}${a.quota > 0 && a.used / a.quota >= 0.9 ? '⚠ ' : ''}@${a.label}${a.lastLogin ? ` · ${shown(a.lastLogin, 'day').slice(5, 10)}` : ''}${a.counts ? ` · ${a.counts.chains} Takes` : ''} · ${gb(a.used)}/${gb(a.quota)} GB`, full: a.quota > 0 ? a.used / a.quota : 0,
       look: () => openAccount(a), // tap = look at it: its devices and groups
-      down: () => setEnabled(ctx.admin, a.user, false).then(showAccounts, () => say(t('notReachable'))), // ↓ rests (◌)
-      up: () => setEnabled(ctx.admin, a.user, true).then(showAccounts, () => say(t('notReachable'))), // ↑ wakes
-      more: (by) => { const q = nextQuota(a.quota, by); return q ? setQuota(ctx.admin, a.user, q).then(showAccounts, () => say(t('notReachable'))) : null; },
+      down: () => setEnabled(ctx.admin, a.user, false, only(a)).then(showAccounts, () => say(t('notReachable'))), // ↓ rests (◌)
+      up: () => setEnabled(ctx.admin, a.user, true, only(a)).then(showAccounts, () => say(t('notReachable'))), // ↑ wakes
+      more: (by) => { const q = nextQuota(a.quota, by, a.used); return q ? setQuota(ctx.admin, a.user, q, only(a)).then(showAccounts, () => say(t('notReachable'))) : null; }, // 10 GB per step, Nextcloud and object storage alike
     }))];
   }
+  /** An account that lives only in the object storage (it came through the door there, 27.11.): Nextcloud is not asked; its door is that one. */
+  const only = (a) => ({ thereOnly: a.only === 'there' });
+  const doorOf = (a) => (a.only === 'there' ? ctx.doorThere ?? null : adminStore());
   /** An account's name signs and password gestures (all its devices), oldest first, as Similar tiles. */
   async function lookAccount(a) {
-    const store = adminStore(), folder = store && (await store.list('within/').catch(() => [])).map((f) => f.path).find((p) => p.toLowerCase().includes(`!(${a.user.toLowerCase()})/`));
+    const store = doorOf(a), folder = store && (await store.list('within/').catch(() => [])).map((f) => f.path).find((p) => p.toLowerCase().includes(`!(${a.user.toLowerCase()})/`));
     if (!folder) return say(t('notReachable'));
     const paths = await accountTakes(store, folder.slice(7, folder.indexOf('/', 7)));
     return paths.length ? onLookAll(paths.map((path) => ({ path, from: store }))) : null;
   }
+  /**
+   * Views given to this admin device (27.11.): through every group folder of the Groups login, the key notes there,
+   * opened with this device's pickup key. members: { q_: z_ } the devices whose notes count (a person's devices, or
+   * every device within). → [{ folder, view: { name, key, at, by } }]
+   */
+  let givenSeen = null; // { at, list } for the count on the admin account
+  async function givenViews(members) {
+    if (!ctx.groups || !Object.keys(members).length) return [];
+    const folders = (await groupsStore().folders('').catch(() => [])).map((f) => f.replace(/\/$/, '')).filter((f) => f && f !== 'summary').slice(0, GIVEN_GROUPS);
+    const { pickup } = await deviceKeys(), out = [];
+    for (const folder of folders) {
+      const store = folderStore(folder), description = await descriptionNow(store);
+      const got = await openKeys({ store, signers: description ? signerKeys(description) : {}, members, device: ctx.device, pickupKey: pickup.privateKey }).catch(() => null);
+      for (const view of got?.views ?? []) if (members[view.by]) out.push({ folder, view });
+    }
+    return out;
+  }
+  /** How many persons gave this admin device a view: on the admin account's bubble. Read when the menu opens, ≤ every 5 min. */
+  async function givenCount() {
+    if (givenSeen && Date.now() - givenSeen.at < GIVEN_MS) return givenSeen.n;
+    const store = adminStore();
+    if (!store || !ctx.groups) return null;
+    const paths = (await store.list('within/').catch(() => [])).map((f) => f.path).filter((p) => p.endsWith('.chain.sign'));
+    const owner = {}, members = {};
+    for (const p of paths) {
+      try { const h = readHello(dec.decode(await store.read(p))); members[h.device.id] = h.device.key; owner[h.device.id] = h.person.id; } catch { /* no hello */ }
+    }
+    const list = await givenViews(members);
+    givenSeen = { at: Date.now(), n: new Set(list.map((g) => owner[g.view.by])).size };
+    draw();
+    return givenSeen.n;
+  }
+  /** Her files of one group into Similar (read only, like any sharing point) – or out again. */
+  function toggleGiven(a, g) {
+    const id = `given:${g.view.name}`;
+    if (ctx.hasGiven(id)) { ctx.hideGiven(id); return draw(); }
+    const view = new SealedStore({ store: folderStore(g.folder), keys: [g.view], view: true, name: `${a.label} · ${g.folder}` });
+    ctx.showGiven({ name: `${a.label} · ${g.folder}`, store: new ReadOnlyStore(view), write: false, id });
+    return draw();
+  }
+
   /** An account looked at (14.11.): its devices (↓ = quiet, "Gerät sperren") and its groups as context chips (tap a faint one = in, ↓ = out). */
   async function openAccount(a) {
     say(t('menu.wait'));
-    const store = adminStore();
-    const [devices, groups] = await Promise.all([store ? devicesOf(store, a.user).catch(() => []) : [], groupsOf(ctx.admin, a.user).catch(() => ({ all: [], mine: [] }))]);
-    s.account = { a, devices, groups, store };
+    const store = doorOf(a);
+    const [devices, groups, there] = await Promise.all([store ? devicesOf(store, a.user).catch(() => []) : [], groupsOf(ctx.admin, a.user, only(a)).catch(() => ({ all: [], mine: [] })), a.only ? null : Promise.resolve(held(ctx.admin, a.user)).catch(() => null)]);
+    const given = await givenViews(Object.fromEntries(devices.map((d) => [d.device.id, d.device.key]))).catch(() => []);
+    s.account = { a, devices, groups, store, there, given };
     say('');
     return draw();
   }
   /** Takes and strands of an account, from atlas: '12 Takes · v 12 · a 9 · x 12 · l 3'. */
   const statsOf = (c) => (c ? [`${c.chains ?? 0} Takes`, ...['v', 'a', 'x', 'l'].map((k) => `${k} ${c[k] ?? 0}`)].join(' · ') : '–');
-  function lookTiles({ a, devices, groups, store }) {
+  function lookTiles({ a, devices, groups, store, there = null, given = [] }) {
     const again = () => openAccount(a), fail = () => say(t('notReachable'));
     return [
       { label: `← @${a.label}`, go: () => { s.account = null; draw(); } },
       { label: statsOf(a.counts), look: () => lookAccount(a) }, // what the account holds (atlas: takes per strand); tap = its gestures
-      ...devices.map((d) => ({ label: d.device.label, down: () => quietDevice(store, d.helloPath).then(again, fail) })),
+      ...(there ? [{ label: `s3 · ${gb(there.used)}/${there.room ? gb(there.room) : '∞'} GB` }] : []), // the object storage: what it holds of its room
+      ...devices.map((d) => ({ label: d.device.label, down: () => Promise.resolve(quietDeviceThere(ctx.admin, d.device.id)).catch(() => {}).then(() => signerOf(ctx)).then((signer) => quietDevice(store, d.helloPath, { signer })).then(again, fail) })), // ↓ = quiet: in the object storage no grant naming this device counts any more, then its files move with a note sealed by the signer (the device follows only its signer)
       ...groups.all.map((g) => (groups.mine.includes(g)
         ? { label: `(${g})`, down: () => setGroup(ctx.admin, a.user, g, false).then(again, fail) } // in this group: ↓ = out
         : { label: `(${g})`, faint: true, look: () => setGroup(ctx.admin, a.user, g, true).then(again, fail) })), // tap = in
+      ...given.map((g) => ({ label: `(${g.folder}) ✓`, shown: ctx.hasGiven(`given:${g.view.name}`), look: () => toggleGiven(a, g) })), // what she gave me (27.11.): tap = in Similar / out
     ];
   }
   /**
@@ -195,5 +257,5 @@ export function accountPart(ctx, { words, onLookAll, project }) {
       ...s.group.joined.map((j) => ({ label: `@${j.label}`, faint: true, down: out(() => leaveGroup(s.group.folder, j.helloPath).then(() => renewLinks(s.group.folder))) }))]; // a device by the links (faint): ↓ = out, and at once new member links (the others follow; links given out to view stay)
     return [{ label: '←', go: () => { s.groupList = null; draw(); } }, ...s.groupList.filter((g) => words().every((w) => g.toLowerCase().includes(w.toLowerCase()))).map((g) => ({ label: g, look: () => openGroup(g) }))];
   }
-  return { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, lookAccount, openAccount, showGroups, groupTiles, addToGroup };
+  return { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, lookAccount, openAccount, showGroups, groupTiles, addToGroup, givenCount, given: () => givenSeen?.n ?? null };
 }

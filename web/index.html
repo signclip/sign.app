@@ -2,6 +2,10 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
+  <!-- What this page may load (27.11., audit M9): scripts only from the app's own files (and WebAssembly, and the
+       recorder's small worklet as blob:), none from another server, none written into the page. Takes and sharing
+       points are data: any https address. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: data: blob: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-visual">
   <meta name="theme-color" content="#e4e2dd">
   <link rel="manifest" href="manifest.json">
@@ -33,12 +37,6 @@
     </div>
     <svg id="hint" xmlns="http://www.w3.org/2000/svg"></svg>
   </div>
-  <script type="module">
-    import { start } from './9-ui/app.js';
-    const load = (l) => fetch(`0-i18n/locales/${l}.json`).then((r) => r.json());
-    const [de, en] = await Promise.all([load('de'), load('en')]);
-    if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js');
-    start({ locales: { de, en } });
-  </script>
+  <script type="module" src="./9-ui/boot.js"></script>
 </body>
 </html>

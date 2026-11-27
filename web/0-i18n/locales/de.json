@@ -53,5 +53,6 @@
   "menu.noDoor": "Tür nicht gefunden: sign-debug.txt",
   "door.notSigner": "Gerät ist nicht der signer (project.json)",
   "join.notSigner": "Antwort nicht vom signer versiegelt",
-  "signer.waiting": "neuer signer {name}: zählt ab {date} – Tipp ja, ↓ nein"
+  "signer.waiting": "neuer signer {name}: zählt ab {date} – Tipp ja, ↓ nein",
+  "signer.onlyYes": "deinem Ja"
 }

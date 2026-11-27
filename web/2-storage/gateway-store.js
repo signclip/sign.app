@@ -47,7 +47,7 @@ export class GatewayStore {
   ask(op, a, b, c) { return askGateway(this, op, a, b, c, this.grant ? { grant: this.grant } : {}); } // the grant goes along
   async list(prefix = '') {
     const { files } = await this.ask('list', this.prefix + prefix);
-    return files.map((f) => ({ path: f.path.slice(this.prefix.length), size: f.size, ...(f.at ? { at: f.at } : {}) })); // at: the storage's time (signers.js: 48 h)
+    return files.map((f) => ({ path: f.path.slice(this.prefix.length), size: f.size, ...(f.at ? { at: f.at, stored: f.at } : {}) })); // the object storage's own time, which no writer sets (signers.js: 48 h)
   }
   async read(path) {
     const { url } = await this.ask('get', this.prefix + path);

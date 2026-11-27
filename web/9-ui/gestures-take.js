@@ -58,7 +58,8 @@ export function gesturesOf(A) {
     if (A.st.filters.full && A.st.filters.open === A.st.filters.full && (A.st.similar === 'many' || A.st.similar === 'full')) return over(ev); // a respect over everything (26.11.)
     if (A.data.ranging) return ranging(ev);
     if (ev.type === 'hold' && ev.role === 'window' && (A.st.similar === 'many' || A.st.similar === 'single')) { A.data.ranging = true; navigator.vibrate?.(10); return A.paint(); } // how far Similar looks: the rings with sectors (21.11.)
-    if (A.data.fan && ev.type !== 'pinch') return fan(ev); // the lines fanned out: a row = that line, elsewhere = closed
+    const inStack = (e) => A.L.stackRows > 0 && e.y > A.L.button.y && e.y < A.L.cy - A.L.ry; // the band between the button and the window
+    if (A.data.fan && ev.type !== 'pinch' && (A.st.similar === 'closed' || (ev.role ?? '').startsWith('fan:') || inStack(ev))) return fan(ev); // the stacked lines: a take = that line, elsewhere = closed; with the cloud open its rails and tiles stay its own (27.11.)
     if (ev.type === 'pinch') return pinch(ev);
     const r = ev.role ?? '';
     if (onLine(r) && (ev.type === 'drag' || ev.type === 'swipe' || ev.type === 'drag-end')) return pull(ev); // the line follows the finger (17.11.)
@@ -70,6 +71,7 @@ export function gesturesOf(A) {
       if (r === 'flow:a>x') return A.heard?.toggle(); // its wave tapped: off (26.11.)
       if (r.startsWith('strand:') && !live(A.st) && A.st.rec === 'idle' && A.take.addStrand(r.slice(7))) return null; // an earlier take without it: only this strand is taken, onto it (21.11.)
       if (r.startsWith('strand:')) return A.dispatch({ type: 'strand', kind: r.slice(7) });
+      if (r.startsWith('dstrand:') && isOwn(picked()) && !hasStrand(picked(), r.slice(8))) return changeOwn(picked(), r.slice(8)); // one's own result without that strand: only it is taken, onto it (27.11.)
       if (r.startsWith('dstrand:')) { navigator.vibrate?.(8); return A.dispatch({ type: 'dstrand', kind: r.slice(8) }); } // the single view: what one sees and hears (20.11.)
       if (r === 'line') return A.dispatch({ type: 'select-line', n: A.st.lines.length - 1 });
       if (r.startsWith('old:')) return A.dispatch({ type: 'select-line', n: Number(r.slice(4)) });
@@ -100,7 +102,7 @@ export function gesturesOf(A) {
       if (r === 'window') return focusHere(ev);
       if (r === 'screen' && A.L && A.st.strands.x && ev.y > A.L.cy + A.L.R + 10 * A.L.k && Math.abs(ev.x - A.L.cx) < A.L.rx + 60 * A.L.k) return openTyping('context'); // anywhere under the bottom arc = write (17.11.)
       if (r.startsWith('xt:') && !A.st.typing && live(A.st) && !A.st.onboard.on && pathOf(r).some((x) => x > 0)) return frontTake(pathOf(r)); // a take further on: it comes first (26.11.)
-      if (r.startsWith('sword:') && A.st.similar === 'single') return wordsOver(); // the words of the result shown single: into the take window (26.11.)
+      if (r.startsWith('sword:') && A.st.similar === 'single') return isOwn(picked()) ? changeOwn(picked()) : wordsOver(); // the words shown single: one's own = written straight (27.11.), someone else's = into the take window (26.11.)
       if (r.startsWith('tword:')) return wordsOver(A.data.entries?.[Number(r.slice(6))]); // a tile's words in the cloud: the same (26.11.)
       if (inRow(r)) return openTyping(r);
     }
@@ -305,7 +307,7 @@ export function gesturesOf(A) {
    */
   function fan(ev) {
     const r = ev.role ?? '', [, n, j] = r.startsWith('fan:') ? r.split(':').map(Number) : [];
-    const row = STACK.row * A.L.k, older = A.st.lines.length - 1, most = Math.max(0, older - (A.L.stackRows ?? 1));
+    const row = STACK.row * A.L.k, older = A.data.stackOrder?.length ?? A.st.lines.length - 1, most = Math.max(0, older - (A.L.stackRows ?? 1)); // as many as the rails let through
     if (ev.type === 'tap') {
       if (n == null) { A.data.fan = false; return A.paint(); }
       A.data.fan = false; // chosen: the stack folds, the line stands at the button
@@ -314,9 +316,10 @@ export function gesturesOf(A) {
       return A.paint();
     }
     if (ev.type === 'drag' && !fanFrom && (fanUp || Math.abs(ev.dy) > Math.abs(ev.dx))) { // upright: the rows follow the finger
+      if (!fanUp) { cancelAnimationFrame(glideFrame); dragBase = A.data.stackDrag ?? 0; } // caught while gliding: on from where they are
       fanUp = true;
       const off = A.data.fanOff ?? 0;
-      A.data.stackDrag = Math.max(-(most - off) * row - row / 3, Math.min(off * row + row / 3, ev.dy)); // a third of a row past the ends, no further
+      A.data.stackDrag = Math.max(-(most - off) * row - row / 3, Math.min(off * row + row / 3, dragBase + ev.dy)); // a third of a row past the ends, no further
       return A.paint();
     }
     // a finger sideways on a row = its takes slide under it (26.11., user: scroll a line to see all of it)
@@ -331,16 +334,30 @@ export function gesturesOf(A) {
       const sideways = fanFrom != null, upright = fanUp;
       fanFrom = null; fanUp = false;
       if (sideways) return null;
-      const moved = A.data.stackDrag ?? 0;
-      A.data.stackDrag = 0;
+      const moved = A.data.stackDrag ?? 0, off = A.data.fanOff ?? 0;
       const rowsBy = upright ? Math.round(-moved / row) + (ev.type === 'swipe' && ev.dir === 'up' ? 1 : ev.type === 'swipe' && ev.dir === 'down' ? -1 : 0) : ev.type === 'swipe' && (ev.dir === 'up' || ev.dir === 'down') ? (ev.dir === 'up' ? 1 : -1) : 0;
-      A.data.fanOff = Math.max(0, Math.min(most, (A.data.fanOff ?? 0) + rowsBy)); // a flick goes one row further
-      return A.paint();
+      const to = Math.max(0, Math.min(most, off + rowsBy)); // a flick goes one row further
+      A.data.fanOff = to; A.data.stackDrag = moved + (to - off) * row; // the same picture, counted from the new row …
+      return glide(); // … and it glides there (27.11., user: smooth)
     }
     return null;
   }
   let fanFrom = null; // the row a finger pushes sideways, and where it stood
-  let fanUp = false; // a finger moving the stacked lines upright (27.11.)
+  let fanUp = false, dragBase = 0, glideFrame = 0; // a finger moving the stacked lines upright (27.11.), where it caught them, the glide after
+  /** The stacked lines glide to rest on a row (27.11., user: smooth): ease-out, 140–320 ms by the way left; none with reduced motion. */
+  function glide() {
+    cancelAnimationFrame(glideFrame);
+    const from = A.data.stackDrag ?? 0, t0 = performance.now(), ms = Math.min(320, 140 + Math.abs(from) * 1.2);
+    if (!from || matchMedia?.('(prefers-reduced-motion: reduce)').matches) { A.data.stackDrag = 0; return A.paint(); }
+    const step = (now) => {
+      const p = Math.min(1, (now - t0) / ms);
+      A.data.stackDrag = from * (1 - p) ** 3;
+      if (p < 1 && A.data.fan) glideFrame = requestAnimationFrame(step); else A.data.stackDrag = 0;
+      A.paint();
+    };
+    glideFrame = requestAnimationFrame(step);
+    return null;
+  }
   let lifting = false; // a finger on the line going up: the fan opens when it lets go (26.11.)
   function pinch(ev) {
     const L = A.L, [a, b] = ev.roles ?? [];
@@ -352,7 +369,9 @@ export function gesturesOf(A) {
       if (ev.scale < 0.87 && A.data.fan) { A.data.fan = false; return A.paint(); }
       return null;
     }
-    if (upright && [a, b].every((x) => x && inRow(x))) return ev.phase === 'end' && ev.scale > 1.15 ? similarByDate() : null; // the row spread upright = Similar by date (26.11.)
+    if (upright && [a, b].every((x) => x && inRow(x))) return ev.phase === 'end' && ev.scale > 1.15 ? similarByDate() : null; // the row spread upright = its earlier contexts (26.11., 27.11.)
+    const arcRole = [a, b].find((x) => x?.startsWith('strand:'));
+    if (arcRole && ['v', 'x', 'a'].includes(arcRole.slice(7)) && !A.st.onboard.on) return ev.phase === 'end' && ev.scale > 1.15 ? earlierOf(arcRole.slice(7)) : null; // an arc spread = the earlier ones of that strand (27.11.)
     const kindRole = [a, b].find((x) => x?.startsWith('kinds:'));
     if (kindRole) return ev.phase === 'end' && ev.scale > 1.12 ? A.similar.openKind(kindRole.slice(6)) : null; // spread on a bubble = its cloud
     const nearButton = L && Math.hypot(ev.centre.x - L.button.x, ev.centre.y - L.button.y) < 70 * L.k;
@@ -484,6 +503,21 @@ export function gesturesOf(A) {
     setText(text);
     return editing() ? finish() : null;
   }
+  // one's own result shown single, changed with one tap (27.11., user: as few gestures as possible, it is my own take)
+  const picked = () => A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === A.st.pick) ?? null;
+  const isOwn = (e) => Boolean(e) && (e.sharing ?? []).includes('own');
+  const hasStrand = (e, k) => (k === 'v' ? Boolean(e?.at || e?.thumb || e?.pieces) : k === 'x' ? Boolean(e?.words?.length || e?.heard?.length) : k === 'a' ? Boolean(e?.sound) : true);
+  /**
+   * One's own result shown single (27.11., user): its words tapped = its context written straight away; a missing arc
+   * tapped = only that strand recorded, onto it. It comes to the line (as when carried into the take window) and is
+   * changed there: the new context or strand = a new line on top of its chain, its files stay (take-flow.js retext,
+   * addStrand). kind: 'x' (or none) = its context, 'v' | 'a' = that strand.
+   */
+  async function changeOwn(e, kind = 'x') {
+    if (!e || !(await A.similar.toLine(e.key))) return A.shake('context');
+    if (kind === 'v' || kind === 'a') return A.take.addStrand(kind) ? null : A.shake('button');
+    return openTyping('context'); // the take in the button is the result now: its own context is written (21.11.)
+  }
   /** The words of the result shown single, or of a tile, tapped (26.11., user): its context, as written, comes into the take window as the take now. */
   async function wordsOver(tile = null) {
     const e = tile ?? A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === A.st.pick);
@@ -492,13 +526,20 @@ export function gesturesOf(A) {
     navigator.vibrate?.(8);
     return A.dispatch({ type: 'context', text: [text, A.st.context].filter(Boolean).join(' ') });
   }
-  /** The row pushed up a little, or spread upright (26.11., user): Similar opens with the chains of these words, newest first, by date. */
-  function similarByDate() {
+  /**
+   * Zoomed open or pulled up on something = what came before it (27.11., user: the same for the line, the context, the
+   * picture, the sound): the row or the context arc = the earlier contexts, the picture arc = the earlier takes with a
+   * picture, the sound arc = with sound – one's own takes with that strand, newest first, in Similar's cloud: the date
+   * rail open, the other rails at its edges, bundled by zooming (similar-flow.js earlier). What is typed narrows it;
+   * a tile's words tapped = into the take; squeezed shut = the earlier ones end. kind: 'x' | 'v' | 'a'
+   */
+  function earlierOf(kind = 'x') {
     const f = A.st.filters;
     navigator.vibrate?.(8);
     if (A.st.similar === 'closed' || A.st.similar === 'single') { location.hash = 'many'; A.dispatch({ type: 'similar', level: 'many' }); }
-    return A.dispatch({ type: 'filters', filters: { ...f, open: 'date', full: null, order: { ...f.order, date: 'new' } } });
+    return A.dispatch({ type: 'filters', filters: { ...f, earlier: kind, value: { ...f.value, bundle: null }, group: null, open: 'date', full: null, order: { ...f.order, date: 'new' } } });
   }
+  const similarByDate = () => earlierOf('x'); // the row pushed up a little, or spread upright (26.11.): its earlier contexts
   /** Where a tap in the row writes: a gap, a take (behind it), a bubble (into it, as its last), the row itself (the end). */
   function caretOf(role) {
     if (role.startsWith('xt:')) return { how: 'after', at: pathOf(role) }; // a take tapped while writing: the caret behind it
@@ -722,9 +763,15 @@ export function gesturesOf(A) {
     return null;
   }
   function toggleValue(name, id) {
+    if (name === 'name') name = 'sharing'; // who and sharing point are one (27.11.)
     const f = A.st.filters, now = f.value[name] ?? [], next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id];
     navigator.vibrate?.(5);
-    return A.dispatch({ type: 'filters', filters: { ...setFilter(f, name, next), on: { ...f.on, [name]: next.length > 0 } } }); // chosen = on (21.11.: no sign row to switch it)
+    let g = setFilter(f, name, next);
+    if (name === 'sharing') { // a sharing point chosen: its persons with it, so "all of it" holds what they made elsewhere too (abstract, 26.11.)
+      const of = Object.fromEntries((A.data.similarLists?.reach ?? []).filter((x) => next.includes(x.name)).map((x) => [x.name, x.persons ?? []]));
+      g = { ...g, value: { ...g.value, members: of } };
+    }
+    return A.dispatch({ type: 'filters', filters: { ...g, on: { ...f.on, [name]: next.length > 0 } } }); // chosen = on (21.11.: no sign row to switch it)
   }
   /** The calendar's span: [from, to] in ms, or null = every time. */
   function setSpan(span) {

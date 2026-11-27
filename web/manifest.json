@@ -31,5 +31,25 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ]
+  ],
+  "share_target": {
+    "action": "./share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "files",
+          "accept": [
+            "video/mp4",
+            ".mp4",
+            "text/markdown",
+            ".md",
+            "text/plain",
+            ".txt"
+          ]
+        }
+      ]
+    }
+  }
 }

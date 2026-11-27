@@ -7,6 +7,7 @@
 //            a new chain file with all sharing points and all rules in force, :chain.1!(old id, hash)
 //            and the row {:chain.1} (like every other chain version, SCHEMA.md G4a).
 //              chain/JJJJ.MM/(sharing-points)@(Lena)'t(…)!(u_…).chain.sign       newest = in force
+//            consentAt: what a sharing point may also use, read where the list lies (atlas, 6-compute).
 // Depends:   1-model (file, ids, hash, filename), relations.js, sharing-point.js, layout.js
 // Test:      tests/list.test.mjs
 // Limits:    one list ≈ 100 B per sharing point + 60 B per rule; 10³ versions ≈ 0.5 MB in chain/;
@@ -18,7 +19,7 @@ import { newId, writeId, uOf } from '../1-model/ids.js';
 import { hashBytes } from '../1-model/hash.js';
 import { buildName, readName } from '../1-model/filename.js';
 import { relationLine } from './relations.js';
-import { readList, readRelations, labelOf } from './sharing-point.js';
+import { readList, readRelations, labelOf, readDescription } from './sharing-point.js';
 import { monthOf } from './layout.js';
 
 export const RULE_MARKS = ['always', 'ask', 'show', 'backup', 'consent'];
@@ -34,9 +35,14 @@ export function rulesOf(text) {
   for (const r of readRelations(text).reverse()) { // oldest first, a newer line wins
     if (r.what?.some((k) => k.includes('.'))) continue;
     const pair = `${r.from ?? 0}>${r.to}:`;
-    if (r.marks.includes('quiet')) { for (const k of [...rules.keys()]) if (k.startsWith(pair)) rules.delete(k); continue; }
+    if (r.marks.includes('quiet')) {
+      for (const k of [...rules.keys()]) if (k.startsWith(pair)) rules.delete(k);
+      if (r.from != null) rules.set(pair + 'quiet', { from: r.from, to: r.to, mark: 'quiet', kinds: r.what ?? [], time: r.time }); // a no from a group to a person stays written (27.11., own-door.js): never asked again
+      continue;
+    }
     const mark = r.marks.find((m) => RULE_MARKS.includes(m));
     if (!mark) continue;
+    rules.delete(pair + 'quiet'); // a newer yes for the pair: the no is over
     rules.set(pair + mark, { from: r.from, to: r.to, mark, kinds: r.what ?? [], write: r.marks.includes('write'), all: r.marks.includes('all'), time: r.time }); // all (16.11.): everything so far too, not only new
   }
   return [...rules.values()];
@@ -136,4 +142,29 @@ export async function changeList(store, edit, meta) {
   const path = listPath({ id: next.id, person: meta.person.label, time: meta.time });
   await store.write(path, enc.encode(next.text));
   return { path, ...next };
+}
+
+/**
+ * Who lets this sharing point also use a kind of strand – the (consent) rule, read by whoever computes there (atlas):
+ * of every person with a list in this store the newest one, and in it a (consent) towards this very sharing point
+ * (found by the q_ of its sharing-point.sign). kind: 'l' (landmarks), 'x', … · a rule without kinds = every kind.
+ * → Set of n_. No sharing-point.sign, no list, no rule: nobody.
+ * Limits: one listing of chain/ and one read per person with a list here · a list is believed as it stands (no seal
+ *         is checked here): it is that person's word only where she alone can write – her own Sign/, not a group folder.
+ */
+export async function consentAt(store, kind) {
+  const agreed = new Set(), dec = new TextDecoder();
+  let here = null;
+  try { here = readDescription(dec.decode(await store.read('sharing-point.sign'))).id; } catch { return agreed; }
+  if (!here) return agreed;
+  const files = await store.list('chain/'), once = { list: async () => files, read: (p) => store.read(p) };
+  const people = new Set(files.map((f) => readName(f.path.slice(f.path.lastIndexOf('/') + 1))).filter((n) => n?.words.includes(WORD)).map((n) => n.person));
+  for (const label of people) {
+    try {
+      const text = dec.decode(await store.read(await findList(once, label)));
+      const n = readFile(text).head.id?.n, to = readList(text).findIndex((sp) => sp.id === here) + 1;
+      if (n && to && rulesOf(text).some((r) => r.mark === 'consent' && !r.from && r.to === to && (!r.kinds?.length || r.kinds.includes(kind)))) agreed.add(n);
+    } catch { /* a list that cannot be read agrees to nothing */ }
+  }
+  return agreed;
 }

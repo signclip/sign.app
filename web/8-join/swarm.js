@@ -151,6 +151,13 @@ export function swarmOf({ startpoints = [], touches = [], hellos = [], rule = nu
   return { within, waiting: [...out.values()], nets: kept, edges, ignored: touches.length - good.length };
 }
 
+/**
+ * How many take part (27.11., user: the number of a group that forms at a spot and a time): devices within, and
+ * devices waiting (said hello or were touched, not yet within). A number only – no names, nothing about who.
+ * → { within, waiting }
+ */
+export const countOf = (swarm) => ({ within: swarm?.within?.size ?? 0, waiting: swarm?.waiting?.length ?? 0 });
+
 /** May this device take someone in now? (within, the rule lets members, or it is a Startpoint) */
 export function mayTouch(swarm, id, rule) {
   const me = swarm.within.get(id);

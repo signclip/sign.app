@@ -20,10 +20,8 @@ self.onmessage = async ({ data }) => {
   try {
     if (data.load) {
       const { pipeline, env } = await import(data.load.library);
-      if (data.load.models) { // the models from an own folder, nothing from Hugging Face
-        Object.assign(env, { localModelPath: data.load.models, allowLocalModels: true, allowRemoteModels: false });
-        env.backends.onnx.wasm.wasmPaths = new URL('./', data.load.library).href; // the runtime next to the library
-      }
+      env.backends.onnx.wasm.wasmPaths = new URL('./', data.load.library).href; // the runtime next to the library, never from another server (27.11.)
+      if (data.load.models) Object.assign(env, { localModelPath: data.load.models, allowLocalModels: true, allowRemoteModels: false }); // the models from an own folder, nothing from Hugging Face
       const gpu = await navigator.gpu?.requestAdapter?.().catch(() => null); // 'gpu' can exist without an adapter
       const progress_callback = (p) => { if (p?.status === 'progress' && p.file) self.postMessage({ progress: { file: p.file, loaded: p.loaded ?? 0, total: p.total ?? 0 } }); }; // how far the model came (26.11.)
       const make = (device) => pipeline('automatic-speech-recognition', data.load.model, { dtype: data.load.dtype, device, progress_callback });

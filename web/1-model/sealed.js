@@ -11,6 +11,9 @@
 //            moved, swapped or cut off never opens. Name = SHA-256 of the sealed bytes: the same sealed file has the
 //            same name everywhere, so a copy into another group moves the bytes as they are and only the 32-byte file
 //            key is sealed again (≈ 0.1 ms).
+//            Key name (26.11.): a group key has a name, 26 Base32 chars of SHA-256("sign key 1" + key). It says which
+//            key seals a run and nothing about the key, so a sharing point can have its group keys one after the
+//            other (2-storage/sealed-keys.js: someone leaves, a device is lost) and each device knows which one opens.
 // Depends:   Web Crypto, ids.js (Base32), crypto.js (seal/unseal for the pickup key)
 // Test:      tests/sealed.test.mjs
 // Limits:    PIECE = 8 MiB plain → 8 MiB + 16 bytes sealed (1 GB: 128 pieces, 2 KB more) · ≤ 2³² pieces per file ·
@@ -54,6 +57,13 @@ function bound(i, last) { // what every piece carries along unseen: which file f
   return a;
 }
 
+/** The name of a group key: which key seals a run (sealed-store.js), which key a note gives (sealed-keys.js). 130 bit. */
+export async function keyName(key) {
+  const mark = enc.encode('sign key 1');
+  const all = new Uint8Array(mark.length + 32);
+  all.set(mark); all.set(typeof key === 'string' ? keyBytes(key) : key, mark.length);
+  return toBase32(new Uint8Array(await subtle().digest('SHA-256', all))).slice(0, 26);
+}
 /** How many pieces n plain bytes become (at least one, also for 0 bytes) and how long the sealed file is. */
 export const piecesOf = (n) => Math.max(1, Math.ceil(n / PIECE));
 export const sealedSize = (n) => n + TAG * piecesOf(n);
@@ -113,3 +123,25 @@ export async function openBytes(sealed, key, label) {
 /** The group key for one device: sealed for its pickup key (ECDH P-256 → HKDF → AES-GCM, crypto.js), one line. */
 export const sealGroupKey = (pickupPublicB32, groupKey) => seal(pickupPublicB32, keyText(groupKey));
 export const openGroupKey = async (pickupPrivateKey, line) => keyBytes(await unseal(pickupPrivateKey, line));
+
+/**
+ * 32 bytes (a key, a part of one) sealed with a secret of 32 bytes – what a passkey gives, a card or stick, or the
+ * spare key itself (sealed-keys.js): HKDF-SHA-256 with a fresh salt → AES-256-GCM. label binds what the line says it
+ * holds. → 'salt iv data' in Base32, the shape of a paper line. No password is stretched here: the secret is random.
+ */
+const fixed = (text, n) => { let v = fromBase32(text); const out = new Uint8Array(n); for (let i = n - 1; i >= 0; i--) { out[i] = Number(v & 255n); v >>= 8n; } return out; };
+async function secretKey(secret, salt, use) {
+  if (!(secret instanceof Uint8Array) || secret.length !== 32) throw new Error('a secret is 32 bytes');
+  const base = await subtle().importKey('raw', secret, 'HKDF', false, ['deriveKey']);
+  return subtle().deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: enc.encode('sign secret 1') }, base, { name: 'AES-GCM', length: 256 }, false, use);
+}
+export async function sealWithSecret(bytes, secret, label) {
+  if (bytes?.length !== 32) throw new Error('what is sealed for a holder is 32 bytes');
+  const salt = globalThis.crypto.getRandomValues(new Uint8Array(16)), iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const data = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv, additionalData: enc.encode(label) }, await secretKey(secret, salt, ['encrypt']), bytes));
+  return [toBase32(salt), toBase32(iv), toBase32(data)].join(' ');
+}
+export async function openWithSecret(text, secret, label) {
+  const [salt, iv, data] = String(text).split(' ');
+  return new Uint8Array(await subtle().decrypt({ name: 'AES-GCM', iv: fixed(iv, 12), additionalData: enc.encode(label) }, await secretKey(secret, fixed(salt, 16), ['decrypt']), fixed(data, 48)));
+}

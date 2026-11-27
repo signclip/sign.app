@@ -14,7 +14,7 @@
 
 import { idKey } from '../1-model/ids.js';
 import { similar } from '../7-similar/filter.js';
-import { passes, ordered, byPerson, MANY } from './similar-view.js';
+import { passes, ordered, byPerson, MANY, EARLIER_MAX } from './similar-view.js';
 import { inBundle, sortedBy } from './similar-zoom.js';
 import { areasOf, aroundOf } from './spot-map.js';
 import { baseOf } from './basemap.js';
@@ -82,7 +82,7 @@ export function similarFlow(A) {
     if (r) {
       const f = A.st.filters, value = { ...f.value }, on = { ...f.on };
       const put = (k, list) => { if (list?.length) { value[k] = list; on[k] = true; } };
-      put('initial', r.letters); put('spot', r.spot ? [r.spot] : []); put('name', r.persons); put('sharing', r.sharingPoints.map((x) => x.label));
+      put('initial', r.letters); put('spot', r.spot ? [r.spot] : []); put('sharing', [...(r.persons ?? []), ...r.sharingPoints.map((x) => x.label)]); // who and sharing point are one (27.11.)
       A.dispatch({ type: 'filters', filters: { ...f, value, on, range: Object.keys(r.weite).length ? { ...wideOpen(), ...r.weite } : f.range } });
       const v = r.view, chainNamed = (name) => { const d = e.chain?.defs.get(name); return d?.id ? A.index.chain(writeIdOf(d.id)) : null; };
       const focus = v.focus ? chainNamed(v.focus) : null;
@@ -154,7 +154,7 @@ export function similarFlow(A) {
     const st = A.st, f = st.filters;
     const ws = s.search ? s.search.words : st.strands.x ? words() : [];
     const day = (ms) => new Date(ms).toISOString().slice(0, 10).replace(/-/g, '.');
-    const meta = { words: ws, kinds: ['v', 'x', 'a'].filter((k) => st.strands[k]), persons: f.value.name ?? [], sharingPoints: (f.value.sharing ?? []).map((label) => ({ label })),
+    const meta = { words: ws, kinds: ['v', 'x', 'a'].filter((k) => st.strands[k]), persons: f.value.name ?? [], sharingPoints: (f.value.sharing ?? []).map((label) => ({ label })), // persons chosen are sharing points now (27.11.)
       time: f.on.date && f.value.date ? `${day(f.value.date[0])}_${day(f.value.date[1])}` : null, letters: f.value.initial ?? [], spot: f.value.spot?.[0] ?? null, weite: f.range ?? null };
     const saved = await saveSimilar(A.store, meta, { device: A.device, person: A.person, deviceKey: await sealKey(), empty: st.similar !== 'full' }).catch((err) => { console.warn('cloud', err); return null; });
     if (!saved) return null;
@@ -179,9 +179,12 @@ export function similarFlow(A) {
     const f = A.st.filters;
     if (s.look) { choices(s.look); const shown = s.look.filter((e) => passes(e, f) && inBundle(e, f.value.bundle, f)); return f.group ? sortedBy(shown, f, { near: A.take?.here?.() }) : ordered(shown, f); }
     const range = { ...wideOpen(), ...f.range }; // how far it looks in each respect (21.11., similar-range.js)
-    const written = s.search ? s.search.words : A.st.strands.x ? words() : []; // the take's context strand on = its words count (21.11., user); a search chain opened: its words
+    // the earlier ones of a strand (27.11., user: zoomed open on the context, the picture, the sound = what came before,
+    // by date, chosen by the rails): one's own takes with that strand, newest first – only what is being typed narrows them
+    const back = f.earlier ?? null;
+    const written = back ? String(A.data.typing ?? '').split(/\s+/).filter(Boolean) : s.search ? s.search.words : A.st.strands.x ? words() : []; // the take's context strand on = its words count (21.11., user); a search chain opened: its words
     const ws = range.x > 0 && written.length ? widenWords(written, range.x, A.index.tables.context) : written;
-    const hits = similar(A.index, { words: ws, limit: MANY });
+    const hits = similar(A.index, { words: ws, limit: back ? EARLIER_MAX : MANY });
     const list = hits.map((h) => {
       let chain = chainOf(h.key), heardBy = false;
       if (isEcho(chain) && A.index.tables.chains.has(chain.below)) { chain = A.index.tables.chains.get(chain.below); heardBy = true; } // found by what was said in it (Whisper, 26.11.): the take itself
@@ -194,7 +197,9 @@ export function similarFlow(A) {
     const earlier = A.st.at < (A.st.lines.at(-1)?.takes.length ?? 0) ? A.st.lines.at(-1).takes[A.st.at] : null;
     const focus = { t: earlier?.t ?? Date.now(), cell: A.take?.here?.() ?? null, person: A.person?.label ?? '' }; // round the take in the button, else now
     const reach = { own: ['own'], write: (A.sources ?? []).filter((x) => x.write && x.name !== 'own').map((x) => x.name) };
-    const found = applyRange(one.filter((e) => own(e.chain)), range, focus, reach).map((e) => { const k = kindOf(e.chain); if (k) e.kind = k; return e; });
+    const strandOf = (e, k) => (k === 'x' ? Boolean(e.words?.length) || [...(e.chain?.defs?.values() ?? [])].some((d) => d.kind === 'x') : [...(e.chain?.defs?.values() ?? [])].some((d) => d.kind === k));
+    const mine = (e) => (e.sharing ?? []).includes('own');
+    const found = (back ? one.filter((e) => own(e.chain) && mine(e) && strandOf(e, back)) : applyRange(one.filter((e) => own(e.chain)), range, focus, reach)).map((e) => { const k = kindOf(e.chain); if (k) e.kind = k; return e; });
     const beside = chainsBeside(found, ws);
     // 21.11. (user): the cloud holds takes only; templates, series and saved similar lie as a bubble where they are used
     // (the row, the line, the top of Similar) – spread on it = their own cloud, to choose from

@@ -19,8 +19,12 @@ export function withState(name, state) {
   return buildName({ ...p, words: [state, ...(STATES.includes(p.words[0]) ? p.words.slice(1) : p.words)] });
 }
 
-/** Folder of an account inside within/ or quiet/. */
-export const accountFolder = (person) => `@(${person.label})!(${person.id})`;
+/**
+ * Folder of an account inside within/ or quiet/. WHY the cleaning (26.11.): name and id come from a file anyone may
+ * have left in a drop (a hello, the note of a sealed drop); "/" or ".." in them must never lead out of the folder.
+ */
+const oneFolder = (s) => String(s ?? '').replace(/[\\/]/g, ' ').replace(/\.{2,}/g, '.').replace(/\s+/g, ' ').trim();
+export const accountFolder = (person) => `@(${oneFolder(person.label)})!(${oneFolder(person.id)})`;
 
 /**
  * Where is this person now? From paths only → 'none' | 'hello' | 'join' | 'within' | 'quiet', for the

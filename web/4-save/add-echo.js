@@ -9,7 +9,7 @@
 // Test:      tests/take.test.mjs
 // Limits:    one echo ≈ its file + ~0.5 KB chain · a better model later = one more echo on top;
 //            the old one stays valid.
-// EXTEND(S5, binary echo): landmarks :~l (.l.parquet) and masks :~m (.m.mp4) pass bytes instead of text.
+//            Landmarks :~l pass bytes instead of text (27.11., 6-compute); masks :~m (.m.mp4) will the same way.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
 import { newId, writeId, uOf } from '../1-model/ids.js';
@@ -21,18 +21,22 @@ import { strandName, artOf } from '../1-model/symbols.js';
 
 const enc = new TextEncoder();
 
-/** own: store · chainPath · from: e.g. "a.1" · kind: e.g. "x" · row: the content (for text kinds) · echo: method label. */
-export async function addEcho({ own, chainPath, from, kind, row, echo, device, person, now = Date.now(), deviceKey = null }) {
-  const oldBytes = await own.read(chainPath);
+/**
+ * own: store the echo and its chain are written to · chainPath · from: e.g. "a.1" · kind: e.g. "x" · echo: method label ·
+ * row: the content (text kinds) or bytes: the file as it is (27.11.: landmarks :~l – no head of its own, the hash in the
+ * chain holds it, as for the wake) · source: the store the take's chain lies in, if not own (27.11.: someone else's take,
+ * shared to read – the echo and the chain on top lie with whoever computed, the take stays untouched).
+ */
+export async function addEcho({ own, chainPath, from, kind, row, bytes: given = null, echo, device, person, now = Date.now(), deviceKey = null, source = own }) {
+  const oldBytes = await source.read(chainPath);
   const file = readFile(new TextDecoder().decode(oldBytes));
   const src = file.defs.get(from);
   if (!src?.id) throw new Error(`not defined in this chain: :${from}`);
   const at = timeLabel(now);
   const id = newId({ q: device, n: person.id, now });
-  const text = await signed(deviceKey, fileText(headLine(artOf(kind, true), { '!': writeId(id), '~': echo, '@': person.label, "'t": at }), [], [row]));
-  const bytes = enc.encode(text);
   const name = partsOf(chainPath);
-  const echoPath = pathOf({ words: flatWords(row), echo, person: person.label, time: at, kind, u: uOf(id) });
+  const bytes = given ?? enc.encode(await signed(deviceKey, fileText(headLine(artOf(kind, true), { '!': writeId(id), '~': echo, '@': person.label, "'t": at }), [], [row])));
+  const echoPath = pathOf({ words: given ? name.words : flatWords(row), echo, person: person.label, time: at, kind, u: uOf(id) });
   await own.write(echoPath, bytes);
 
   const mine = strandName(kind, src.art === artOf(kind, true) ? src.n + 1 : 1, true); // an echo: ~x.1, ~l.1 (G10); from an echo of the same kind: the next number

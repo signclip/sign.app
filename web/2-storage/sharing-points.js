@@ -22,6 +22,7 @@
 //            tried again like any that failed (upkeep.js reopen, every 30 s while online);
 //            a run lists source and target once; a failed sharing point is reported, the rest go on.
 
+import { SealedStore, keyId } from './sealed-store.js';
 import { connect, ReadOnlyStore } from './connect.js';
 import { wants } from './list.js';
 import { copyRoute } from './routes.js';
@@ -56,6 +57,9 @@ async function openOne(entry, spec, { keychain, own, folders, fetch, access }) {
     const { read, write } = await store.inner.rights().catch(() => ({ read: true, write: false }));
     if (write) ({ store } = connect({ ...spec, write: true, drop: !read }, { secret, fetch }));
   }
+  // end to end (27.11.): a group key in the keychain = this sharing point is sealed; everything goes through SealedStore
+  const groupKey = await Promise.resolve(keychain?.get?.(keyId(entry.id))).catch(() => null) ?? null;
+  if (typeof groupKey === 'string' && /^[0-9A-Z]{52}$/.test(groupKey)) store = await new SealedStore({ store, key: groupKey, name: store.name }).load(); // anything else under that id is no group key
   let description = null;
   try {
     const text = dec.decode(await store.read(SELF));

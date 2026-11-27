@@ -78,7 +78,7 @@ export function next(s, e) {
     case 'typing': return { ...s, typing: Boolean(e.on), ...(e.on ? {} : { caret: null }) };
     case 'caret': return { ...s, caret: e.at ?? null };
     case 'keyboard': return { ...s, keyboard: Math.max(0, e.px | 0) };
-    case 'similar': return { ...s, similar: e.level, ...(e.level !== 'single' ? { pick: e.level === 'many' ? s.pick : null } : {}), ...(e.level === 'closed' || (e.level !== 'single' && s.sel === 'element') ? { sel: null } : {}) };
+    case 'similar': return { ...s, similar: e.level, ...(e.level !== 'single' ? { pick: e.level === 'many' ? s.pick : null } : {}), ...(e.level === 'closed' || (e.level !== 'single' && s.sel === 'element') ? { sel: null } : {}), ...(e.level === 'closed' && s.filters?.earlier ? { filters: { ...s.filters, earlier: null } } : {}) }; // closed: the earlier ones end (27.11.)
     case 'pick': return { ...s, pick: e.key, similar: e.key == null ? 'many' : 'single', ...(e.key == null ? (s.sel === 'element' ? { sel: null } : {}) : { sel: 'element', chosenLine: null }) }; // tapped big = chosen
     case 'filters': return { ...s, filters: e.filters };
     case 'share': return { ...s, share: Boolean(e.open) };

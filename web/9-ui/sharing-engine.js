@@ -39,7 +39,7 @@ const SIGNER_PAPER_ID = 'paper-signer'; // the signer code on the sheet and the 
 import { partsOf } from '../2-storage/layout.js';
 import { quietIds } from '../4-save/remove.js';
 import { deviceKeys, joins, accessKey } from './device-keys.js';
-import { readPaste } from '../2-storage/spec.js';
+import { readPaste, gatewayParts } from '../2-storage/spec.js';
 import { copyRoute } from '../2-storage/routes.js';
 import { send, filesOf, targets, sendTo, defaults, printFile, saveFiles, copy } from './system-share.js';
 import { shareTake } from '../4-save/share-take.js';
@@ -51,14 +51,16 @@ import { addNew, bringIn, peek, pickFolder, loginAt, resumeLogin, giveOut, giveT
 import { readHello, devicesOf, quietDevice, takeFiles } from '../8-join/join.js';
 import { helloTakes, accountTakes, firstPieces, knownFolder } from '../8-join/known.js';
 import { doorView, toWithin, backToHello, moveAccount, deleteFolder } from '../8-join/door.js';
-import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey, withdrawHello, ensureGroupsHere } from './share-group.js';
+import { makeOrRenew, hellosToWelcome, welcome, followJoins, joinProject, helloToDoor, checkKey, withdrawHello, ensureGroupsHere, ensureAdminHere, wholeHere, doorThereOf, doorLinesHere } from './share-group.js';
+import { DOOR_THERE } from '../8-join/group.js';
 import { askRemove } from '../8-join/remove-request.js';
 import { folders, canPick } from './folders.js';
 
 import { revokeAppPassword, setDisplayName } from '../8-join/provision.js';
 import { renames, adoptRename, declineRename } from '../8-join/rename.js';
 import { nameSignOf } from '../8-join/join.js';
-import { findPeople, isAdmin, doorFolder, listAccounts, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled, deleteAccount, groupsOf, setGroup, matchAccounts } from '../8-join/provision.js';
+import { listAccounts } from '../8-join/accounts.js';
+import { findPeople, isAdmin, doorFolder, setQuota, nextQuota, sharedWithMe, shareFolder, makeFolder, setEnabled, deleteAccount, groupsOf, setGroup, matchAccounts } from '../8-join/provision.js';
 import { summarize, readSummary, SUMMARY, EVERY_MS } from '../3-index/atlas.js';
 import { WebDavStore } from '../2-storage/webdav.js';
 import { confirmAdmin } from './confirm-admin.js';
@@ -140,6 +142,8 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   let writing = Promise.resolve();
   const write = (edit) => { const run = writing.then(() => changeList(own, edit, meta())); writing = run.catch(() => {}); return run; };
   const every = () => tiles(s.entries, s.rules, s.open, s.runs).filter((x) => { const e = s.entries[x.n - 1]; return e && !(e.key && !e.path); }); // also the door after the join: its state is still followed (quiet note, rename)
+  const given = new Map(); // views given to this admin device and shown in Similar (27.11.): id → source
+  const showSources = () => onSources([...sources(s.rules, s.open, own), ...given.values()]);
   const all = () => every()
     .filter((x) => !(x.group && s.joinStates?.get?.(x.label) === 'within' && s.doorLabels?.has(x.label))) // joined (15.11.): the door is no tile any more; my Sign is
     .filter((x) => !(doorLabel && x.label === doorLabel && ['join-own', 'within'].includes(s.joinStates?.get?.(x.label)))) // 17.11.: gone the moment my own Sign came, never both side by side
@@ -250,7 +254,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     if (await takePendingLogin().catch(() => false)) return loadOnce(); // a role login moved here from another account (15.11.)
     s.open = await openAll(s.entries, { keychain, own, folders, access: accessKey }); // access: an object storage through the gateway (21.11.)
     s.loaded = true; // the list and its sharing points are there (26.11.)
-    onSources(sources(s.rules, s.open, own));
+    showSources();
     waitingShares(ctx).then(async (list) => { // asks in the background
       const expected = expectedOf(ctx, list); // from accounts I brought in: taken in without a tap
       for (const item of expected) await acceptWaiting(ctx, item).catch(() => {});
@@ -296,7 +300,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   async function edit(change) {
     if (change?.remove != null) await moveNote(change.remove).catch(() => {}); // taken away right after everything was copied out: a sealed move note stays behind
     if (change?.remove != null) await logoutEntry(change.remove).catch(() => {}); // a login taken away: its app password deletes itself, the keychain forgets it
-    if (change?.remove != null && [s.adminN, s.atlasN, s.groupsN].includes(change.remove)) { ctx.admin = undefined; ctx.door = null; s.adminN = s.atlasN = s.groupsN = null; ctx.groups = null; ctx.atlas = null; s.door = null; s.accounts = s.account = s.index = null; } // Admin or Atlas taken away: asked anew
+    if (change?.remove != null && [s.adminN, s.atlasN, s.groupsN].includes(change.remove)) { ctx.admin = undefined; ctx.door = null; ctx.doorThere = null; s.adminN = s.atlasN = s.groupsN = null; ctx.groups = null; ctx.atlas = null; s.door = null; s.accounts = s.account = s.index = null; } // Admin or Atlas taken away: asked anew
     await write(change);
     await load();
     draw();
@@ -323,7 +327,8 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   async function logout(account) {
     if (!account) return;
     for (let i = 0; i < 10; i++) { // ≤ 10 tiles of one account
-      const n = [...s.open].find(([, sp]) => sp.spec?.server === account.server && sp.spec?.user === account.user)?.[0];
+      const n = [...s.open].find(([, sp]) => (account.server ? sp.spec?.server === account.server && sp.spec?.user === account.user
+        : sp.spec?.kind === 'gateway' && account.user && Boolean(gatewayParts(sp.entry.path)?.prefix.startsWith(`${account.user}/`))))?.[0]; // an account in the object storage alone: its tiles there (27.11.)
       if (!n) return;
       await edit({ remove: n });
     }
@@ -340,11 +345,11 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     draw();
   };
   const doorLabel = (project?.doors?.length || project?.read) ? project.label || 'Sign' : null; // the project's door, if there is one
-  const ctx = { every: () => every(), confirmed: () => confirmed(), project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, gateway: project?.gateway || null, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on), newPerson: () => onOwnHold() };
+  const ctx = { every: () => every(), confirmed: () => confirmed(), project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, gateway: project?.gateway || null, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), hasGiven: (id) => given.has(id), showGiven: (src) => { given.set(src.id, src); showSources(); }, hideGiven: (id) => { given.delete(id); showSources(); }, show: (on) => show(on), newPerson: () => onOwnHold() };
   // the admin's door and what Admin, Atlas, Groups do: their own files (15.11., share-door.js, share-accounts.js)
   const { refreshDoor, lookPile, pileList, adminStore, signerVerdict } = doorPart(ctx, { panel, onLookAll });
   const swarm = swarmPart(ctx); // a group's tile spread open (26.11.): who is in, who waits, a tap takes in
-  const { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, showGroups, groupTiles, addToGroup } = accountPart(ctx, { words, onLookAll, project });
+  const { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, showGroups, groupTiles, addToGroup, givenCount, given: givenN } = accountPart(ctx, { words, onLookAll, project });
   ctx.showIndex = showIndex;
 
   // ---------- doing what a gesture says ----------
@@ -405,18 +410,35 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     try { const used = JSON.parse(localStorage.getItem('sign.apps') || '{}'); used[app.pkg] = (used[app.pkg] ?? 0) + 1; localStorage.setItem('sign.apps', JSON.stringify(used)); } catch { /* private mode */ }
   }
 
-  /** Admin: a signer code for the paper, certified by this device into the door (lost phone → the code certifies the new one). */
+  /** Admin: the paper as a signer, certified by this device into the door (lost phone → the code certifies the new one).
+   *  The code stands on the paper only (27.11., audit H3): the keychain keeps the paper's public half and where its
+   *  certificate lies. A sheet made later names the paper without its code; a new code is a new paper (renew). Until
+   *  the app closes the code just made is still at hand, for a sheet that did not get through.
+   *  → { code (only when just made), id, key, path, at } */
+  let paperFresh = null;
   async function paperForDoor(renew) {
-    const kept = JSON.parse((await keychain.get(SIGNER_PAPER_ID)) ?? 'null');
-    if (kept && !renew) return kept.code; // the same code as on the sheets already printed
     const { newSignerCode, paperSigner, certify } = await import('../8-join/signers.js');
+    const kept = await paperOnly();
+    if (kept && !renew) return { ...kept, code: paperFresh?.key === kept.key ? paperFresh.code : null };
     const code = newSignerCode(), paper = await paperSigner(code), me = await deviceKeys();
     const cert = await certify({ by: { id: device, label: person.label, privateKey: me.device.privateKey }, signer: paper, person });
     await adminStore().write(cert.path, new TextEncoder().encode(cert.text));
     if (kept?.path) await adminStore().remove(kept.path).catch(() => {}); // the old paper no longer certifies
-    await keychain.set(SIGNER_PAPER_ID, JSON.stringify({ code, path: cert.path }));
-    return code;
+    const mine = { id: paper.id, key: paper.key, path: cert.path, at: Date.now() };
+    await keychain.set(SIGNER_PAPER_ID, JSON.stringify(mine));
+    paperFresh = { code, key: paper.key };
+    return { ...mine, code };
   }
+  /** What is kept of the paper, without its code; a code kept from before 27.11. leaves the device here. */
+  async function paperOnly() {
+    const raw = JSON.parse((await keychain.get(SIGNER_PAPER_ID)) ?? 'null');
+    if (!raw?.code) return raw;
+    const { paperKept } = await import('../8-join/signers.js');
+    const kept = await paperKept(raw);
+    await keychain.set(SIGNER_PAPER_ID, JSON.stringify(kept));
+    return kept;
+  }
+  paperOnly().catch(() => {}); // at every start: nothing to do, or the code goes
   /** The emergency sheet (14.11.): a paper password for the backups (kept in the keychain, sealed into each backup), with every
    *  sharing point, the access IDs and what the index adds up to, as PDF (emergency.js). */
   async function emergency() {
@@ -433,13 +455,14 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     }
     const admin = await findAdmin().catch(() => null); // only user and server reach the sheet, never the password
     const accounts = admin ? await sheetAccounts().catch(() => []) : [];
-    const signerCode = admin && adminStore() ? await paperForDoor(choice !== 'keep').catch(() => null) : null; // admin: the paper becomes a signer too
-    const sheet = sheetData({ person, device, key, paper, signerCode, last: s.last ?? {}, joins: await sheetJoins(), services: { admin: s.adminN, atlas: s.atlasN }, date: shown(Date.now(), 'day'), entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
+    const onPaper = admin && adminStore() ? await paperForDoor(choice !== 'keep').catch(() => null) : null; // admin: the paper becomes a signer too
+    const sheet = sheetData({ person, device, key, paper, signerCode: onPaper?.code ?? null, signerPaper: onPaper && !onPaper.code ? { id: onPaper.id, day: onPaper.at ? shown(onPaper.at, 'day') : null } : null, last: s.last ?? {}, joins: await sheetJoins(), services: { admin: s.adminN, atlas: s.atlasN }, date: shown(Date.now(), 'day'), entries: s.entries, rules: s.rules, open: s.open, index: index(), admin, accounts, project, nameSign: Boolean(await nameSign().catch(() => null)) });
     sheet.spots = await spotsOf(sheet.stats.cells); // where the takes were: o_ cells → their middle (h3, loaded once)
     const pdf = sheetPdf(sheet);
     const name = sheetName(sheet); // (Sign Overview)@(Name)'t(…)!(u_…).pdf, as every file name
-    const paperKey = signerCode ? await import('../8-join/signers.js').then(({ paperSigner }) => paperSigner(signerCode)).then((x) => `${x.id} z_${x.key}`).catch(() => null) : null;
-    const p = { title: 'Sign Overview', text: paperKey ? `${key}\n${paperKey}` : key, files: [new File([pdf], name, { type: 'application/pdf' })] }; // admin (22.11.): both anchors for project.json signer (device + paper, public halves only)
+    const paperKey = onPaper ? `${onPaper.id} z_${onPaper.key}` : null; // the paper's public half, kept without its code
+    const doorLines = admin?.there ? await doorLinesHere(ctx, project).catch(() => null) : null; // the door in the object storage: its two lines for project.json doors (27.11.)
+    const p = { title: 'Sign Overview', text: [key, paperKey, doorLines].filter(Boolean).join('\n'), files: [new File([pdf], name, { type: 'application/pdf' })] }; // admin (22.11.): both anchors for project.json signer (device + paper, public halves only)
     if (!s.apps?.list?.length) return send(p).catch(() => null); // no row (iOS, browser): the system sheet
     s.pending = p; s.apps.x = 0; return draw(); // the menu folds down to its share row: choose where it goes (14.11.)
   }
@@ -465,8 +488,8 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   /** Every account for the sheet (admin): quiet = switched off · within = has logged in or atlas counted it · join = made,
    *  not yet in · hello = a request without an account; numbers from atlas, bytes from the Nextcloud quota. */
   async function sheetAccounts() {
-    const [list, counts] = await Promise.all([listAccounts(ctx.admin, { group: project?.group, skip: [project?.atlas, project?.admin, project?.groups, ctx.admin?.user] }), atlasSummary()]);
-    const made = list.map((a) => { const c = counts.get(a.user) ?? {}; return { user: a.user, label: a.label, state: a.enabled === false ? 'quiet' : a.lastLogin || counts.has(a.user) ? 'within' : 'join', v: c.v ?? 0, a: c.a ?? 0, x: c.x ?? 0, l: c.l ?? 0, chains: c.chains ?? 0, bytes: a.used || c.bytes || 0 }; });
+    const [list, counts] = await Promise.all([listAccounts(ctx.admin, { doorThere: ctx.doorThere, group: project?.group, skip: [project?.atlas, project?.admin, project?.groups, ctx.admin?.user] }), atlasSummary()]);
+    const made = list.map((a) => { const c = counts.get(a.user) ?? {}; return { user: a.user, label: a.label, state: a.enabled === false ? 'quiet' : a.lastLogin || counts.has(a.user) || a.only === 'there' ? 'within' : 'join', v: c.v ?? 0, a: c.a ?? 0, x: c.x ?? 0, l: c.l ?? 0, chains: c.chains ?? 0, bytes: a.used || c.bytes || 0 }; });
     const asked = (s.hellos ?? []).map((h) => ({ user: h.name ?? 'hello', label: h.name ?? 'hello', state: 'hello', bytes: 0 }));
     return [...made, ...asked];
   }
@@ -597,13 +620,13 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       if (tile?.state === 'cloud') return askAccount(ctx, tile.n); // my cloud id copied, their server opens
       if (tile?.state === 'error') { // not reachable at start: try again now, then catch up
         const back = await reopen(s.open, s.entries, { keychain, own, folders });
-        if (back.length) { onSources(sources(s.rules, s.open, own)); await run(tile.n); }
+        if (back.length) { showSources(); await run(tile.n); }
         return draw();
       }
       if (tile?.state === 'waiting') { // permission needs a tap; then its rules catch up
         const back = await reconnect(s.open, folders, { ask: true, only: tile.n });
         if (back.length) {
-          onSources(sources(s.rules, s.open, own));
+          showSources();
           await run(tile.n);
         }
         return draw();
@@ -690,7 +713,19 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
         debugNote({ method: 'door', where: user, ...(at == null ? { error: 'not found among the shares of this login' } : { status: `at ${at || '/'}` }), ms: 0 }); // in sign-debug.txt
       }
     }
-    if (ctx.admin) { const real = await keychain.get(confirmId(ctx.admin)).catch(() => null); if (real && ctx.admin.password !== real) ctx.admin = { ...ctx.admin, password: real }; } // 17.11.: accounts are managed with the account's own password (below)
+    if (project?.gateway) { // the object storage (27.11.): the signer's device is its admin, beside a Nextcloud or alone
+      const w = await wholeHere(ctx).catch(() => null);
+      if (w) {
+        const there = { gateway: project.gateway, ...w }, adminPath = `${project.gateway.replace(/\/$/, '')}/s3/${DOOR_THERE}`;
+        if (!ctx.admin && !(doorLabel && (await joins.get(doorLabel).catch(() => null)))) { // alone, and not an account that said hello as a person: the tile at <gateway>/s3/admin/ is the account, its folder the door
+          const e = await ensureAdminHere(ctx, project).catch(() => null);
+          if (e) { ctx.admin = { user: project.admin || 'Admin', there }; s.adminN = s.entries.indexOf(e) + 1; await setRole('admin', s.adminN).catch(() => {}); }
+        } else if (ctx.admin && ctx.admin.there?.grant !== there.grant) ctx.admin = { ...ctx.admin, there };
+        if (ctx.admin) ctx.doorThere ??= await doorThereOf(ctx, project).catch(() => null);
+        if (ctx.admin && !ctx.admin.server) { ctx.door = ctx.doorThere; const i = s.entries.findIndex((x) => x.path === adminPath); if (i >= 0) s.adminN = i + 1; }
+      }
+    }
+    if (ctx.admin?.server) { const real = await keychain.get(confirmId(ctx.admin)).catch(() => null); if (real && ctx.admin.password !== real) ctx.admin = { ...ctx.admin, password: real }; } // 17.11.: accounts are managed with the account's own password (below)
     if (ctx.admin && project?.gateway) await ensureGroupsHere(ctx, project).catch(() => null); // Groups in the object storage (22.11.): the admin's Groups tile there (a tile; ← = new group folder), sealed by this device for itself
     return ctx.admin ?? null;
   }
@@ -704,7 +739,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   const confirmId = (a) => `confirm ${a.server} ${String(a.user).toLowerCase()}`;
   async function needsConfirm(err) {
     const why = String(err?.message ?? err);
-    if (!ctx.admin || !/confirm|\b403\b|\b401\b|997/i.test(why)) return false;
+    if (!ctx.admin?.server || !/confirm|\b403\b|\b401\b|997/i.test(why)) return false; // only a Nextcloud admin has a password to confirm
     const had = await keychain.get(confirmId(ctx.admin)).catch(() => null);
     if (had && /confirm/i.test(why)) return false; // it was sent and still refused: said as it is
     if (had) await keychain.remove?.(confirmId(ctx.admin)); // a wrong one: asked anew
@@ -745,13 +780,17 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     }
     const list = [...seen.values()];
     const inUse = list.find((a) => (ctx.role ? a.role === ctx.role : !a.role)) ?? null;
-    return list.map((a) => ({ ...a, current: a === inUse }));
+    return list.map((a) => ({ ...a, current: a === inUse, ...(a.role === 'admin' && givenN() ? { count: givenN() } : {}) })); // admin: how many persons gave me their view (27.11.)
   }
   /** This person's role, from her logins' names (project.json); isAdmin may add 'admin' later (findAdmin). */
   async function roleByName() {
     for (const [n, sp] of s.open) {
       const role = sp.spec?.kind === 'nextcloud' ? roleOf(sp.spec.user, project ?? {}) : null;
       if (role) return setRole(role, n).catch(() => {});
+    }
+    if (project?.gateway && !ctx.role && !(doorLabel && (await joins.get(doorLabel).catch(() => null)))) { // the object storage alone (27.11.): the signer's device is the admin, known by its key
+      const e = await ensureAdminHere(ctx, project).catch(() => null);
+      if (e) return setRole('admin', s.entries.indexOf(e) + 1).catch(() => {});
     }
   }
   /**
@@ -860,7 +899,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       : s.hellos.length ? pilesOf({ hello: count('hello') }).slice(0, 1) : []; // a group's signer: its hellos
     s.piles = s.piles.map((p) => ({ ...p, n: s.adminN, label: p.count == null ? p.pile : `${p.pile} ${p.count}` }));
     const hellos = s.piles;
-    onDraw({ tiles: all(), confirm: s.confirm ?? null, own: person.label, sent: s.sent ?? 0, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: new Set(s.fresh), focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, apps: s.index || s.accounts || s.groupList || s.browse ? [] : rowApps(), outOnly: Boolean(s.pending), persons: others().map(withState).filter(Boolean), self: (() => { const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current()); return me ? withState({ ...me, label: me.label || person.label }) : null; })(), accounts: logins(), choosing: Boolean(s.choosing), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: new Map(s.joinStates), leaving: new Set(s.leaving ?? []), sending: s.sending ?? null, note: s.note, role: ctx.role ?? null, swarm: swarm.view() });
+    onDraw({ tiles: all().map((t) => (t.group ? { ...t, count: swarm.count(t.label) } : t)), confirm: s.confirm ?? null, own: person.label, sent: s.sent ?? 0, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: new Set(s.fresh), focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, apps: s.index || s.accounts || s.groupList || s.browse ? [] : rowApps(), outOnly: Boolean(s.pending), persons: others().map(withState).filter(Boolean), self: (() => { const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current()); return me ? withState({ ...me, label: me.label || person.label }) : null; })(), accounts: logins(), choosing: Boolean(s.choosing), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: new Map(s.joinStates), leaving: new Set(s.leaving ?? []), sending: s.sending ?? null, note: s.note, role: ctx.role ?? null, swarm: swarm.view() });
 
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();
@@ -1008,7 +1047,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     try {
       const r = await bringHome(store, own, { keychain, host: await host(), paper, skip: await skip() });
       say(r.restored ? t('home.restored', { n: r.restored.length }) : t('home.copied', { n: r.copied.length }));
-      onSources(sources(s.rules, s.open, own)); // Similar sees what came home
+      showSources(); // Similar sees what came home
     } catch { say(t('home.key')); } // a backup of another device: the paper password on the clipboard opens it
   }
 
@@ -1024,7 +1063,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     if (globalThis.navigator?.onLine !== false && [...s.open.values()].some((sp) => sp.error)) {
       if ((await reopen(s.open, s.entries, { keychain, own, folders })).length) changed = true;
     }
-    if (changed) onSources(sources(s.rules, s.open, own));
+    if (changed) showSources();
     sending.run().catch(() => {}); // what is still owed and can go now
     await run().catch(() => {});
     if (changed && !panel.hidden) draw();
@@ -1039,7 +1078,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   function show(on) {
     panel.hidden = !on;
     if (!on) { s.pending = null; s.held = null; if (s.carry) { s.carry = null; s.pulse = null; } swarm.close({ silent: true }); } // closed: nothing prepared waits, nobody carried, no swarm read on
-    if (on) { s.appear = true; draw(); look(); loadApps().catch(() => {}); }
+    if (on) { s.appear = true; draw(); look(); loadApps().catch(() => {}); swarm.lookAll().catch(() => {}); if (ctx.role === 'admin' || ctx.admin) givenCount().catch(() => {}); }
   }
   /** One step back (Android back, → in the accounts): an account → the accounts → closed. → true if it stepped */
   function back() {

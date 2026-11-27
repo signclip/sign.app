@@ -23,7 +23,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const px = (n) => `${Number(n).toFixed(1)}px`;
 const f1 = (n) => Number(n).toFixed(1);
 
-const ICON = { initial: 'A', date: '▮', spot: '◎', who: '@' };
+const ICON = { initial: 'A', date: '▮', spot: '◎', who: '◯' }; // who: a small bubble, the sharing points' own form (27.11.: who and sharing point are one)
 const KIND_SIGN = { search: '?', choice: '#', series: '—', template: '_', ask: '↗' }; // chain kinds in the cloud (21.11.): the schema's own signs
 
 /** A tile in the window's form (21.11.): s = its square, narrower on one side as the window; the outline kept per size. */
@@ -66,7 +66,7 @@ export function similarHtml(st, entries, L, { compare = null, picked = null, sea
       const e = entries[sp.i], t = tileForm(sp.s, L); // the window's form (21.11.): its aspect and its corners
       out.push(`<div class="tile${e.key === st.pick ? ' picked' : ''}${e.kind ? ` chain-${e.kind}` : ''}" data-key="tile:${esc(e.key)}" data-role="tile:${sp.i}" style="left:${px(sp.x - t.w / 2)};top:${px(sp.y - t.h / 2)};width:${px(t.w)};height:${px(t.h)};clip-path:path('${t.d}');--r:${(L.round ?? 1).toFixed(2)}">${e.thumb ? `<img src="${esc(e.thumb)}" alt="">` : ''}${e.kind ? `<em class="sign">${KIND_SIGN[e.kind] ?? ''}</em>` : ''}<div class="tags">${wordsOf(e.words).slice(0, 4).map((w) => `<span class="chip tag" data-role="tword:${sp.i}" style="font-size:${fitFont(w, t.w * (1 - 0.28 * (L.round ?? 0)) - 18)}px">${esc(w)}</span>`).join('')}${(e.words?.length ? [] : e.heard ?? []).slice(0, 3).map((w) => `<span class="chip tag heard">${esc(w)}</span>`).join('')}</div><svg class="tile-edge" viewBox="0 0 ${t.w.toFixed(1)} ${t.h.toFixed(1)}"><path d="${t.d}"/></svg></div>`);
     }
-    if (!entries.length) out.push(`<div class="empty" style="left:${px(inner.x)};top:${px(inner.y + inner.h / 2 - 20)};width:${px(inner.w)}">∅</div>`);
+    // nothing found: the cloud stays empty, no sign in its middle (27.11., user)
   }
   if (st.sel === 'cloud' && !single) out.unshift(`<div class="cloud-chosen" style="left:${px(box.x)};top:${px(box.y)};width:${px(box.w)};height:${px(box.h)}"></div>`); // the cloud chosen: its ground tinted, behind the tiles (22.11.)
   if (st.sel === 'element' && single && L.single) { // the element chosen: a tinted ring of 18 px around its window (22.11.)
@@ -119,10 +119,10 @@ function railHtml(z, r, f, all, { k, lang, reach, spotMap, spotBase, spots }) {
     return `<div class="rail lying map" data-key="rail:spot" data-role="rail:spot" style="${box}">${order}${map}</div>`;
   }
   // who: every sharing point a bubble – one's own first, then where one writes with others, then what one only sees (pale) –
-  // its persons inside; a bubble tapped = that sharing point, a person tapped = that person
+  // its persons inside, sharing points themselves (27.11.); a bubble tapped = all of it (what lies there, what its persons made), a person = what she made
   const rank = (x) => (x.own ? 0 : x.write ? 1 : 2), dir = turned ? -1 : 1;
   const list = [...reach].sort((a, b) => rank(a) - rank(b) || dir * a.name.localeCompare(b.name, 'de'));
-  const groups = list.map((x) => `<div class="who-group${x.own || x.write ? '' : ' far'}${(f.value.sharing ?? []).includes(x.name) ? ' on' : ''}" data-role="value:sharing:${esc(x.name)}"><b>${esc(x.own ? '◉' : x.name)}</b>${x.persons.slice(0, 6).map((p) => `<i class="${(f.value.name ?? []).includes(p) ? 'on' : ''}" data-role="value:name:${esc(p)}">${esc(p.slice(0, 2))}</i>`).join('')}</div>`).join('');
+  const groups = list.map((x) => `<div class="who-group${x.own || x.write ? '' : ' far'}${(f.value.sharing ?? []).includes(x.name) ? ' on' : ''}" data-role="value:sharing:${esc(x.name)}"><b>${esc(x.own ? '◉' : x.name)}</b>${x.persons.slice(0, 6).map((p) => `<i class="${(f.value.sharing ?? []).includes(p) ? 'on' : ''}" data-role="value:sharing:${esc(p)}">${esc(p.slice(0, 2))}</i>`).join('')}</div>`).join(''); // a person is a sharing point too (27.11.)
   return `<div class="rail lying" data-key="rail:who" data-role="rail:who" style="${box}">${order}<div class="rail-list">${groups || '<span class="none">∅</span>'}</div></div>`;
 }
 

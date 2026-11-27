@@ -67,11 +67,12 @@ export class WebDavStore {
     return out.filter((f) => f.path.startsWith(prefix)).sort((a, b) => (a.path < b.path ? -1 : 1));
   }
 
-  /** One level of a folder: [{ path, folder: true|false, size, at (ms, when the server has it) }]. */
+  /** One level of a folder: [{ path, folder: true|false, size, at (ms, when the server has it), stored (ms, Nextcloud:
+   *  when it took the file; the writer cannot set it) }]. */
   async propfind(folder) {
     const res = await this.request('PROPFIND', folder, {
       headers: { Depth: '1', 'Content-Type': 'application/xml' },
-      body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:getcontentlength/><d:resourcetype/><d:getlastmodified/></d:prop></d:propfind>',
+      body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:nc="http://nextcloud.org/ns"><d:prop><d:getcontentlength/><d:resourcetype/><d:getlastmodified/><nc:upload_time/></d:prop></d:propfind>',
     });
     if (res.status === 404) return [];
     if (res.status !== 207) throw new Error(`PROPFIND ${folder}: ${res.status}`);
@@ -80,12 +81,13 @@ export class WebDavStore {
     return xml.split(/<d:response>/i).slice(1).map((block) => {
       const href = decodeURIComponent(/<d:href>([^<]*)<\/d:href>/i.exec(block)?.[1] ?? '');
       const at = Date.parse(/<d:getlastmodified>([^<]*)/i.exec(block)?.[1] ?? ''); // the server's time (22.11.: signers.js counts 48 h by it, not by anything a signer writes)
-      return { path: href.startsWith(basePath) ? href.slice(basePath.length) : href, folder: /<d:collection\s*\/>/i.test(block), size: Number(/<d:getcontentlength>(\d+)/i.exec(block)?.[1] ?? 0), ...(at ? { at } : {}) };
+      const stored = Number(/<nc:upload_time>(\d+)/i.exec(block)?.[1] ?? 0) * 1000; // when the server took the file: no writer sets it (27.11.; getlastmodified follows X-OC-MTime)
+      return { path: href.startsWith(basePath) ? href.slice(basePath.length) : href, folder: /<d:collection\s*\/>/i.test(block), size: Number(/<d:getcontentlength>(\d+)/i.exec(block)?.[1] ?? 0), ...(at ? { at } : {}), ...(stored ? { stored } : {}) };
     }).filter((e) => e.path !== folder);
   }
 
   async walk(folder, out) {
-    for (const e of await this.propfind(folder)) if (e.folder) await this.walk(e.path, out); else out.push({ path: e.path, size: e.size, ...(e.at ? { at: e.at } : {}) });
+    for (const e of await this.propfind(folder)) if (e.folder) await this.walk(e.path, out); else out.push({ path: e.path, size: e.size, ...(e.at ? { at: e.at } : {}), ...(e.stored ? { stored: e.stored } : {}) });
   }
 
   /**

@@ -17,8 +17,14 @@
 //            chain: .w.jpg 96 × 96 in echo/w/ and :~w.1~(wake :v.1)!(…) (no head inside: the hash in the chain covers it;
 //            recomputable any time). It stands first in the line, beside what was recorded: {:~w.1 _({:v.1 :a.1 :x.1})}
 //            (G10: ~ = exists only computed; G6: not recorded, so outside _( ), its definition says where it came from).
+// From outside (27.11., user: "the from → to pattern, as with sharing points"): a file dropped in or shared to the app
+//            is an original, not computed. Its own name is the Bezeichnung of its strand: :v.1(Urlaub_Ostsee.mp4)!(…)
+//            (names = { v: … }). Where it came from – the source, the earlier folder or path – is the first step, so the
+//            lowest line, written as G4a writes sharing: {:v.1} {:sharing-point.1} {:sharing-point.2}'t(…) with
+//            :sharing-point.1^(source)=(path)!(q_…) and :sharing-point.2!(q_ this device). No known source, no line.
 // EXTEND(S5, landmarks): :~l .l.parquet and :~m .m.mp4 come as echo in a new chain on top of this one (add-echo.js).
 
+import { relationLine } from '../2-storage/relations.js';
 import { newId, writeId, uOf } from '../1-model/ids.js';
 import { hashBytes, storedText } from '../1-model/hash.js';
 import { headLine, defLine, fileText, readFile } from '../1-model/file.js';
@@ -42,7 +48,8 @@ const enc = new TextEncoder();
  * waiting: a template (21.11.) – the context with an empty take _() beside it, waiting for takes
  * Returns { chain: { path, id }, paths }.
  */
-export async function saveTake({ device, person, cell = null, where = null, now = Date.now(), lengthMs = 0, context = '', video = null, picture = null, audio = null, store, deviceKey = null, onto = null, ontoStore = null, keep = [], wake = null, waiting = false }) {
+export async function saveTake({ device, person, cell = null, where = null, now = Date.now(), lengthMs = 0, context = '', video = null, picture = null, audio = null, store, deviceKey = null, onto = null, ontoStore = null, keep = [], wake = null, waiting = false, from = null, names = {} }) {
+  if (from && onto) throw new Error('an import is an original: from and onto never together');
   const time = timeLabel(now, lengthMs);
   const words = context ? flatWords(context) : [];
   const base = { words, person: person.label, time };
@@ -57,7 +64,7 @@ export async function saveTake({ device, person, cell = null, where = null, now 
     const path = pathOf({ ...base, kind, u: uOf(id), ...(ext ? { ext } : {}), ...(echo ? { echo: echo.split(' ')[0] } : {}) });
     files.push({ path, bytes });
     const n = defs.filter((d) => d.startsWith(`:${artOf(kind, Boolean(echo))}.`)).length + 1;
-    defs.push(defLine(strandName(kind, n, Boolean(echo)), { id: writeId(id, await hashBytes(bytes)), ...(echo ? { echo } : {}) }));
+    defs.push(defLine(strandName(kind, n, Boolean(echo)), { label: echo ? undefined : names[kind], id: writeId(id, await hashBytes(bytes)), ...(echo ? { echo } : {}) })); // names: the file's own name, as Bezeichnung
     (echo ? echoes : used).push(strandName(kind, n, Boolean(echo)));
   };
 
@@ -93,6 +100,10 @@ export async function saveTake({ device, person, cell = null, where = null, now 
     const elements = kept.filter((l) => !l.includes('~(')).map(nameOf); // other echoes (a small picture before 26.11.) are defined, not elements
     line = `{${[...refs(wakes), ...refs(elements), took].filter(Boolean).join(' ')}}'t(${time})`;
     below = ['{:chain.1}'];
+  }
+  if (from?.path || from?.id) { // came from a known source (27.11., user: the from → to pattern of sharing, G4a): the first step, lowest line
+    defs.push(defLine('sharing-point.1', { hint: from.label ?? undefined, path: from.path ?? undefined, id: from.id ?? undefined }), defLine('sharing-point.2', { id: device }));
+    below = [relationLine({ what: from.what, from: 1, to: 2, time })];
   }
   const chainText = await signed(deviceKey, fileText(chainHead, defs, [line, ...below]));
   const chainPath = pathOf({ ...base, where, kind: 'chain', u: uOf(chainId) });

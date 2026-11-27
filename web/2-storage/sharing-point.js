@@ -31,7 +31,9 @@ export function labelOf(path) {
 /**
  * Text of sharing-point.sign. label: its name · path: where it lies (a planned move = a new path) ·
  * kinds: what consent covers · join: { gestures, vouch | within, where, time } · key: z_ of a device ·
- * signers: [{ label, id, key }] who may seal the next version (the admin is just the signer of atlas).
+ * signers: [{ label, id, key, pickup }] who may seal the next version (the admin is just the signer of atlas).
+ * pickup (26.11., optional): the pickup key of that signer's device, as a row ((pickup …) {:sharing-point.n}) – whoever
+ * reads the description can seal something for the signers of this sharing point (8-join/sealed-drop.js).
  */
 export function describe({ id, by, time, label, path = null, kinds, join = null, key = null, signers = [] }) {
   const rule = join ? [defLine('_.1', {
@@ -40,6 +42,7 @@ export function describe({ id, by, time, label, path = null, kinds, join = null,
   const defs = [...signers.map((sg, i) => defLine(`sharing-point.${i + 1}`, { hint: sg.label, id: `${sg.id} z_${sg.key}` })), ...rule];
   return fileText(headLine('sharing-point', { '^': label, '=': path, '!': key ? `${id} z_${key}` : id, '@': by, "'t": time }), defs, [
     `{${kinds.map((k) => `:${artOf(k)}`).join(' ')}}`, // l → :~l (G10)
+    ...signers.flatMap((sg, i) => (sg.pickup ? [`((pickup ${sg.pickup}) {:sharing-point.${i + 1}})`] : [])),
   ]);
 }
 
@@ -57,7 +60,10 @@ export function readDescription(text) {
     path: f.head['='] ?? null,
     kinds: (kindRow?.items[0]?.items ?? []).map((r) => r.kind),
     join: rule ? { gestures: num('gestures'), vouch: num('vouch'), within: num('within'), where: rule.where, time: rule.part } : null,
-    signers: [...f.defs.values()].filter((d) => d.kind === 'sharing-point' && d.id?.z).map((d) => ({ label: d.hint, id: d.id.q, key: d.id.z.slice(2) })),
+    signers: [...f.defs.values()].filter((d) => d.kind === 'sharing-point' && d.id?.z).map((d) => {
+      const pickup = f.rows.map((r) => new RegExp(`^\\(\\(pickup ([0-9A-Z]+)\\) \\{:${d.name.replace('.', '\\.')}\\}\\)`).exec(r.text)?.[1]).find(Boolean);
+      return { label: d.hint, id: d.id.q, key: d.id.z.slice(2), ...(pickup ? { pickup } : {}) };
+    }),
   };
 }
 

@@ -19,10 +19,12 @@ export const LEVELS = ['closed', 'many', 'single', 'full'];
 export const MANY = 40;
 import { inArea } from './spot-map.js';
 
-export const FILTERS = ['v', 'x', 'a', 'date', 'initial', 'name', 'sharing', 'spot'];
+export const FILTERS = ['v', 'x', 'a', 'date', 'initial', 'sharing', 'spot']; // who = sharing (27.11.): persons are sharing points
 export const ORDERED = ['date', 'initial', 'who', 'spot']; // each view has its arrow (22.11., user: sorting direction everywhere)
 
-export const noFilters = () => ({ on: { x: true }, value: {}, open: null, order: { date: 'new', initial: 'az' }, group: null }); // group: zoomed in a zone (similar-zoom.js)
+export const noFilters = () => ({ on: { x: true }, value: {}, open: null, order: { date: 'new', initial: 'az' }, group: null, earlier: null }); // group: zoomed in a zone (similar-zoom.js) · earlier: 'x' | 'v' | 'a' – one's own takes with that strand, newest first (27.11.)
+/** How many of one's own takes the cloud looks through when it shows the earlier ones of a strand (27.11.): the newest 400. */
+export const EARLIER_MAX = 400;
 
 /** The next level after a pinch: scale > 1 = spread, < 1 = squeeze. */
 export function zoomed(level, scale) {
@@ -60,8 +62,11 @@ export function passes(entry, f) {
   const v = f.value;
   if (f.on.date && v.date && (entry.t < v.date[0] || entry.t > v.date[1])) return false;
   if (f.on.initial && v.initial?.length && !(entry.words ?? []).flatMap((w) => String(w).split(/\s+/)).some((w) => v.initial.some((key) => (key === '#' ? /^\d/.test(w) : w.toLocaleUpperCase('de').startsWith(String(key).toLocaleUpperCase('de')))))) return false; // a letter or the first two (the rail's step, 26.11.), any word of the take
-  if (f.on.name && v.name?.length && !v.name.includes(entry.person)) return false;
-  if (f.on.sharing && v.sharing?.length && !(entry.sharing ?? []).some((s) => v.sharing.includes(s))) return false;
+  // who and sharing point are one (27.11., user): a person is a sharing point too. Chosen = takes made by a chosen
+  // person, or lying at a chosen sharing point, or made by one of its persons (a group tapped = all of it, abstract);
+  // an older choice by name alone counts the same
+  const by = [...(v.sharing ?? []), ...(f.on.name ? v.name ?? [] : [])];
+  if ((f.on.sharing || f.on.name) && by.length && !by.some((x) => x === entry.person || (entry.sharing ?? []).includes(x) || (v.members?.[x] ?? []).includes(entry.person))) return false;
   if (f.on.spot && v.spot?.length && !v.spot.some((x) => inArea(entry.spot, x))) return false; // a region chosen on the map holds its cells (22.11.)
   return true;
 }
@@ -140,4 +145,21 @@ export function cloudSpots(n, box, { beside = false, k = 1 } = {}) {
     out.push({ i, x: Math.max(box.x + s / 2, Math.min(box.x + box.w - s / 2, x)), y: Math.max(box.y + s / 2, Math.min(box.y + box.h - s / 2, y)), s });
   }
   return out;
+}
+
+/**
+ * The older lines stacked between the button and the window, chosen and ordered by the same rails as the cloud
+ * (27.11., user: no other elements – the date, the spot, who / sharing point and the initial letters narrow and sort
+ * them). A line passes when one of its takes passes (passes); the open rail sorts – letters by the line's first word,
+ * else by its newest take, each in its rail's direction. lines: the take's lines (the last is the open one) ·
+ * entryOf: take → { t, words, person, sharing, spot } · → the indexes of the older lines, in order
+ */
+export function stackOrder(lines, f, entryOf) {
+  const older = [...Array(Math.max(0, lines.length - 1)).keys()];
+  const rows = older.map((n) => ({ n, takes: lines[n].takes.map(entryOf) }));
+  const kept = f ? rows.filter((r) => r.takes.some((e) => passes(e, f))) : rows;
+  const when = (r) => Math.max(0, ...r.takes.map((e) => e.t ?? 0)), first = (r) => String(r.takes.flatMap((e) => e.words ?? [])[0] ?? '').toLocaleLowerCase('de');
+  if (f?.open === 'initial') { const dir = f.order?.initial === 'za' ? -1 : 1; kept.sort((a, b) => dir * first(a).localeCompare(first(b), 'de') || when(b) - when(a)); }
+  else { const dir = f?.order?.date === 'old' ? -1 : 1; kept.sort((a, b) => dir * (when(b) - when(a)) || b.n - a.n); }
+  return kept.map((r) => r.n);
 }

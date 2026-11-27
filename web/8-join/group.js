@@ -20,6 +20,7 @@
 //            to anyone: per look at most 50 hellos are read (newest first), only sealed ones are shown; the rest
 //            is counted as junk (set a small quota on the drop's account so a flood cannot fill more).
 
+import { keyText } from '../1-model/sealed.js';
 import { helloBack, answerFor, readHello } from './join.js';
 import { nameOf } from './state.js';
 import { readName } from '../1-model/filename.js';
@@ -56,6 +57,19 @@ export async function gatewayGroup({ path, grants, label, signer, now = Date.now
   return { gateway: { grants: own }, read: { chain: await door('r') }, drop: { chain: await door('a') }, sharingPoints: [{ label, path: `${at}#read`, id: null }, { label, path: `${at}#add`, id: null }] };
 }
 
+/**
+ * The project's door in the object storage (27.11., user: "die Tür ist einfach ein Ordner im Admin-Konto oder auf dem
+ * Objektspeicher"): the admin's own folder there, <gateway>/s3/admin/. Two grants sealed by the signer, for any access
+ * key: read only join/, add only into hello/ – so nobody reads the hellos and name signs through the door, as with the
+ * two links of a Nextcloud door. → { read, drop }: the two lines project.json keeps in "doors", like a group's invitation.
+ */
+export async function gatewayDoor({ gateway, signer, folder = DOOR_THERE, now = Date.now() }) {
+  const at = `${String(gateway).replace(/\/$/, '')}/s3/${folder}`;
+  const line = async (part, side, rights) => `${at}${part}/#${side}=${packGrant([await makeGrant({ signer, access: '*', prefix: `${folder}${part}/`, rights, now })])}`;
+  return { read: await line('join', 'read', 'r'), drop: await line('hello', 'add', 'a') };
+}
+export const DOOR_THERE = 'admin/';
+
 const linksOf = (label, read, drop) => [{ label, path: read.webdav, id: null }, { label, path: drop.webdav, id: null }];
 
 /**
@@ -64,12 +78,14 @@ const linksOf = (label, read, drop) => [{ label, path: read.webdav, id: null }, 
  */
 export async function welcomeToGroup({ store, helloPath, group, signer, now = Date.now() }) {
   await describeJoin(store);
-  if (!group.gateway) return helloBack({ store, helloPath, secret: '', sharingPoints: group.sharingPoints, signer, now });
+  // group.key (27.11., user: end to end everywhere): the group key travels in the sealed hello back, per sharing point
+  const keysFor = (sps) => (group.key ? { keys: Object.fromEntries(sps.map((x) => [x.id ?? x.path, keyText(group.key)])) } : {});
+  if (!group.gateway) return helloBack({ store, helloPath, secret: group.key ? JSON.stringify(keysFor(group.sharingPoints)) : '', sharingPoints: group.sharingPoints, signer, now });
   const ask = readHello(dec.decode(await store.read(helloPath))), p = gatewayParts(group.sharingPoints[0].path);
   const sharingPoints = group.sharingPoints.map((x) => ({ ...x, id: newSource() }));
   const mine = ask.access ? JSON.stringify([...chainOf(group.gateway.grants), await makeGrant({ signer, device: ask.device, access: ask.access, prefix: p.prefix, rights: 'ra', now })]) : null; // her own grant; a device without access key keeps the door's
   const grants = Object.fromEntries(sharingPoints.map((x, i) => [x.id, mine ?? JSON.stringify((i ? group.drop : group.read)?.chain ?? [])]));
-  return helloBack({ store, helloPath, secret: JSON.stringify({ grants }), sharingPoints, signer, now });
+  return helloBack({ store, helloPath, secret: JSON.stringify({ grants, ...keysFor(sharingPoints) }), sharingPoints, signer, now });
 }
 
 /**

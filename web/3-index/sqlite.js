@@ -1,7 +1,7 @@
 // sqlite.js — one SQLite database on this device (21.11., user: the index has one form everywhere, SQLite).
 //
 // Purpose:   openDevice() in the browser and the APK's WebView: a worker (sqlite-worker.js) loads SQLite as
-//            WebAssembly (SQLITE_LIBRARY, at run time from jsDelivr like whisper and h3, not in the repo) and keeps
+//            WebAssembly (SQLITE_LIBRARY, from lib/ beside the app like whisper and h3, put there at build) and keeps
 //            the database in the browser's own file system (OPFS, VFS "opfs-sahpool": needs no special server
 //            headers, so it runs on GitHub Pages and in the WebView). fromNode() gives the same four calls over
 //            node:sqlite, for the tests. Whoever holds a db does not know which of the two it is.
@@ -13,7 +13,7 @@
 //            tab at a time (a second tab falls back to files) · a call
 //            ≈ 0.1–1 ms plus the hop to the worker (≈ 0.1 ms).
 
-export const SQLITE_LIBRARY = 'https://cdn.jsdelivr.net/npm/@sqlite.org/sqlite-wasm@3.54.1-build1/dist/index.mjs';
+export const SQLITE_LIBRARY = new URL('../lib/sqlite/index.mjs', import.meta.url).href; // beside the app (27.11., IMPORTS.md)
 
 /** The same calls over a node:sqlite DatabaseSync (tests). */
 export function fromNode(db) {

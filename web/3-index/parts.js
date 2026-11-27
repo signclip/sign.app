@@ -79,10 +79,13 @@ const isSign = (p) => p.endsWith('.sign');
  * Every file of a sharing point, .sign with its text, read through the parts.
  * store: the sharing point · write: true = may write its own index/ (refresh stale parts there) ·
  * cache: { store, prefix } = where this reader keeps parts it may not write into the sharing point (device, atlas).
+ * under: [prefix] = read only these folders (default: all).
  * → { files: [{ path, size, text? }], skipped: [{ path, error }], read: number of .sign opened one by one }
  */
-export async function readThroughParts(store, { write = false, cache = null } = {}) {
-  const listed = (await store.list()).filter((f) => !f.path.startsWith(PARTS));
+export async function readThroughParts(store, { write = false, cache = null, under = null } = {}) {
+  // under: only these folders (prefixes) are listed, e.g. the folders of this month — what a large sharing point asks often (self.js)
+  const all = under ? (await Promise.all(under.map((prefix) => store.list(prefix)))).flat() : await store.list();
+  const listed = all.filter((f) => !f.path.startsWith(PARTS));
   const own = new Map((await store.list(PARTS).catch(() => [])).map((f) => [f.path, f]));
   const byFolder = new Map();
   for (const f of listed) (byFolder.get(folderOf(f.path)) ?? byFolder.set(folderOf(f.path), []).get(folderOf(f.path))).push(f);

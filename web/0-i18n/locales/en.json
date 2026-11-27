@@ -53,5 +53,6 @@
   "menu.noDoor": "door not found: sign-debug.txt",
   "door.notSigner": "this device is not the signer (project.json)",
   "join.notSigner": "answer not sealed by the signer",
-  "signer.waiting": "new signer {name}: counts from {date} – tap yes, ↓ no"
+  "signer.waiting": "new signer {name}: counts from {date} – tap yes, ↓ no",
+  "signer.onlyYes": "your yes"
 }

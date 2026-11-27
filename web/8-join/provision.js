@@ -20,7 +20,7 @@ const basic = (user, password) => 'Basic ' + btoa(`${user}:${password}`);
 /** New accounts get this much (14.11.: up to 100 GB by default; the admin changes it per account). */
 export const QUOTA = '100 GB';
 /** The steps the admin walks through per account (↑ more, ↓ less); none = no limit. */
-export const QUOTAS = ['10 GB', '25 GB', '50 GB', '100 GB', '250 GB', '500 GB', 'none'];
+export const GB = 2 ** 30, STEP_GB = 10; // space moves in steps of 10 GB (27.11.)
 
 export const GROUP = 'Sign'; // the Nextcloud group of every Sign account (14.11.: Admin, Atlas and the group Sign exist)
 
@@ -144,19 +144,22 @@ export async function setGroup(admin, user, group, on, { fetch = globalThis.fetc
   else await ocs(admin, `users/${encodeURIComponent(user)}/groups?${q}`, { method: 'DELETE', fetch }); // DELETE: in the address, not a body
 }
 
-/** Change an account's space: one of QUOTAS ("none" = the limit lifted). */
+/** Change an account's space: "60 GB" (a step of nextQuota) or "none" (the limit lifted). */
 export async function setQuota(admin, user, quota, { fetch = globalThis.fetch } = {}) {
   await ocs(admin, `users/${encodeURIComponent(user)}`, { method: 'PUT', body: new URLSearchParams({ key: 'quota', value: quota }).toString(), fetch });
 }
 
-/** The next step of space for an account, up (+1) or down (−1), from its quota in bytes; null = no step further. */
-export function nextQuota(bytes, by) {
-  const gb = (q) => (q === 'none' ? Infinity : Number.parseFloat(q) * 2 ** 30);
-  const now = bytes < 0 ? Infinity : bytes;
-  const at = QUOTAS.findIndex((q) => gb(q) >= now - 1); // the first step at or above today's
-  const exact = at >= 0 && Math.abs(gb(QUOTAS[at]) - now) <= 1;
-  const i = Math.max(0, Math.min(QUOTAS.length - 1, at < 0 ? QUOTAS.length - 1 : exact ? at + by : by > 0 ? at : at - 1));
-  return by < 0 && gb(QUOTAS[i]) > now ? null : QUOTAS[i]; // below the lowest step: no change (null)
+/**
+ * The next step of space for an account (27.11., user: fluid limits in 10-GB steps): up (+1) or down (−1) by 10 GB,
+ * from its quota in bytes (−3 = no limit) and what it holds. Never below what it holds (rounded up to the next
+ * step), never below 10 GB, no upper end. No limit: up stays (null), down = the first step above what it holds.
+ * → "60 GB" or null (no change)
+ */
+export function nextQuota(bytes, by, used = 0) {
+  const least = Math.max(STEP_GB, Math.ceil(used / GB / STEP_GB) * STEP_GB);
+  if (bytes < 0) return by < 0 ? `${(Math.floor(used / GB / STEP_GB) + 1) * STEP_GB} GB` : null; // the first step above what it holds
+  const next = Math.round(bytes / GB / STEP_GB) * STEP_GB + by * STEP_GB;
+  return next < least ? null : `${next} GB`;
 }
 
 /**

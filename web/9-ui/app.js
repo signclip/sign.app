@@ -34,9 +34,12 @@ import { overHtml } from './paint-over.js';
 import { sharingView } from './paint-sharing.js';
 import { seriesRow, nowWords } from './chips.js';
 import { takeWords } from '../1-model/context-edit.js';
+import { chipTexts } from '../1-model/context.js';
+import { stackOrder } from './similar-view.js';
 import { hintOf, onboardingSeries, onboardingView } from './onboarding-steps.js';
 import { listen } from './touch.js';
 import { takeFlow } from './take-flow.js';
+import { intakeOf } from './intake.js';
 import { similarFlow } from './similar-flow.js';
 import { passFlow } from './pass-flow.js';
 import { mediaOf } from './media.js';
@@ -178,6 +181,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   A.keepSettings = () => keep('sign.settings', settings);
   A.lang = lang;
   A.take = takeFlow(A);
+  A.intake = intakeOf(A); A.intake.listen(); // files dropped onto the app or shared to it become Takes (27.11.)
   A.heard = heardOf(A); // words from the sound by Whisper (26.11.): the audio arc dragged onto the context arc
   if (A.heard.on()) A.heard.ensure(); // switched on before: the model comes from the browser's cache
   A.pass = passFlow(A); // passing on others' takes: free, or a request to the author (21.11.)
@@ -323,7 +327,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     return markT;
   }
   function paint() {
-    const st = A.st, open = Boolean(A.data.fan) && st.similar === 'closed' && st.lines.length > 1;
+    const st = A.st, open = Boolean(A.data.fan) && (st.similar === 'closed' || st.similar === 'many') && st.lines.length > 1; // under the open cloud too: its rails choose them (27.11.)
     const stackT = stackStep(open ? 1 : 0); // the lines stacked between button and window open and fold in 0.3 s (27.11.)
     if (open) stackWant = st.lines.length - 1;
     const L0 = takeLayout({ ...size(), stack: stackT > 0 ? { rows: stackWant, t: ease(stackT) } : null }, st.similar, st.form, A.data.picture ?? 1, A.data.fullT ?? (st.similar === 'full' ? 1 : 0));
@@ -336,10 +340,11 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     focus.classList.toggle('gone', st.similar === 'full');
     win.classList.toggle('off', !st.strands.v);
     win.classList.toggle('gone', st.similar === 'full');
-    const svg = takeSvg(st, L, { w: innerWidth, fan: A.data.fan, fanOff: A.data.fanOff, fanShift: A.data.fanShift, playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, thumbOf: A.thumbOf, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, flow: A.heard?.state, auto: A.settings.restartMs != null, meter: A.settings.restartMs != null || A.settings.stillEndMs > 0, range: st.filters.range ?? {}, ranging: A.data.ranging, series: isLive(st) && !st.typing ? A.data.kindCounts?.series ?? 0 : 0 });
+    A.data.fanRows = L.stackRows ?? 0; // how many older lines stand between button and window at once (27.11.)
+    A.data.stackOrder = L.stackRows ? stackOrder(st.lines, st.filters, (t) => ({ t: t.t ?? 0, words: chipTexts(t.context ?? '').flat(), person: A.person?.id ?? A.person?.label ?? '', sharing: ['own'], spot: t.spot ?? t.o ?? null })) : null; // chosen and ordered by the same rails as the cloud // Similar full glides by itself (glideFull)
+    const svg = takeSvg(st, L, { w: innerWidth, fan: A.data.fan, fanOff: A.data.fanOff, fanShift: A.data.fanShift, stackDrag: A.data.stackDrag, stackOrder: A.data.stackOrder, /* the stacked lines follow the finger and the rails (27.11.) */ playing: Boolean(A.player?.playing), thumbs: A.data.thumbs, thumbOf: A.thumbOf, buttonPic: A.data.buttonPic, cut: A.data.cut, lineShift: A.data.lineShift, split: A.data.split, calm: A.data.calm, timers: A.data.timers, flow: A.heard?.state, auto: A.settings.restartMs != null, meter: A.settings.restartMs != null || A.settings.stillEndMs > 0, range: st.filters.range ?? {}, ranging: A.data.ranging, series: isLive(st) && !st.typing ? A.data.kindCounts?.series ?? 0 : 0 });
     if ($('#take').dataset.svg !== svg) { $('#take').innerHTML = svg; $('#take').dataset.svg = svg; }
     slide(L); // the picture, the drawing, the words and the row: one way, one clock (26.11.)
-    A.data.fanRows = L.stackRows ?? 0; // how many older lines stand between button and window at once (27.11.) // Similar full glides by itself (glideFull)
     const ob = st.onboard.on ? onboardingView(st.onboard, st.typing ? A.data.typing ?? '' : '') : null; // onboarding: typed into its green chip (21.11.)
     const earlier = !isLive(st) ? st.lines.at(-1)?.takes[st.at] : null; // an earlier take in the button: its own context, in the window and to change (21.11.)
     const edit = earlier && A.data.edit?.id === earlier.id ? A.data.edit : null;

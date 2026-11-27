@@ -13,7 +13,8 @@ import { readHello, withHello } from '../8-join/join.js';
 import { helloTakes, firstPieces, knownFolder } from '../8-join/known.js';
 import { doorView, toWithin, backToHello, moveAccount, deleteFolder } from '../8-join/door.js';
 import { renames, adoptRename, declineRename } from '../8-join/rename.js';
-import { setDisplayName, setEnabled, deleteAccount, sharedWithMe, makeFolder } from '../8-join/provision.js';
+import { sharedWithMe, makeFolder } from '../8-join/provision.js';
+import { setDisplayName, setEnabled, deleteAccount } from '../8-join/accounts.js'; // Nextcloud, the object storage, or both (27.11.)
 import { hellosToWelcome, welcome, choices, trustedHere, signerOfText } from './share-group.js';
 import { certificatesIn, pendingSigners, verdict } from '../8-join/signers.js';
 import { deviceKeys } from './device-keys.js';
@@ -30,15 +31,27 @@ export function doorPart(ctx, { panel, onLookAll }) {
   /** The admin's own folder with hello/ join/ within/ quiet/ (the door), or null. */
   const adminStore = () => ctx.door ?? [...s.open.values()].find((sp) => sp.store && sp.spec?.kind === 'nextcloud' && sp.spec.server === ctx.admin?.server && sp.spec.user === ctx.admin?.user)?.store ?? null; // the door's folder (from its links), else the admin's tile
   ctx.adminStore = adminStore; // share-add.js (another signer) reaches the door through it
+  /** A door in the object storage beside the Nextcloud door (27.11.): both are looked at, every item knows its door. */
+  const doorsHere = () => [adminStore(), ctx.doorThere].filter((d, i, all) => d && all.indexOf(d) === i);
+  const only = (store) => ({ thereOnly: Boolean(ctx.doorThere) && store === ctx.doorThere }); // an account of that door has no Nextcloud account
+  async function viewAll() {
+    const out = { hello: [], join: [], within: [], quiet: [] };
+    let reached = 0;
+    for (const store of doorsHere()) {
+      try { const v = await doorView(store); reached += 1; for (const k of Object.keys(out)) out[k].push(...v[k].map((x) => ({ ...x, store }))); } catch { /* this door is not reachable now */ }
+    }
+    if (!reached) throw new Error('no door reachable');
+    return out;
+  }
   /** Hellos and the door's piles anew (on load, → on a pile, every 20 s while the menu is open). */
   async function refreshDoor() {
     s.hellos = await hellosToWelcome(ctx).catch(() => s.hellos);
     const door = ctx.admin ? adminStore() : null;
-    s.door = door ? await doorView(door).catch(() => s.door) : null;
+    s.door = door ? await viewAll().catch(() => s.door) : null;
     s.renames = door ? await renames(door).catch(() => s.renames ?? []) : []; // a person renamed herself: in the hello pile
     if (door) { const ok = await trustedHere(ctx, door).catch(() => true); if (!ok) s.note = t('door.notSigner'); else if (s.note === t('door.notSigner')) s.note = ''; } // this admin device is not project.json's signer: said at once, not after a welcome (21.11.)
     s.signersWaiting = door ? await waitingSigners(door).catch(() => s.signersWaiting ?? []) : [];
-    if (s.signersWaiting.length) s.note = t('signer.waiting', { name: s.signersWaiting[0].signer.label, date: new Date(s.signersWaiting[0].until).toLocaleString().slice(0, -3) }); // told on every signer device
+    if (s.signersWaiting.length) s.note = t('signer.waiting', { name: s.signersWaiting[0].signer.label, date: Number.isFinite(s.signersWaiting[0].until) ? new Date(s.signersWaiting[0].until).toLocaleString().slice(0, -3) : t('signer.onlyYes') }); // told on every signer device
     if (!panel.hidden) draw();
   }
   setInterval(() => { if (!panel.hidden && (ctx.admin || s.hellos.length)) refreshDoor(); }, 20000);
@@ -74,27 +87,27 @@ export function doorPart(ctx, { panel, onLookAll }) {
     for (const x of pileList(name)) {
       if (items.length >= 40) break; // the tiles of one look; decided ones make room
       if (x.account && x.old) { // a rename (15.11.): the new name sign above beside the first one; ↑ = the new name, ↓ = not
-        const from = adminStore(), first = from && (await firstPieces(from, x.folder).catch(() => new Map())).get('');
+        const from = x.store ?? adminStore(), first = from && (await firstPieces(from, x.folder).catch(() => new Map())).get('');
         if (!from) continue;
         const sign = (await withHello(from, x.path).catch(() => [])).find((p) => p.endsWith('.v.mp4')); // its new name sign take
         if (!sign) continue;
         items.push({ path: sign, pair: first ?? null, from, group: x.path, pile: 'hello', name: x.name ?? null,
-          up: () => adoptRename(from, x).then(() => setDisplayName(ctx.admin, x.account, x.name).catch(() => {})).then(again),
+          up: () => adoptRename(from, x).then(() => setDisplayName(ctx.admin, x.account, x.name, only(from)).catch(() => {})).then(again),
           down: () => declineRename(from, x).then(again) });
         continue;
       }
-      const from = store ?? x.store ?? s.open.get(x.n)?.store;
+      const from = x.store ?? store ?? s.open.get(x.n)?.store; // the item's own door first
       if (!from) continue;
       const group = x.helloPath ?? x.folder;
       const steps = name === 'hello' ? { up: (pick = {}) => welcome(ctx, x, pick), down: () => backToHello(from, x.helloPath) } // ↑ with the single view's choice (16.11.) · ↓ = quiet, the device says hello anew
         : name === 'join' ? { up: () => toWithin(from, x.helloPath, { into: choices.get(x.helloPath) }), down: () => takeBack(from, x) }
-        : name === 'within' ? { down: () => moveAccount(from, x.folder, 'within', 'quiet').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), false).catch(() => {})) }
-        : { up: () => moveAccount(from, x.folder, 'quiet', 'within').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), true).catch(() => {})),
+        : name === 'within' ? { down: () => moveAccount(from, x.folder, 'within', 'quiet').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), false, only(from)).catch(() => {})) }
+        : { up: () => moveAccount(from, x.folder, 'quiet', 'within').then(() => setEnabled(ctx.admin, userOfFolder(x.folder), true, only(from)).catch(() => {})),
           down: async (choices = {}) => { // ↓ = it asks (Backup · Modell as chips); ↓ again within 15 s = deleted for good: account and files (GDPR, 15.11.)
             if (!(s.armed?.folder === x.folder && Date.now() - s.armed.at < 15000)) { s.armed = { folder: x.folder, at: Date.now() }; return 'wait'; }
             s.armed = null;
             await keepCopy(userOfFolder(x.folder), x.folder, choices); // first the copies asked for; if one fails, nothing is deleted
-            await deleteAccount(ctx.admin, userOfFolder(x.folder)).catch(() => {});
+            await deleteAccount(ctx.admin, userOfFolder(x.folder), only(from)).catch(() => {});
             return deleteFolder(from, x.folder);
           } };
       const wrap = (f) => f && ((...a) => f(...a).then((r) => (r === 'wait' ? r : again().then(() => r))));
@@ -109,7 +122,7 @@ export function doorPart(ctx, { panel, onLookAll }) {
   /** join ↓ (15.11.): not taken yet → the account made for this hello goes (a known person's account stays), quiet/, hello anew. */
   async function takeBack(store, x) {
     const { person } = readHello(dec.decode(await store.read(x.helloPath)));
-    if (ctx.admin && !(await knownFolder(store, person.label, person.id))) await deleteAccount(ctx.admin, person.id.toLowerCase()).catch(() => {}); // gone already = fine
+    if (ctx.admin && !(await knownFolder(store, person.label, person.id))) await deleteAccount(ctx.admin, person.id.toLowerCase(), only(store)).catch(() => {}); // gone already = fine
     return backToHello(store, x.helloPath);
   }
   /**

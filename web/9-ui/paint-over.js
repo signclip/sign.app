@@ -23,7 +23,7 @@ import { railValues, periodLabel, inSpan } from './similar-zoom.js';
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const px = (n) => `${Number(n).toFixed(1)}px`;
 const f1 = (n) => Number(n).toFixed(1);
-export const SIGN = { initial: 'A', date: '▮', spot: '◎', who: '@' };
+export const SIGN = { initial: 'A', date: '▮', spot: '◎', who: '◯' };
 export const EDGE = { initial: 'left', date: 'right', spot: 'top', who: 'bottom' }; // where each lies, small and large
 
 /** The box a respect fills over everything: the screen less 10 px round (k = 1). */
@@ -75,7 +75,7 @@ function whoOver(f, box, { reach, me, k }) {
     const size = Math.max(44 * k, Math.min(radii[ring + 1] - radii[ring] - 8 * k, (2 * Math.PI * mid) / n - 8 * k, 96 * k));
     list.forEach((x, i) => {
       const a = -Math.PI / 2 + ((i + 0.5) * 2 * Math.PI) / n + ring * 0.5, bx = cx + mid * Math.cos(a), by = cy + mid * Math.sin(a);
-      const persons = x.persons.slice(0, 6).map((p) => `<i class="${(f.value.name ?? []).includes(p) ? 'on' : ''}" data-role="value:name:${esc(p)}">${esc(p.slice(0, 2))}</i>`).join('');
+      const persons = x.persons.slice(0, 6).map((p) => `<i class="${(f.value.sharing ?? []).includes(p) ? 'on' : ''}" data-role="value:sharing:${esc(p)}">${esc(p.slice(0, 2))}</i>`).join('');
       out.push(`<div class="who-bubble${ring === 2 ? ' far' : ''}${(f.value.sharing ?? []).includes(x.name) ? ' on' : ''}" data-role="value:sharing:${esc(x.name)}" style="left:${px(bx - size / 2)};top:${px(by - size / 2)};width:${px(size)};height:${px(size)}"><b>${esc(x.own ? '◉' : x.name)}</b>${persons}</div>`);
     });
   });

@@ -67,7 +67,7 @@ export function takeLayout(size, similar = 'closed', form = { round: 1, aspect: 
   // STACK.most, and only as many as leave the window ≥ 60 % of its size; t = on the way (0…1)
   const want = similar === 'closed' ? size.stack ?? null : null;
   const fitRows = Math.max(0, Math.floor((room.h - STACK.keep * Math.min(room.w, room.h)) / (STACK.row * k)));
-  const stackRows = want ? Math.min(want.rows ?? 0, STACK.most, fitRows) : 0, stack = stackRows * STACK.row * k * Math.max(0, Math.min(1, want?.t ?? 1));
+  let stackRows = want ? Math.min(want.rows ?? 0, STACK.most, fitRows) : 0, stack = stackRows * STACK.row * k * Math.max(0, Math.min(1, want?.t ?? 1));
   room.h -= stack;
   const { rx: rx0, ry: ry0 } = fit(room, form.aspect);
   const wide = isWide({ w, h });
@@ -81,6 +81,14 @@ export function takeLayout(size, similar = 'closed', form = { round: 1, aspect: 
     if (similar === 'many') {
       const share = similarShare((wide ? 2 * rx0 + 2 * side : top + 2 * ry0 + below) / (wide ? w : h));
       scale = Math.min(1, wide ? ((1 - share) * w - 2 * side) / (2 * rx0) : ((1 - share) * h - 6 - below) / (1.8 * ring + 2 * ry0));
+      const under = !wide ? size.stack ?? null : null; // the stacked lines under the open cloud (27.11., user: chosen by its rails): the take gets smaller, ≥ 60 %
+      if (under?.rows) {
+        const per = STACK.row * k, alone = scale, fits = (r) => ((1 - share) * h - 6 - below - r * per) / (1.8 * ring + 2 * ry0) >= STACK.keep * alone;
+        let r = Math.min(under.rows, STACK.most);
+        while (r > 0 && !fits(r)) r--;
+        stackRows = r; stack = r * per * Math.max(0, Math.min(1, under.t ?? 1));
+        scale = Math.min(1, ((1 - share) * h - 6 - below - stack) / (1.8 * ring + 2 * ry0));
+      }
       if (wide) { cx = share * w + ((1 - share) * w) / 2; similarBox = { x: 12 * k, y: 10 * k, w: share * w - 24 * k, h: h - 20 * k }; }
       else similarBox = { x: 8 * k, y: 10 * k, w: w - 16 * k, h: share * h - 18 * k };
     } else if (wide) { // side by side at the same height: the single left, the take right
@@ -191,7 +199,7 @@ export function arcsOf(L, olderLines = 0) {
   if (L.lineDy) run = run.map(([x, y]) => [x, y + L.lineDy]); // the lines stacked below it: the open line goes up with the button (27.11.)
   if (L.home) { const j = run.findIndex(([x, y]) => x > L.button.x && y < L.cy); if (j > 1) run = [...run.slice(0, j), [L.button.x, run[j - 1][1]]]; } // a line chosen: it ends at the button on the right (26.11.)
   out.push({ id: 'line', d: pathOf(run), mid: edge(L, 0, L.lineOff) });
-  for (let i = 0; i < (L.stack ? 0 : Math.min(olderLines, OLD_LINES)); i++) { // the stacked lines shown in full: no small arcs for them
+  for (let i = 0; i < 0 * Math.min(olderLines, OLD_LINES); i++) { // no small arcs under the line any more (27.11., user): the older lines open between button and window
     const o = L.lineOff - (14 + 6 * i) * L.k * s, span = 46 - 6 * i;
     out.push({ id: `old:${i}`, d: pathOf(curve(L, -span, span, o)), mid: edge(L, 0, o) });
   }
@@ -332,14 +340,14 @@ export function flowPoints(L, { from = ARCS.a[1] - 9, to = ARCS.x[0] + 9, off = 
  * own arc, its upper part (stackArc), moved down by i rows; its takes sit centred on it, slid by shift px. drag: px the
  * finger moved the rows (up = older). → [{ n, dy, d (the arc), takes: [{ j, x, y, r }] }]
  */
-export function stackRows(L, lines, { off = 0, drag = 0, shift = {} } = {}) {
+export function stackRows(L, lines, { off = 0, drag = 0, shift = {}, order: given = null } = {}) {
   const rows = L.stackRows ?? 0, older = lines.length - 1, out = [];
   if (!rows || older < 1) return out;
   const row = STACK.row * L.k, step = slotPx(L), r = 15 * L.k * (L.scale || 1), base = stackArc(L), half = lengthOf(base) / 2 - r;
-  const from = drag > 0 ? 0 : 1, to = rows + (drag < 0 ? 1 : 0);
+  const from = 1 - Math.ceil(Math.max(0, drag) / row), to = rows + Math.ceil(Math.max(0, -drag) / row); // while they glide: the rows coming in
   // by time (27.11., user: stacked by time first): the newest older line right under the open one, whatever line was
   // brought to the button before (show-line moves it to the end of the list)
-  const when = (n) => Math.max(...lines[n].takes.map((t) => t.t ?? 0), 0), order = [...Array(older).keys()].sort((a, b) => when(b) - when(a) || b - a);
+  const when = (n) => Math.max(...lines[n].takes.map((t) => t.t ?? 0), 0), order = given ?? [...Array(older).keys()].sort((a, b) => when(b) - when(a) || b - a); // given: chosen and ordered by the rails (similar-view.js stackOrder)
   for (let i = from; i <= to; i++) {
     const n = order[off + i - 1], dy = (L.lineDy ?? 0) + i * row + drag;
     if (n == null) continue;

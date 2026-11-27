@@ -15,10 +15,12 @@
 //            join/touch/, and whoever is within by the rule gets her sealed join without a tap.
 // Depends:   browser; 8-join (swarm, group, join), 5-take/where.js, device-keys.js
 // Test:      the counting and the drawing in tests/swarm.test.mjs; this file needs a browser and a group.
+//            The number on a group's tile (27.11.): how many are within, as last read – one look per group when the
+//            menu opens (≤ 6 groups, each at most every 5 min) and every look of an open swarm.
 // Limits:    one swarm open at a time · ≤ 50 hellos and ≤ 500 touches read per look · a look = 2–3 listings per side ·
 //            my spot is the cell of the last fix (≤ 6 h old, where.js); a rule that names a cell and no fix = no touch.
 
-import { makeTouch, checkTouch, swarmOf, mayTouch, inRule, needOf, touchesIn, publishTouches, dropTouch, windowLeft, FOLDER } from '../8-join/swarm.js';
+import { makeTouch, checkTouch, swarmOf, countOf, mayTouch, inRule, needOf, touchesIn, publishTouches, dropTouch, windowLeft, FOLDER } from '../8-join/swarm.js';
 import { sealedHello } from '../8-join/group.js';
 import { readHello } from '../8-join/join.js';
 import { createWhere } from '../5-take/where.js';
@@ -32,6 +34,7 @@ import { note as debugNote } from './debug.js';
 
 const dec = new TextDecoder(), enc = new TextEncoder();
 const LOOK_MS = 20_000, HELLOS = 50, WINDOW_MS = 12 * 3_600_000;
+export const COUNT_GROUPS = 6, COUNT_MS = 5 * 60_000; // the number on a group's tile: ≤ 6 groups per opening, each at most every 5 min
 
 /** A group's description as it stands now: taken when sealed by a signer of the version this device knew (else that one stays). */
 export async function descriptionNow(store, known = null) {
@@ -99,19 +102,36 @@ export function swarmPart(ctx, { here = createWhere(), clock = () => Date.now() 
   };
   const meNow = async () => { const keys = await deviceKeys(); return { person: ctx.person, device: { id: ctx.device, key: keys.device.public, label: ctx.person.label }, deviceKey: keys.device }; };
 
+  const counts = new Map(); // group label → { within, waiting, at }: the number on its tile
+  /** One look at a group: its rule and its swarm, through every side this device has. */
+  async function read(label, mine = []) {
+    const side = sides(label), { read: stores } = side;
+    const description = stores.length ? await descriptionNow(side.full ?? stores[0], side.description) : side.description; // the rule may be newer than at opening
+    const touches = [...mine], hellos = [];
+    for (const store of stores) { touches.push(...await touchesIn(store).catch(() => [])); hellos.push(...await hellosIn(store)); }
+    const rule = description?.join ?? null;
+    const swarm = swarmOf({ startpoints: startpointsOf(description), touches, hellos, rule, group: label });
+    counts.set(label, { ...countOf(swarm), at: clock() });
+    return { swarm, rule };
+  }
+
   async function load() {
     if (st.n == null) return;
-    const side = sides(st.label), { read } = side, me = await meNow();
-    const description = read.length ? await descriptionNow(side.full ?? read[0], side.description) : side.description; // the rule may be newer than at opening
-    const touches = [...st.mine], hellos = [];
-    for (const store of read) { touches.push(...await touchesIn(store).catch(() => [])); hellos.push(...await hellosIn(store)); }
-    const rule = description?.join ?? null;
-    const swarm = swarmOf({ startpoints: startpointsOf(description), touches, hellos, rule, group: st.label });
+    const me = await meNow();
+    const { swarm, rule } = await read(st.label, st.mine);
     const known = new Set([...swarm.within.keys()]), fresh = new Set(st.seen ? [...known].filter((id) => !st.seen.has(id)) : []);
     st.seen = known;
     const can = mayTouch(swarm, me.device.id, rule) && inRule({ at: clock(), where: spot() }, rule);
     st.model = { label: st.label, swarm, me: me.device.id, can, left: windowLeft(rule, clock()), fresh, rule, gives: needOf(rule) > 0 };
     ctx.draw();
+  }
+
+  /** How many are within this group, as last read – or null before the first look. The tile shows it. */
+  const count = (label) => counts.get(label)?.within ?? null;
+  /** The menu opened: one look at each group whose number is missing or older than COUNT_MS (≤ COUNT_GROUPS). */
+  async function lookAll() {
+    const due = (ctx.all?.() ?? []).filter((t) => t.group && clock() - (counts.get(t.label)?.at ?? -Infinity) > COUNT_MS).slice(0, COUNT_GROUPS);
+    for (const t of due) { await read(t.label).catch(() => {}); ctx.draw(); }
   }
 
   /** Is this tile a group (so it has a swarm)? */
@@ -179,5 +199,5 @@ export function swarmPart(ctx, { here = createWhere(), clock = () => Date.now() 
 
   /** What swarm-view.js draws, or null while no swarm is open (before the first reading: only the group's name). */
   const view = () => (st.n == null ? null : { ...(st.model ?? { label: st.label, swarm: swarmOf({}), me: ctx.device, can: false, left: null }), busy: st.busy, shake: st.shake });
-  return { isGroup, open, close, tap, hold, view, opened: () => st.n != null };
+  return { isGroup, open, close, tap, hold, view, count, lookAll, opened: () => st.n != null };
 }

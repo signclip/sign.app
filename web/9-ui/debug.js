@@ -2,16 +2,36 @@
 //
 // Purpose:   every request (method, address without query and token, answer or error, time) goes into a short log;
 //            hold the line under the circles in the sharing menu = the log as a file into the share row.
-//            Passwords, tokens and file contents never go in: only method, host, path, status, the error's text.
+//            Passwords, tokens, accounts, file names and contents never go in: only method, host, the kind of path
+//            (redact), status, the error's text.
 // Depends:   browser fetch, localStorage
 // Test:      tests/ui.test.mjs (redact)
 // Limits:    the last 120 requests, ≤ 40 KB · kept on this device until replaced.
 
 const KEY = 'sign.debug', MAX = 120;
 
-/** An address as it may be logged: no query (tokens), no user info. */
+// Path parts that say what was asked and nothing about whom or what: the servers' own words, Sign's folders.
+const PLAIN = new Set(('remote.php public.php index.php status.php dav webdav files uploads ocs v1.php v2.php v1 v2 apps cloud core login flow poll '
+  + 'files_sharing provisioning_api api shares users groups capabilities user s s3 '
+  + 'take echo chain hello join within quiet signer e2e run key index backup').split(' '));
+
+/**
+ * An address as it may be logged: no query, no user info, and of the path only what names no one (27.11., audit N1) –
+ * a link's token, an account, a file's name (its context words, its person) become "…"; the last part keeps its ending.
+ *   https://cloud/public.php/dav/files/AbCdEf123/take/2026.11/(Essen)@(Lena)….v.webm
+ *   → https://cloud/public.php/dav/files/…/take/2026.11/….v.webm
+ */
 export function redact(url) {
-  try { const u = new URL(String(url)); return `${u.protocol}//${u.host}${u.pathname}`; } catch { return String(url).split('?')[0].slice(0, 200); }
+  try {
+    const u = new URL(String(url));
+    const parts = u.pathname.split('/').map((p, i, all) => {
+      let d = p;
+      try { d = decodeURIComponent(p); } catch { /* as it stands */ }
+      if (!d || PLAIN.has(d) || /^\d{4}\.\d{2}$/.test(d)) return d;
+      return `…${i === all.length - 1 ? (/(\.[a-z0-9]{1,8}){1,2}$/i.exec(d)?.[0] ?? '') : ''}`;
+    });
+    return `${u.protocol}//${u.host}${parts.join('/')}`;
+  } catch { return String(url).split(/[?#]/)[0].slice(0, 200); } // the app's own files (relative): nothing of anyone in them
 }
 
 const read = () => { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; } };

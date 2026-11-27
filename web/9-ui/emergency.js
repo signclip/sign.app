@@ -10,7 +10,8 @@
 //              context   every take a point, placed by its words
 //              accounts  (admin) hello · join · within · quiet, tiles sized by bytes
 //            One colour = one meaning on every page (view/sheet-charts.js INK). The paper password stays the same on every
-//            sheet; a new one only with the current one copied as second factor (paperChoice).
+//            sheet; a new one only with the current one copied as second factor (paperChoice). The signer code (admin)
+//            stands on the sheet it was made for and on no device; later sheets name that sheet (27.11.).
 // Depends:   1-model/pdf.js, 3-index/tally.js, 3-index/context-map.js, view/sheet-cover.js, view/sheet-pages.js
 // Test:      tests/model.test.mjs (emergency sheet)
 // Limits:    A4 · paper password 26 Base32 characters (≈ 130 bit) in groups of 4 · no password of a login ever
@@ -42,9 +43,10 @@ export function loginOf(spec, path) {
  * error, waiting }) · index: the Index or null · admin: { user, server } or null · accounts: [{ user, label, state, v, a,
  * x, l, chains, bytes }] · last: upkeep's ruleKey → ms of the last run · project: project.json · joins: [{ label, state, hello, join }] (time labels of the hello and the
  * answer) · passwordGestures: the words of the gestures one joined with, or null (then fields to write by hand) ·
+ * signerCode: the paper's signer code, only on the sheet it was made for · signerPaper: { id, day } on every later sheet ·
  * services: { admin: n, atlas: n } (service tiles) · spots: [{ name, lat, lon, n }] (share-mount fills them from the o_ cells).
  */
-export function sheetData({ person, device, key, paper, signerCode = null, last = {}, joins = [], passwordGestures = null, services = {}, spots = [], date, entries = [], rules = [], open = new Map(), index = null, admin = null, accounts = [], project = null, nameSign = false, gestureSlots = 5, now = Date.now() }) {
+export function sheetData({ person, device, key, paper, signerCode = null, signerPaper = null, last = {}, joins = [], passwordGestures = null, services = {}, spots = [], date, entries = [], rules = [], open = new Map(), index = null, admin = null, accounts = [], project = null, nameSign = false, gestureSlots = 5, now = Date.now() }) {
   const stats = tally(index ?? EMPTY, { now });
   // when something last went to n (upkeep: ruleKey "from>to mark kinds" → ms), as a day: 15.11.
   const lastOf = (n, marks) => { const ms = Math.max(0, ...Object.entries(last).filter(([k]) => { const m = /^\d+>(\d+) (\w+)/.exec(k); return m && Number(m[1]) === n && marks.includes(m[2]); }).map(([, v]) => v)); return ms ? `${new Date(ms).getDate()}.${new Date(ms).getMonth() + 1}.` : null; };
@@ -73,10 +75,11 @@ export function sheetData({ person, device, key, paper, signerCode = null, last 
   const ids = [{ label: 'Person', value: `sign-person ${person.id}` }, ...(devices.length ? devices : [{ label: 'Gerät', value: key, small: true }])];
   // only on the sheet of an admin or atlas account (15.11.): a signer never sees these
   const adminIds = admin ? [
-    { label: 'Konto (Admin)', value: `${admin.user}@${host(admin.server)}` },
+    { label: 'Konto (Admin)', value: admin.server ? `${admin.user}@${host(admin.server)}` : `${admin.user} · ${admin.there?.gateway ?? ''}` }, // the object storage alone (27.11.): no Nextcloud login, the gateway instead
     ...(atlas ? [{ label: 'atlas', value: atlas }] : []),
     ...(project?.signer ? [{ label: 'signer des Projekts', value: project.signer, small: true }] : []),
-    ...(signerCode ? [{ label: 'Ersatz-signer', value: `sign-signer ${signerCode.replace(/(.{4})/g, '$1 ').trim()}` }] : []),
+    ...(signerCode ? [{ label: 'Ersatz-signer', code: true, value: `sign-signer ${signerCode.replace(/(.{4})/g, '$1 ').trim()}` }] // the code: on the sheet made with it, on no device (27.11.)
+      : signerPaper ? [{ label: 'Ersatz-signer', value: `Code steht auf dem Blatt ${signerPaper.day ? `vom ${signerPaper.day}` : 'von früher'} · ${signerPaper.id}`, small: true }] : []),
   ] : [];
   const own = countsOf('own') ?? { v: stats.strands.v, a: stats.strands.a, x: stats.strands.x, l: stats.strands.l };
   const flows = rules.filter((r) => ['always', 'ask', 'backup', 'show'].includes(r.mark)).map((r) => ({ from: r.from ?? 0, to: r.to, mark: r.mark }));

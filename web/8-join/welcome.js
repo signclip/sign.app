@@ -9,6 +9,7 @@
 // Limits:    the secret travels only sealed (join.js); keychain = { set(q_, secret) } given by the app ·
 //            a grant needs a hello that names an access key (devices since 21.11.).
 
+import { keyId } from '../2-storage/sealed-store.js';
 import { createAccount, appPasswordFor, makeFolder, shareFolder, setPassword } from './provision.js';
 import { newPassword } from '../1-model/crypto.js';
 /** Each person's own folder in her account. */
@@ -62,6 +63,22 @@ export async function welcomeDevice({ door, helloPath, admin, signer, user, also
 }
 
 /**
+ * Signer app, the object storage alone (27.11., user: "separat mit eigenen Usern"): no Nextcloud account. The person's
+ * account is her folder <user>/Sign/ behind the gateway and a grant for the access key of the asking device; a known
+ * person on a new device (user given) gets a grant for the same folder. Nothing secret travels: the answer is sealed
+ * as always, the grant opens nothing without the device's own access key.
+ * door: store with hello/ join/ (the admin's folder in the bucket) · gateway: https://gateway.<domain>
+ */
+export async function welcomeThere({ door, helloPath, signer, gateway, user = null, also = [], now = Date.now() }) {
+  const ask = readHello(dec.decode(await door.read(helloPath)));
+  if (!gateway) throw new Error('no gateway in project.json');
+  if (!ask.access) throw new Error('no access key in the hello');
+  const u = user ?? ask.person.id.toLowerCase();
+  const g = await inGateway({ ask, gateway, user: u, signer, now });
+  return helloBack({ store: door, helloPath, secret: JSON.stringify({ user: u, grants: g.grants }), sharingPoints: [...g.also, ...also], signer, now });
+}
+
+/**
  * Device, after join(): keep the secret in the keychain (by the id of the own sharing point) and
  * make the stores. → { entries (for listText), stores: Map(id → store) }
  */
@@ -84,6 +101,8 @@ export async function arrive({ secret, sharingPoints, keychain, fetch = globalTh
   if (s.appPassword) s.appPassword = await rotate(s, fetch); // the one that travelled is dead from now on
   if (s.appPassword) await keychain.set(s.id, s.appPassword);
   const entries = [], stores = new Map();
+  // a sealed group: its key came in the same sealed answer and is kept beside the access, never in the list (sharing-points.js opens with it)
+  for (const sp of sharingPoints) { const key = s.keys?.[sp.id ?? sp.path]; if (key && sp.id) await keychain.set(keyId(sp.id), key); }
   for (const sp of sharingPoints) {
     const grant = s.grants?.[sp.id];
     if (grant) { await keychain.set(sp.id, grant); entries.push({ ...sp, kind: 'gateway' }); continue; } // opened with the access key + grant (sharing-points.js)

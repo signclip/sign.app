@@ -24,7 +24,7 @@
 //            added at once (addFiles, ≈ 0.1–0.5 ms per file) instead of building everything anew (follow.js).
 // EXTEND(S3, index): folders whose ETag is unchanged are not even listed (parts.js).
 // EXTEND(S14, index): tables in SQLite when one reader holds more than ~10⁶ files (atlas).
-// EXTEND(S6, vectors): vectors for Similar as one more table.
+// Vectors:   one more table, in its own file (vectors.js, 26.11.): what a method computed from a strand, compared by nearness.
 
 import { readFile } from '../1-model/file.js';
 import { readId, idKey, uOf } from '../1-model/ids.js';

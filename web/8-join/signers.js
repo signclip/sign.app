@@ -15,7 +15,15 @@
 //            Junk in join/signer/ (22.11.): only files named (signer …) are read, ≤ 200; one without a trusted seal
 //            counts for nothing. Pushing the real ones out takes > 200 files named so, written with the admin's account;
 //            the paper as a second anchor in project.json does not depend on any file here.
-// Limits:    ≤ 200 certificates read, ≤ 10 links in a chain · the paper key: PBKDF2-SHA-256, 200 000 rounds (≈ 0.3 s on a
+//            The paper only (27.11., audit H3): the code stands on the sheet and nowhere else. The device keeps the
+//            paper's public half (q_ z_) and where its certificate lies (paperKept); a sheet made later names the paper
+//            without its code. A code kept on a device from before is dropped at the next start.
+//            Whose time (27.11., audit M1): a certificate's 48 h count from `stored`, the time the storage itself put on
+//            the file (Nextcloud nc:upload_time, an object storage's own time). `at` (WebDAV getlastmodified) can be set
+//            by whoever writes (X-OC-MTime) and counts only where the storage names nothing else.
+// Limits:    a file moved inside the same storage keeps its `stored`: laid somewhere else 48 h earlier and moved in, a
+//            certificate counts at once (needs the paper and the admin's account 48 h ahead; open, md/TODO.md).
+//            ≤ 200 certificates read, ≤ 10 links in a chain · the paper key: PBKDF2-SHA-256, 200 000 rounds (≈ 0.3 s on a
 //            phone, guessing stays slow), code 26 Base32 characters (≈ 130 bit) · a certificate ≈ 0.4 KB.
 
 import { signed, checkWitness, newPassword } from '../1-model/crypto.js';
@@ -41,6 +49,17 @@ export async function paperSigner(code) {
   const pub = fromUrl64((await subtle().exportKey('jwk', privateKey)).x);
   const id = `q_${toBase32(new Uint8Array(await subtle().digest('SHA-256', pub)).slice(0, 10))}`; // its name: from its key
   return { id, key: toBase32(pub), privateKey, label: 'Papier' };
+}
+
+/**
+ * What the admin device keeps of the paper: its public half and its certificate, never the code.
+ * kept: what the keychain holds ({ id, key, path, at } or, from before 27.11., { code, path }) → { id, key, path, at } | null
+ */
+export async function paperKept(kept) {
+  if (!kept) return null;
+  if (!kept.code) return { id: kept.id, key: kept.key, path: kept.path ?? null, at: kept.at ?? null };
+  const paper = await paperSigner(kept.code);
+  return { id: paper.id, key: paper.key, path: kept.path ?? null, at: kept.at ?? null };
 }
 
 /**
@@ -85,13 +104,15 @@ export async function verdict({ by, u, ok, person, now = Date.now() }) {
 /**
  * The trusted signers: anchor ({ q_: z_ } from project.json) plus every certificate sealed by someone trusted, link by
  * link (≤ 10), that is 48 h old in the door or approved by another trusted signer, and that no trusted signer objected
- * to. items: [{ text, at (ms, the storage's time; null = unknown: counts as old) }] or texts (≤ 200). → { q_: z_ }
+ * to. items: [{ text, at (ms, the storage's own time, see certificatesIn; Infinity = the door names none: only an approval
+ * counts) }] or texts alone (no door, as between devices of a swarm: counts as old) (≤ 200). → { q_: z_ }
  */
 export async function trustedSigners(anchor, items = [], { now = Date.now(), wait = WAIT_MS } = {}) {
   return (await signerState(anchor, items, { now, wait })).trusted;
 }
 
-/** Certificates sealed by a trusted signer, still waiting (not 48 h old, not approved, not objected) → [{ u, signer, by, until }] */
+/** Certificates sealed by a trusted signer, still waiting (not 48 h old, not approved, not objected) → [{ u, signer, by,
+ *  until (ms; Infinity: until another signer approves) }] */
 export async function pendingSigners(anchor, items = [], { now = Date.now(), wait = WAIT_MS } = {}) {
   return (await signerState(anchor, items, { now, wait })).pending;
 }
@@ -124,10 +145,15 @@ async function signerState(anchor, items, { now, wait }) {
   return out;
 }
 
-/** All certificates, approvals and objections of a door, read through store → [{ path, text, at (ms or null) }]. */
+/** The time a certificate counts from: the storage's own (stored) before the one a writer can set (at) → ms | null */
+export const timeOf = (f) => (Number.isFinite(f?.stored) ? f.stored : Number.isFinite(f?.at) ? f.at : null);
+
+/** All certificates, approvals and objections of a door, read through store → [{ path, text, at (ms) }]. A door that
+ *  names no time for a file (27.11., audit M1): at = Infinity, the certificate never counts by time, only by another
+ *  signer's approval – a missing time must not read as "long ago". */
 export async function certificatesIn(store) {
   const dec = new TextDecoder();
   const named = (p) => p.endsWith('.chain.sign') && p.slice(p.lastIndexOf('/') + 1).startsWith('(signer '); // as certify() and verdict() name them; anything else is not even read
   const files = (await store.list(FOLDER).catch(() => [])).filter((f) => named(f.path)).slice(0, MOST);
-  return Promise.all(files.map(async (f) => ({ path: f.path, text: dec.decode(await store.read(f.path)), at: Number.isFinite(f.at) ? f.at : null })));
+  return Promise.all(files.map(async (f) => ({ path: f.path, text: dec.decode(await store.read(f.path)), at: timeOf(f) ?? Infinity })));
 }

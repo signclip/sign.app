@@ -46,12 +46,15 @@ export function specOf({ label, id, path, key }) {
  */
 export function readPaste(text) {
   const s = String(text ?? '').trim();
+  // an address a login or a key may go to: https, or http on this very device (27.11., audit N5: a pasted http://
+  // address sent the Geräte-Nextcloud-AppPasswort in the clear)
+  const fairAddress = (a) => /^https:\/\//i.test(a) || /^http:\/\/(localhost|127(\.\d{1,3}){3}|\[::1\])(:\d+)?(\/|$)/i.test(a);
   // a cloud id; the user part may hold an @ itself: name@uni-koeln.de@uni-koeln.sciebo.de
   if (/^[^\s/:]+@[^\s@/]+\.[a-z]{2,}$/i.test(s)) return { kind: 'cloud', cloudId: s };
   if (/^[a-z0-9-]+(\.[a-z0-9-]+)+\.[a-z]{2,}\/?$/i.test(s)) return { kind: 'login', server: `https://${s.replace(/\/$/, '')}` }; // just the server's name (15.11.)
-  const gw = /^https?:\/\//.test(s) && gatewayParts(s);
+  const gw = fairAddress(s) && gatewayParts(s);
   if (gw) return { kind: 'gateway', path: `${gw.base}/s3/${gw.prefix}${gw.side ? `#${gw.side}` : ''}`, grant: gw.grant }; // a gateway path, or a line of a group's invitation (…#read=GRANT, …#add=GRANT)
-  if (!/^https?:\/\/\S+$/.test(s)) return null;
+  if (!/^https?:\/\/\S+$/.test(s) || !fairAddress(s)) return null;
   const u = new URL(s);
   const share = /^(.*?)\/(?:index\.php\/)?s\/([A-Za-z0-9]+)\/?$/.exec(u.origin + u.pathname);
   if (share) return { kind: 'link', server: share[1], token: share[2], path: publicWebdavUrl(share[1], share[2]) };

@@ -20,10 +20,32 @@ export async function copy(text) {
 
 const b64 = (bytes) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); };
 
+/** How long a file handed to another app stays in the cache: that app may still be reading it. */
+export const SHARED_MS = 3600 * 1000;
+
+/**
+ * Native app: what was handed to other apps earlier leaves the cache (27.11., audit M11: takes and the emergency sheet
+ * stayed there for good). Files older than an hour go; looked at before every share and once after the start.
+ * → how many went
+ */
+export async function sweepShared({ now = Date.now(), keep = SHARED_MS } = {}) {
+  const fs = cap().Filesystem;
+  if (!fs) return 0;
+  let gone = 0;
+  const { files = [] } = await fs.readdir({ path: 'share', directory: 'CACHE' }).catch(() => ({}));
+  for (const f of files) {
+    if (f.type === 'directory' || now - Number(f.mtime ?? 0) < keep) continue;
+    await fs.deleteFile({ path: `share/${f.name}`, directory: 'CACHE' }).then(() => { gone++; }, () => {});
+  }
+  return gone;
+}
+if (typeof window !== 'undefined') setTimeout(() => sweepShared().catch(() => {}), 8000);
+
 /** Native app: files go to the app's cache first; the share sheet takes their addresses (14.11.). → [uri] or null */
 async function cached(files) {
   const fs = cap().Filesystem;
   if (!fs) return null;
+  await sweepShared().catch(() => {});
   const uris = [];
   for (const f of files) {
     const path = `share/${f.name.replace(/[^\w.\-]+/g, '_')}`; // plain names: some apps stumble over ( ) ' @ !

@@ -97,7 +97,7 @@ export function backupPage(sheet) {
   if (sheet.admin) {
     y = title(p, M, y + 8, W, 'nur Admin', 'nie weitergeben');
     for (const { label, value: v, small } of sheet.adminIds) y = value(p, y, label, v, small ? 6.8 : 8.5);
-    if (sheet.adminIds.some((i) => i.label === 'Ersatz-signer')) p.text(M + 92, y - 3, 'Admin-Gerät verloren: Code kopieren, auf dem neuen Gerät + antippen', { size: 6.5, color: INK.mut });
+    if (sheet.adminIds.some((i) => i.code)) p.text(M + 92, y - 3, 'Admin-Gerät verloren: Code kopieren, auf dem neuen Gerät + antippen · steht nur auf diesem Blatt', { size: 6.5, color: INK.mut });
     y += 8;
     ['Konto', 'Passwort'].forEach((label, i) => { // the emergency login: by hand only, never digital
       const lx = M + i * (W / 2 + 6);

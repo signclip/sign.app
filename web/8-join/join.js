@@ -228,16 +228,45 @@ export async function devicesOf(store, user) {
   return out;
 }
 
-/** Signer: one device goes quiet (↓, "Gerät sperren"): its hello, name sign and answer move to quiet/; its seals count until now. */
-export async function quietDevice(store, helloPath) {
+/** Signer: one device goes quiet (↓, "Gerät sperren"): its hello, name sign and answer move to quiet/; its seals count until now.
+ *  signer: { device, person, deviceKey } seals the note (27.11., audit M2); without one the note is not sealed, and a
+ *  device that knows the door's signers does not follow it. */
+export async function quietDevice(store, helloPath, { signer = null, now = Date.now() } = {}) {
   const folder = helloPath.split('/')[1], u = readName(nameOf(helloPath))?.u;
   const takes = new Set(await withHello(store, helloPath)); // its name sign and password gestures (15.11.)
   const mine = (await store.list(`within/${folder}/`)).map((f) => f.path).filter((p) => { const n = readName(nameOf(p)); return takes.has(p) || n?.u === u || n?.words?.includes(u); });
   const moved = [];
   for (const p of mine) { const to = `quiet/${folder}/${withState(nameOf(p), 'quiet')}`; await store.move(p, to); moved.push(to); }
-  const at = timeLabel(Date.now()); // a note in join/ (read by the device through the door, 15.11.): it logs itself out, its app password deletes itself
-  if (u) await store.write(`join/${buildName({ words: ['join', u, 'quiet'], time: at, u, kind: 'chain', ext: 'sign' })}`, enc.encode(`:chain't(${at})\n((quiet))\n`));
+  const at = timeLabel(now); // a note in join/ (read by the device through the door, 15.11.): it logs itself out, its app password deletes itself
+  if (u) await store.write(`join/${buildName({ words: ['join', u, 'quiet'], time: at, u, kind: 'chain', ext: 'sign' })}`, enc.encode(await quietNote({ u, signer, at, now })));
   return moved;
+}
+
+/** The quiet note for the device whose hello is u: `((quiet) (u_…))`, sealed by the signer. The u stands inside what is
+ *  sealed, so a note for one device, laid under another's name, says nothing to that one. */
+async function quietNote({ u, signer, at, now }) {
+  if (!signer) return `:chain't(${at})\n((quiet) (${u}))\n`;
+  const id = newId({ q: signer.device, n: signer.person.id, now });
+  return signed(signer.deviceKey, fileText(headLine('chain', { '!': writeId(id), '@': signer.person.label, "'t": at }), [], [`((quiet) (${u}))'t(${at})`]));
+}
+
+/**
+ * Device: was I quieted? Looks at join/ through the door for a note named for my hello (u). signers: { q_: z_ } the
+ * door's trusted signers (signers.js) – then only a note sealed by one of them, naming u inside, counts; null (a door
+ * that names no signer): the name is enough, as before. The 20 newest notes named so are read; more junk than that
+ * hides a real one (the device then stays logged in, its files are in quiet/ all the same). → true | false
+ */
+export async function quieted(store, u, signers = null) {
+  if (!u) return false;
+  const named = (await store.list('join/')).map((f) => f.path).filter((p) => { const n = readName(nameOf(p)); return n?.words?.includes(u) && n.words.includes('quiet'); });
+  if (!signers) return named.length > 0;
+  for (const p of named.slice(-20)) {
+    try {
+      const text = dec.decode(await store.read(p)), f = readFile(text), by = f.head.id.q;
+      if (f.rows.some((r) => r.text.startsWith(`((quiet) (${u}))`)) && signers[by] && await checkWitness(signers[by], text)) return true;
+    } catch { /* not readable, not sealed: says nothing */ }
+  }
+  return false;
 }
 
 /** 5 · Signer: quiet. Every file of the account moves to quiet/ with the state word changed. */

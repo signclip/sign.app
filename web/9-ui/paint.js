@@ -196,7 +196,7 @@ export function takeSvg(st, L, data = {}) {
   }
   if (st.strands.a && L.scale) out.push(soundSvg(L)); // the level on the audio arc (21.11.), its pieces set by level.js
   if (data.flow?.on && !L.full) out.push(flowSvg(L, data.flow)); // sound → context by Whisper (26.11.)
-  if (older > 3 && !L.stack) { const [x, y] = edge(L, 0, L.lineOff - 34 * L.k); out.push(`<text class="more" x="${f1(x)}" y="${f1(y)}">+${older - 3}</text>`); }
+
   out.push('<defs>');
   const slots = lineSlots(L, line.takes.length + (st.rec !== 'idle' ? 1 : 0), st.at, data.lineShift ?? 0);
   const thumbOf = (t) => ({ cx: t.x, cy: t.y, rx: t.r * Math.min(1, L.aspect), ry: t.r * Math.min(1, 1 / L.aspect), n: L.n }); // a take on the line: the window's form (20.11.)
@@ -251,7 +251,7 @@ export function takeSvg(st, L, data = {}) {
  * fan:n:j (a take) – gestures-take.js fan().
  */
 export function stackSvg(st, L, data = {}) {
-  const rows = stackRows(L, st.lines, { off: data.fanOff ?? 0, drag: data.stackDrag ?? 0, shift: data.fanShift ?? {} });
+  const rows = stackRows(L, st.lines, { off: data.fanOff ?? 0, drag: data.stackDrag ?? 0, shift: data.fanShift ?? {}, order: data.stackOrder ?? null });
   if (!rows.length) return '';
   const row = STACK.row * L.k, top = L.button.y + row / 2, bottom = L.button.y + L.stack + row / 2, W = data.w ?? 2 * L.cx;
   const form = (t) => ({ cx: t.x, cy: t.y, rx: t.r * Math.min(1, L.aspect), ry: t.r * Math.min(1, 1 / L.aspect), n: L.n });

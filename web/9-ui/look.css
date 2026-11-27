@@ -212,7 +212,7 @@ video::-webkit-media-controls { display: none !important; }
 #sharing-html > * { position: absolute; pointer-events: all; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .acc { border-radius: 50%; background: var(--card); border: 1.5px solid var(--mut); font: 600 12px Inter, system-ui, sans-serif; }
 .acc.square { border-radius: 6px; background: var(--sc); border-color: var(--sc-stroke); }
-.acc.current { box-shadow: 0 0 0 2px var(--fg); } .acc.waiting { border-style: dashed; }
+.acc.current { box-shadow: 0 0 0 2px var(--fg); } .acc sup { position: absolute; top: -7px; right: -9px; min-width: 15px; height: 15px; border-radius: 8px; background: var(--hold); color: var(--ink); font: 600 10px/15px Inter, system-ui, sans-serif; text-align: center; padding: 0 3px; } /* admin: persons who gave a view (27.11.) */ .acc.waiting { border-style: dashed; }
 .plus { border-radius: 50%; border: 1.5px dashed var(--mut); font: 400 22px Inter, system-ui, sans-serif; color: var(--mut); }
 .plus.ready { border: 2.5px solid var(--rc-stroke); color: var(--b-now); animation: breathe 1.4s ease-in-out infinite; }
 .tile.device { background: var(--rc); border-color: var(--rc-stroke); border-radius: 22px; }
@@ -233,7 +233,7 @@ video::-webkit-media-controls { display: none !important; }
 .way.offer { stroke-dasharray: 2 7; stroke-linecap: round; opacity: .5; } .way.sending { stroke-dasharray: 2 6; stroke-linecap: round; animation: run 1s linear infinite; }
 .way.join-way.loading { stroke-dasharray: 8 6; animation: run 2.4s linear infinite reverse; } .dot-run { fill: var(--sc-stroke); }
 .pile { flex-direction: column; border-radius: 16px; background: var(--sc); border: 2.5px solid var(--sc-stroke); font: 600 12px Inter, system-ui, sans-serif; color: #0C447C; }
-.pile em { font: 600 20px Inter, system-ui, sans-serif; font-style: normal; } .pile.faint { opacity: .4; background: var(--card); }
+.pile em, #sharing-html .tile em { font: 600 20px Inter, system-ui, sans-serif; font-style: normal; } .pile.faint { opacity: .4; background: var(--card); }
 .tile-arc { fill: none; stroke-width: 4; stroke-linecap: round; } .tile-arc.on { stroke: var(--rc-stroke); } .tile-arc.off { stroke: var(--mut); stroke-width: 2; opacity: .4; }
 .flow { fill: none; stroke: var(--rc-stroke); stroke-width: 3; } .flow.new { stroke-dasharray: 7 6; } .flow.all { stroke-width: 6; opacity: .7; }
 .carry { stroke: var(--rc-stroke); stroke-width: 3; stroke-dasharray: 6 5; fill: none; } .carry.all { stroke-width: 6; stroke-dasharray: none; opacity: .7; }

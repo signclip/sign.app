@@ -4,7 +4,8 @@
 // Purpose:   accounts top left (roles square, persons round, the current one ringed) · + top right · this device as
 //            the first tile with the person's name in a round bubble (front: from now on · behind it: what is stored)
 //            · beside it the way in: hello → join → sign (sharing-view.js JOIN_LOOKS) · the admin's piles hello · join
-//            · within · quiet with their counts · every sharing point as a tile with its small strand arcs · lines from
+//            · within · quiet with their counts · every sharing point as a tile with its small strand arcs (a group:
+//            below its name how many are within, the number as on the piles) · lines from
 //            the device bubbles to where things flow (dashed = from now on, solid thick = everything) · the system row.
 //            A group's tile spread open: its swarm where the tiles were (swarm-view.js).
 // Depends:   browser; sharing-view.js
@@ -48,7 +49,7 @@ export function sharingView(snap, size, { drag = null } = {}) {
     : [{ id: 'save', role: 'web:save' }, { id: 'more', role: 'out:system' }]; // the web: save as download, the system's share sheet
   const L = menuLayout({ accounts, tiles, piles, native: snap.apps?.length ? [] : native, join: door.look }, size);
   const html = [], svg = [];
-  for (const a of L.accounts) html.push(`<span class="acc${a.square ? ' square' : ''}${a.current ? ' current' : ''}${a.joined === 'waiting' ? ' waiting' : ''}${mark(a.roleKey)}" data-role="${a.roleKey}" style="left:${f1(a.x - a.s / 2)}px;top:${f1(a.y - a.s / 2)}px;width:${f1(a.s)}px;height:${f1(a.s)}px">${esc(String(a.label ?? '?').charAt(0).toUpperCase())}</span>`);
+  for (const a of L.accounts) html.push(`<span class="acc${a.square ? ' square' : ''}${a.current ? ' current' : ''}${a.joined === 'waiting' ? ' waiting' : ''}${mark(a.roleKey)}" data-role="${a.roleKey}" style="left:${f1(a.x - a.s / 2)}px;top:${f1(a.y - a.s / 2)}px;width:${f1(a.s)}px;height:${f1(a.s)}px">${esc(String(a.label ?? '?').charAt(0).toUpperCase())}${a.count ? `<sup>${Number(a.count)}</sup>` : ''}</span>`);
   html.push(`<span class="plus${snap.clip === 'ready' ? ' ready' : ''}${mark('add:new')}" data-role="add:new" style="left:${f1(L.plus.x - L.plus.s / 2)}px;top:${f1(L.plus.y - L.plus.s / 2)}px;width:${f1(L.plus.s)}px;height:${f1(L.plus.s)}px">+</span>`);
   const d = L.device;
   html.push(`<div class="tile device${mark('sp:0')}" data-role="sp:0" style="left:${f1(d.x)}px;top:${f1(d.y)}px;width:${f1(d.s)}px;height:${f1(d.s)}px"></div>`);
@@ -71,7 +72,7 @@ export function sharingView(snap, size, { drag = null } = {}) {
     if (t.choice) { html.push(`<div class="tile choice${t.found ? ' breathe found' : ''}${t.faint ? ' faint' : ''}${mark(t.role)}" data-role="${t.role}" ${box}><span>${esc(cut(t.label, 22))}</span>${t.sub ? `<small>${esc(cut(t.sub, 16))}</small>` : ''}</div>`); continue; }
     if (t.waitsForMe) { html.push(`<div class="tile waits breathe${mark(t.role)}" data-role="${t.role}" ${box}><span>${esc(cut(t.label))}</span></div>`); continue; }
     const mine = door.look === 'joined' && /\/Sign\/?$/.test(t.path ?? '') ? ' mine' : '';
-    html.push(`<div class="tile ${t.state ?? ''}${t.encrypted ? ' sealed' : ''}${t.shown ? ' shown' : ''}${mine}${snap.focus === t.n ? ' focus' : ''}${mark(t.role)}" data-role="${t.role}" ${box}><span>${esc(cut(t.label))}</span></div>`);
+    html.push(`<div class="tile ${t.state ?? ''}${t.encrypted ? ' sealed' : ''}${t.shown ? ' shown' : ''}${mine}${snap.focus === t.n ? ' focus' : ''}${mark(t.role)}" data-role="${t.role}" ${box}><span>${esc(cut(t.label))}</span>${t.count != null ? `<em>${Number(t.count)}</em>` : ''}</div>`);
     for (const [k, [a, b]] of Object.entries(TILE_ARCS)) {
       const on = (t.consent ?? []).includes(k) || (t.kinds ?? []).includes(k) || ((t.always || t.alwaysAll) && !(t.kinds ?? []).length);
       svg.push(`<path class="tile-arc ${on ? 'on' : 'off'}" d="${arcPath(c.x, c.y, r, a + 4, b - 4)}"/><path class="hit" data-role="sp-kind:${t.n}:${k}" d="${arcPath(c.x, c.y, r, a + 4, b - 4)}"/>`);

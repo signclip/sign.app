@@ -10,7 +10,7 @@
 // Limits:    h3-js ≈ 550 kB once · a fix takes 0.1–8 s (timeout 8 s) · the browser asks once for permission; denied →
 //            o_ stays empty, nothing else changes.
 
-export const H3_LIBRARY = 'https://cdn.jsdelivr.net/npm/h3-js@4.5.0/dist/browser/h3-js.es.js';
+export const H3_LIBRARY = new URL('../lib/h3/h3-js.es.js', import.meta.url).href; // beside the app (27.11., IMPORTS.md)
 const RES = 5, FRESH = 6 * 3_600_000;
 
 let lib = null;

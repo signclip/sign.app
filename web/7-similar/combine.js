@@ -7,7 +7,7 @@
 // Depends:   3-index (Index tables)
 // Test:      tests/ui.test.mjs
 // Limits:    one call = one Map read per word (~1 µs); 10⁵ strands with 20 words each fit in memory.
-// EXTEND(S6, vectors): a landmark source adds visual nearness as one more weighted source.
+// Vectors:   visual nearness is one more way in, brought together with the words per Take in across.js (26.11.).
 
 const norm = (w) => String(w).normalize('NFC').toLowerCase();
 

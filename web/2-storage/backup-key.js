@@ -57,6 +57,21 @@ export async function sealBackupKey(store, backupKey, { hosts = [], paper = null
   return written;
 }
 
+/**
+ * Any key text of 52 chars (a group key: sealed-keys.js) sealed with the paper password, as paper.key above:
+ * one line "salt iv data". Opening takes ~0.2 s on a phone, on purpose.
+ */
+export async function sealForPaper(keyText, paper) {
+  const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const data = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv }, await paperKey(paper, salt), enc.encode(keyText)));
+  return [toBase32(salt), toBase32(iv), toBase32(data)].join(' ');
+}
+export async function openWithPaper(line, paper) {
+  const [salt, iv, data] = String(line).split(' ');
+  return dec.decode(await subtle().decrypt({ name: 'AES-GCM', iv: bytesOf(iv, 12) }, await paperKey(paper, bytesOf(salt, 16)), bytesOf(data, 68)));
+}
+
 /** Open the backup key: with a host device ({ id, privateKey }) or with the paper password. */
 export async function openBackupKey(store, { host = null, paper = null } = {}) {
   if (host) return unseal(host.privateKey, dec.decode(await store.read(`${KEYS}${host.id}.key`)));

@@ -16,7 +16,9 @@
 //            word times ±0.1–0.3 s · the first take after opening waits for the model to load.
 
 export const MODEL = Object.freeze({ id: 'Xenova/whisper-small', name: 'small', dtype: 'q8' });
-export const LIBRARY = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1'; // IMPORTS.md
+// The library lies beside the app (27.11., audit H5): lib/ is filled at build with the files checked against their
+// SHA-512 (sign.app native/libs.sh, IMPORTS.md); no device fetches code from another server.
+export const LIBRARY = new URL('../lib/transformers/transformers.min.js', import.meta.url).href;
 
 /** The library's output → words { text, start, end } (s); punctuation at the edges goes, empty words go. */
 export function wordsOf(output) {

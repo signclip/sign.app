@@ -24,13 +24,15 @@ import { readPaste } from '../2-storage/spec.js';
 import { connect } from '../2-storage/connect.js';
 import { SELF } from '../2-storage/layout.js';
 import { trustedSigners, certificatesIn } from '../8-join/signers.js';
-import { makeGroup, renewGroup, invitation, waitingHellos, welcomeToGroup, doorLinks, describeJoin, gatewayGroup } from '../8-join/group.js';
+import { makeGroup, renewGroup, invitation, waitingHellos, welcomeToGroup, doorLinks, describeJoin, gatewayGroup, gatewayDoor, DOOR_THERE } from '../8-join/group.js';
 import { readGrant, chainOf, makeGrant } from '../8-join/grant.js';
 import { GatewayStore } from '../2-storage/gateway-store.js';
 import { gatewayParts } from '../2-storage/spec.js';
-import { sayHello, answerFor, join, advance, readHello } from '../8-join/join.js';
+import { sayHello, answerFor, join, advance, readHello, quieted } from '../8-join/join.js';
 import { honorRemove } from '../8-join/remove-request.js';
-import { welcome as welcomeWithAccount, welcomeDevice, arrive } from '../8-join/welcome.js';
+import { welcome as welcomeWithAccount, welcomeDevice, welcomeThere, arrive } from '../8-join/welcome.js';
+import { welcomeBack } from '../8-join/accounts.js';
+import { wholeGrant } from '../8-join/room.js';
 import { knownFolder, userOf } from '../8-join/known.js';
 import { isAgain } from '../8-join/door.js';
 import { sayRename } from '../8-join/rename.js';
@@ -50,7 +52,7 @@ export function groupOf(ctx, label) {
   return read ? { read, drop: ctx.tileOf(read.drop) } : null;
 }
 
-const signerOf = async (ctx) => {
+export const signerOf = async (ctx) => {
   const keys = await deviceKeys();
   return { device: ctx.device, person: ctx.person, deviceKey: keys.device };
 };
@@ -150,6 +152,53 @@ export async function ensureGroupsHere(ctx, project) {
   return ctx.s.entries.find((e) => e.path === path) ?? null;
 }
 
+/**
+ * Is this device the project's signer (27.11.)? project.json names the anchors: only they seal grants the gateway
+ * counts. Nothing named yet (a project being set up): a device holding the Nextcloud admin login may, as before.
+ */
+export async function signerHere(ctx) {
+  const pinned = signerOfText(ctx.doorSigner), keys = await deviceKeys();
+  return pinned ? pinned[ctx.device] === keys.device.public : Boolean(ctx.admin?.server);
+}
+
+let whole = null; // the admin's grant over the whole bucket, made once per session (the gateway remembers a chain it checked)
+/** The admin's access to the object storage (27.11.): its own grant over the whole bucket; only the signer's device has one that counts. → { grant, access } or null */
+export async function wholeHere(ctx) {
+  if (!(await signerHere(ctx))) return null;
+  const keys = await deviceKeys();
+  whole ??= await wholeGrant(await signerOf(ctx), keys);
+  return { grant: whole, access: async () => keys.access };
+}
+
+/**
+ * The admin in the object storage (27.11., user: "die Tür ist ein Ordner im Admin-Konto oder auf dem Objektspeicher"):
+ * the signer's device keeps a tile at <gateway>/s3/admin/ with a grant it seals itself (rw admin/). Its hello/ join/
+ * within/ quiet/ are the project's door there. → the entry, or null (no gateway, or not the signer's device)
+ */
+export async function ensureAdminHere(ctx, project) {
+  if (!project?.gateway || !(await signerHere(ctx))) return null;
+  const path = `${project.gateway.replace(/\/$/, '')}/s3/${DOOR_THERE}`;
+  const there = ctx.s.entries.find((e) => e.path === path);
+  if (there) return there;
+  const keys = await deviceKeys(), id = newSource();
+  await ctx.keychain.set(id, await makeGrant({ signer: await signerOf(ctx), device: { label: ctx.person?.label ?? '', id: ctx.device, key: keys.device.public }, access: keys.access.public, prefix: DOOR_THERE }));
+  await ctx.edit({ add: { label: project.admin || 'Admin', path, id } });
+  return ctx.s.entries.find((e) => e.path === path) ?? null;
+}
+
+/** The door in the object storage as the admin reaches it: one store over admin/ (hello/ join/ within/ quiet/). */
+export async function doorThereOf(ctx, project) {
+  const w = await wholeHere(ctx);
+  return w && project?.gateway ? new GatewayStore({ path: `${project.gateway.replace(/\/$/, '')}/s3/${DOOR_THERE}`, access: w.access, grant: w.grant, name: 'door' }) : null;
+}
+
+/** The two lines of the door there, as project.json keeps them in "doors" (public: they open only join/ to read and hello/ to add). → text or null */
+export async function doorLinesHere(ctx, project) {
+  if (!project?.gateway || !(await signerHere(ctx))) return null;
+  const d = await gatewayDoor({ gateway: project.gateway, signer: await signerOf(ctx) });
+  return `"doors": [${JSON.stringify(d)}]`;
+}
+
 /** The chain that may give grants for a gateway path: a tile of mine there without a side, whose prefix holds it (own folder or Groups). */
 async function ownerChainFor(ctx, path) {
   const q = gatewayParts(path);
@@ -177,11 +226,12 @@ export async function hellosToWelcome(ctx) {
   const look = [...[...ctx.s.open].filter(([, sp]) => (sp.spec?.kind === 'nextcloud' || (sp.spec?.kind === 'gateway' && !/#(read|add)$/.test(sp.entry.path)) || (ctx.groups && sp.spec?.kind === 'link' && !sp.store?.dropOnly)) && groupOf(ctx, sp.entry.label)) // gateway: my own folder there, not the group's two tiles.filter(([, sp], i, all) => all.findIndex(([, x]) => x.entry.label === sp.entry.label) === i) // one look per group
       .map(([n, sp]) => [n, sp.spec?.kind === 'link' ? groupsAt(sp.entry.label) : sp.store]),
     ...(door ? [[ctx.s.adminN, door]] : []),
+    ...(ctx.doorThere && ctx.doorThere !== door ? [[ctx.s.adminN, ctx.doorThere]] : []), // the door in the object storage beside a Nextcloud door (27.11.)
     ...(await groupsHere(ctx))];
   for (const [n, store] of look) {
     try {
       const waiting = await waitingHellos(store);
-      const taken = store === door ? [] // the project's door keeps its signer: an account is made there
+      const taken = store === door || store === ctx.doorThere ? [] // the project's door keeps its signer: an account is made there
         : await signerLook({ store, description: ctx.s.open.get(n)?.description, waiting, welcome: (helloPath) => welcome(ctx, { n, helloPath, store }) }).catch(() => []); // a group's swarm (26.11.): touches published, who is within by its rule welcomed without a tap
       for (const helloPath of waiting.filter((p) => !taken.includes(p))) out.push({ n, store, helloPath, name: /@\(([^)]*)\)/.exec(helloPath)?.[1] ?? '?' });
       await groupUpkeep(store);
@@ -250,9 +300,15 @@ export async function welcome(ctx, { n, helloPath, store = null }, { into } = {}
       return ctx.say(ctx.t('door.notSigner'));
     }
     await describeJoin(sp.store); // the signer's keys readable through the door
-    const asker = readHello(new TextDecoder().decode(await sp.store.read(helloPath))).person;
+    const hello = readHello(new TextDecoder().decode(await sp.store.read(helloPath))), asker = hello.person;
     const known = into !== undefined ? into : await knownFolder(sp.store, asker.label, asker.id); // the admin's choice in the single view (16.11.), else her ID (paper); her account, a new app password
     choices.set(helloPath, into); // join ↑ and the upkeep follow the same choice
+    const user = known ? userOf(known) : asker.id.toLowerCase();
+    await welcomeBack(ctx.admin, user, hello.device?.id ?? null).catch(() => {}); // object storage: her account awake, this device counts (again)
+    if (!ctx.admin.server || sp.store === ctx.doorThere) { // the object storage alone (27.11.): no Nextcloud account – her folder there and a grant for this device
+      await welcomeThere({ door: sp.store, helloPath, signer: await signerOf(ctx), gateway: ctx.gateway, user: known ? user : null, also: sharingPoints });
+      return ctx.say(`${ctx.t('share')} → ${/@\(([^)]*)\)/.exec(helloPath)?.[1] ?? ''}`);
+    }
     if (known) await welcomeDevice({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, user: userOf(known), gateway: ctx.gateway });
     else await welcomeWithAccount({ door: sp.store, helloPath, admin: ctx.admin, signer: await signerOf(ctx), also: sharingPoints, quota: ctx.quota ?? QUOTA, atlas: ctx.atlasUser, group: ctx.group, gateway: ctx.gateway })
       .catch(async (e) => { // the account is there already (welcomed once, sent back from join): only a new device app password
@@ -307,6 +363,7 @@ export async function joinProject(ctx, project, { reachable = doorAnswers, memor
   if (!door) { report(`join: door does not answer (${doors.length})`); return false; } // 16.11.: said, no longer silent
   const path = (url) => readPaste(url)?.path ?? url; // /s/<token> → its WebDAV path
   const readId = newSource(), dropId = newSource();
+  for (const [id, url] of [[readId, door.read], [dropId, door.drop]]) { const grant = readPaste(url)?.grant; if (grant) await ctx.keychain.set(id, grant); } // a door in the object storage: its two grants (read join/, add to hello/)
   await ctx.edit({ add: { label, path: path(door.read), id: readId }, marks: ['show'] });
   await ctx.edit({ add: { label, path: path(door.drop), id: dropId } });
   if (locked) { // a password given privately: paste it on +, then the hello goes out (share-add.js waitSecret)
@@ -327,7 +384,8 @@ export async function helloToDoor(ctx, label) {
 /** Does a door answer? → true · 'password' (it asks for one: 401) · false (revoked or moved). */
 async function doorAnswers(door) {
   try {
-    const { store } = connect(readPaste(door.read), {});
+    const p = readPaste(door.read);
+    const { store } = p?.kind === 'gateway' ? connect(p, { secret: p.grant, access: accessKey }) : connect(p, {}); // object storage: the door's read grant, asked with this device's access key
     await store.list('');
     return true;
   } catch (err) {
@@ -385,8 +443,9 @@ export async function followJoins(ctx) {
     if (!read || !drop) continue;
     if (mine.state !== 'hello') { // the admin quieted this device (15.11.): it logs itself out, keys away, the door again
       try {
-        const u = readName(mine.helloPath.slice(mine.helloPath.lastIndexOf('/') + 1))?.u;
-        const note = u && (await doorLinks(read, drop).list('join/')).some((f) => { const n = readName(f.path.slice(f.path.lastIndexOf('/') + 1)); return n?.words.includes(u) && n.words.includes('quiet'); });
+        const u = readName(mine.helloPath.slice(mine.helloPath.lastIndexOf('/') + 1))?.u, door = doorLinks(read, drop);
+        const pinned = signerOfText(ctx.doorSigner); // project.json names the signer: only a note it (or whoever it certified) sealed logs this device out (27.11.)
+        const note = await quieted(door, u, pinned ? await trustedSigners(pinned, await certificatesIn(door).catch(() => [])) : null);
         if (note) { await ctx.logout?.(mine.account); await joins.set(t.label, null); states.set(t.label, 'door'); continue; }
         if (!mine.label) await joins.set(t.label, { ...mine, label: ctx.person.label }); // the name it joined with
         else if (ctx.person.label && mine.label !== ctx.person.label) { // renamed (15.11.): the admin is told, sealed, with the new name sign; the ID stays
