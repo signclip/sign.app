@@ -46,6 +46,15 @@ import java.util.List;
 
 @CapacitorPlugin(name = "ShareTargets")
 public class ShareTargetsPlugin extends Plugin {
+    /** Only what the app itself prepared leaves through here (27.11., audit N3): a file in its cache, folder share/.
+     *  Any other path (the app's keys, its database) is refused, whatever the web view asks for. */
+    private File shared(String path) throws java.io.IOException {
+        File dir = new File(getContext().getCacheDir(), "share").getCanonicalFile();
+        File f = new File(path == null ? "" : path).getCanonicalFile();
+        if (!f.getPath().startsWith(dir.getPath() + File.separator)) throw new java.io.IOException("not a file prepared for sharing");
+        return f;
+    }
+
     private static String png(Drawable d) {
         Bitmap bmp = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
@@ -131,7 +140,7 @@ public class ShareTargetsPlugin extends Plugin {
             for (int i = 0; i < paths.length(); i++) {
                 Uri doc = DocumentsContract.createDocument(getContext().getContentResolver(), dir, mimes.optString(i, "application/octet-stream"), names.optString(i, "sign"));
                 if (doc == null) continue;
-                try (InputStream in = new FileInputStream(paths.getString(i)); OutputStream out = getContext().getContentResolver().openOutputStream(doc)) {
+                try (InputStream in = new FileInputStream(shared(paths.getString(i))); OutputStream out = getContext().getContentResolver().openOutputStream(doc)) {
                     byte[] buf = new byte[65536]; int k;
                     while ((k = in.read(buf)) > 0) out.write(buf, 0, k);
                 }
@@ -159,7 +168,7 @@ public class ShareTargetsPlugin extends Plugin {
                         cb.onLayoutFinished(new PrintDocumentInfo.Builder(name).setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT).build(), true);
                     }
                     @Override public void onWrite(PageRange[] pages, ParcelFileDescriptor dest, CancellationSignal c, WriteResultCallback cb) {
-                        try (InputStream in = new FileInputStream(path); OutputStream out = new FileOutputStream(dest.getFileDescriptor())) {
+                        try (InputStream in = new FileInputStream(shared(path)); OutputStream out = new FileOutputStream(dest.getFileDescriptor())) {
                             byte[] buf = new byte[16384]; int n;
                             while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
                             cb.onWriteFinished(new PageRange[] { PageRange.ALL_PAGES });
@@ -181,7 +190,7 @@ public class ShareTargetsPlugin extends Plugin {
             String cls = call.getString("cls");
             String authority = getContext().getPackageName() + ".fileprovider";
             ArrayList<Uri> uris = new ArrayList<>();
-            for (int i = 0; i < paths.length(); i++) uris.add(FileProvider.getUriForFile(getContext(), authority, new File(paths.getString(i))));
+            for (int i = 0; i < paths.length(); i++) uris.add(FileProvider.getUriForFile(getContext(), authority, shared(paths.getString(i))));
             Intent intent = new Intent(uris.size() > 1 ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND);
             intent.setType(mime);
             if (text != null && !text.isEmpty()) intent.putExtra(Intent.EXTRA_TEXT, text);

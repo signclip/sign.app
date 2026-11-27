@@ -1,4 +1,5 @@
 # Publish web/ as the web app on GitHub Pages (Settings → Pages → Source: GitHub Actions).
+# Actions are named by their commit (27.11., audit M7): a tag can be moved, a commit cannot.
 name: web app
 on:
   push: { branches: [main] }
@@ -10,8 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: { name: github-pages, url: "${{ steps.deploy.outputs.page_url }}" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: the three libraries beside the app, each checked against its SHA-512 (native/libs.sh)
+        run: sh native/libs.sh web/lib
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with: { path: web }
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

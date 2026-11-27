@@ -1,4 +1,9 @@
-# Build the Android app (debug APK) in the cloud; download it under Actions → this run → Artifacts.
+# Build the Android app in the cloud; download it under Actions → this run → Artifacts, or as release "apk".
+# Which build (27.11., audit M6):
+#   repository variable APK_BUILD = release → a release build (not debuggable); unset → the debug build, as before
+#   secret RELEASE_KEYSTORE (Base64) with RELEASE_STORE_PASSWORD and RELEASE_KEY_PASSWORD → signed with that key;
+#   without it → DEBUG_KEYSTORE, as before. A new key makes a new app: it does not install over the old one.
+# Actions are named by their commit, packages come from package-lock.json (npm ci): the same bytes every run (M7).
 name: android
 on:
   push: { branches: [main] }
@@ -7,14 +12,22 @@ jobs:
   apk:
     runs-on: ubuntu-latest
     permissions: { contents: write } # the release "apk": a direct download, not a zip
+    env:
+      BUILD: ${{ vars.APK_BUILD == 'release' && 'release' || 'debug' }}
+      KS_PASS: ${{ secrets.RELEASE_KEYSTORE && secrets.RELEASE_STORE_PASSWORD || 'android' }}
+      KEY_PASS: ${{ secrets.RELEASE_KEYSTORE && secrets.RELEASE_KEY_PASSWORD || 'android' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 20 }
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with: { distribution: temurin, java-version: 21 }
-      - run: npm install
+      - run: npm ci
+      - name: the three libraries beside the app, each checked against its SHA-512 (native/libs.sh)
+        run: sh native/libs.sh web/lib
       - run: npx cap add android && npx cap sync android
+      - name: no backup, no clear text (native/android/harden.sh)
+        run: sh native/android/harden.sh
       - name: version = run number (each APK newer than the last, installs over it)
         run: sed -i -E 's/versionCode [0-9]+/versionCode ${{ github.run_number }}/; s/versionName "[^"]*"/versionName "1.${{ github.run_number }}"/' android/app/build.gradle
       - name: own plugins DavHttp (WebDAV verbs, refused through CapacitorHttp), ShareTargets (apps in the sharing menu), SignKeys (Android Keystore)
@@ -37,29 +50,21 @@ jobs:
         run: |
           sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" /><uses-permission android:name="android.permission.RECORD_AUDIO" /><uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /><uses-permission android:name="android.permission.VIBRATE" />\n    <application#' android/app/src/main/AndroidManifest.xml
           grep -q "android.permission.INTERNET" android/app/src/main/AndroidManifest.xml || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET" />\n    <application#' android/app/src/main/AndroidManifest.xml
-      - name: the same signing key every time (secret DEBUG_KEYSTORE), so an update installs over the app and keeps its data
-        env: { KS: '${{ secrets.DEBUG_KEYSTORE }}' }
+      - name: the same signing key every time, so an update installs over the app and keeps its data
+        env: { KS: '${{ secrets.RELEASE_KEYSTORE || secrets.DEBUG_KEYSTORE }}' }
         run: |
-          if [ -z "$KS" ]; then echo "secret DEBUG_KEYSTORE missing: a random key would make the APK conflict with the installed app"; exit 1; fi
-          mkdir -p ~/.android && echo "$KS" | base64 -d > ~/.android/debug.keystore
-          keytool -list -v -keystore ~/.android/debug.keystore -storepass android | grep -m1 'SHA256'
-          alias=$(keytool -list -keystore ~/.android/debug.keystore -storepass android | grep -m1 PrivateKeyEntry | cut -d, -f1)
-          echo "alias: $alias"
-          # Gradle on the runner did not take ~/.android by itself (each APK had a new key): name it explicitly
-          printf '\nandroid {\n    signingConfigs { debug { storeFile file("%s"); storePassword "android"; keyAlias "%s"; keyPassword "android" } }\n    buildTypes { debug { signingConfig signingConfigs.debug } }\n}\n' "$HOME/.android/debug.keystore" "$alias" >> android/app/build.gradle
-          tail -5 android/app/build.gradle
-      - run: cd android && ./gradlew assembleDebug
-      - uses: actions/upload-artifact@v4
-        with: { name: sign-debug-apk, path: android/app/build/outputs/apk/debug/app-debug.apk }
+          if [ -z "$KS" ]; then echo "no signing key (secret DEBUG_KEYSTORE or RELEASE_KEYSTORE): a random key would make the APK conflict with the installed app"; exit 1; fi
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/sign.keystore"
+          sh native/android/signing.sh "$RUNNER_TEMP/sign.keystore"
+      - run: cd android && ./gradlew "assemble$([ "$BUILD" = release ] && echo Release || echo Debug)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: { name: 'sign-${{ env.BUILD }}-apk', path: 'android/app/build/outputs/apk/${{ env.BUILD }}/app-${{ env.BUILD }}.apk' }
       - name: direct download (release "apk" → sign.apk)
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk sign.apk
+          cp "android/app/build/outputs/apk/$BUILD/app-$BUILD.apk" sign.apk
           v=sign-1.${{ github.run_number }}.apk; cp sign.apk "$v" # a name per version: no phone can open an older cached download by mistake
-          got=$("$(ls -d $ANDROID_HOME/build-tools/* | tail -1)/apksigner" verify --print-certs sign.apk | grep -m1 'SHA-256' | awk '{print $NF}')
-          want=$(keytool -list -v -keystore ~/.android/debug.keystore -storepass android | grep -m1 'SHA256' | awk '{print $NF}' | tr -d ':' | tr 'A-F' 'a-f')
-          echo "apk $got · key $want"
-          if [ "$got" != "$want" ]; then echo "the APK is not signed with DEBUG_KEYSTORE: it would conflict with the installed app"; exit 1; fi
+          sh native/android/signed.sh sign.apk "$RUNNER_TEMP/sign.keystore" || { echo "the APK is not signed with the project's key: it would conflict with the installed app"; exit 1; }
           gh release view apk >/dev/null 2>&1 || gh release create apk --title "Sign APK" --notes "Die neueste APK aus main: sign.apk antippen." --prerelease
           for old in $(gh release view apk --json assets --jq '.assets[].name' | grep '^sign-1\.' || true); do gh release delete-asset apk "$old" -y; done
           gh release upload apk sign.apk "$v" --clobber
