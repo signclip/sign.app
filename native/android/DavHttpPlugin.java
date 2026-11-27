@@ -29,6 +29,8 @@ public class DavHttpPlugin extends Plugin {
     @PluginMethod
     public void request(PluginCall call) {
         final String url = call.getString("url");
+        // only over TLS (27.11., audit N3): a login never leaves in the clear; http stays for a server on this very device
+        if (url == null || !url.matches("(?i)^(https://.+|http://(localhost|127\\.0\\.0\\.1)(:\\d+)?(/.*)?)$")) { call.reject("https only"); return; }
         final String method = call.getString("method", "GET");
         final JSObject headers = call.getObject("headers", new JSObject());
         final String data = call.getString("data");

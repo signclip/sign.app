@@ -1,23 +1,35 @@
 # Compile the Android app on a branch (22.11.): the own plugins must build before they reach main.
-# No signing secret, no release, no web app: only "does it compile". main itself builds in android.yml.
+# No signing secret, no release, no web app: "does it compile, and does it sign" – both build types, signed with a
+# key made for this one run, through the same scripts main uses (27.11.). main itself builds in android.yml.
+# Actions are named by their commit, packages come from package-lock.json (npm ci): the same bytes every run.
 name: check
 on:
   push: { branches-ignore: [main] }
   workflow_dispatch:
+permissions: { contents: read }
 jobs:
   compile:
     runs-on: ubuntu-latest
+    env: { KS_PASS: android, KEY_PASS: android }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 20 }
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with: { distribution: temurin, java-version: 21 }
-      - run: npm install
+      - run: npm ci
       - run: npx cap add android && npx cap sync android
+      - run: sh native/android/harden.sh
       - run: |
           d=android/app/src/main/java/org/signclip/signapp
           cp native/android/*.java "$d"/
           mkdir -p android/app/src/main/res/xml && cp native/android/file_paths.xml android/app/src/main/res/xml/file_paths.xml
           printf '\ndependencies {\n    implementation "com.squareup.okhttp3:okhttp:4.12.0"\n}\n' >> android/app/build.gradle
-      - run: cd android && ./gradlew assembleDebug
+      - name: a key for this run only
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/check.keystore" -storepass "$KS_PASS" -keypass "$KEY_PASS" -alias check -keyalg RSA -keysize 2048 -validity 2 -dname "CN=check"
+          sh native/android/signing.sh "$RUNNER_TEMP/check.keystore"
+      - run: cd android && ./gradlew assembleDebug assembleRelease
+      - run: |
+          sh native/android/signed.sh android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/check.keystore"
+          sh native/android/signed.sh android/app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/check.keystore"

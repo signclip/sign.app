@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Files the app may hand to another app (FileProvider): its cache, where shares are prepared (14.11.). -->
+<!-- Files the app may hand to another app (FileProvider): its cache, where shares are prepared (14.11.).
+     Nothing outside the app's own cache (27.11., audit N3): the external storage is no longer reachable through here. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
 </paths>
