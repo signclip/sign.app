@@ -12,6 +12,8 @@ jobs:
     environment: { name: github-pages, url: "${{ steps.deploy.outputs.page_url }}" }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: the three libraries beside the app, each checked against its SHA-512 (native/libs.sh)
+        run: sh native/libs.sh web/lib
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with: { path: web }
       - id: deploy
