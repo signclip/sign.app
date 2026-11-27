@@ -6,12 +6,14 @@
 //            · beside it the way in: hello → join → sign (sharing-view.js JOIN_LOOKS) · the admin's piles hello · join
 //            · within · quiet with their counts · every sharing point as a tile with its small strand arcs · lines from
 //            the device bubbles to where things flow (dashed = from now on, solid thick = everything) · the system row.
+//            A group's tile spread open: its swarm where the tiles were (swarm-view.js).
 // Depends:   browser; sharing-view.js
 // Test:      positions and looks in tests/ui.test.mjs; this needs a browser.
 // Limits:    tiles as the engine gives them (≤ 40); names cut at 12 letters inside a tile.
 
 import { menuLayout, joinLook, bridge, TILE_ARCS } from './sharing-view.js';
 import { arcPath, polar } from './layout.js';
+import { swarmView } from './swarm-view.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const f1 = (n) => Number(n).toFixed(1);
@@ -34,13 +36,14 @@ export function sharingView(snap, size, { drag = null } = {}) {
   const mark = (role) => `${snap.pulse === role ? ' breathe' : ''}${snap.flash === role ? ' flash' : ''}${snap.shake === role ? ' shake' : ''}${snap.fresh?.has?.(role) ? ' appear' : ''}`;
   // what stands in the grid: after a login or in a role's lists the choices (browse), else the sharing points, then what waits for me
   const real = snap.tiles.filter((t) => !t.under && !(hiddenDoor && t.label === door.tile.label));
-  const tiles = snap.browse ? snap.browse.map((b, i) => ({ ...b, role: `browse:${i}`, choice: true }))
+  const tiles = snap.swarm ? [] // a group's swarm lies where the tiles were (26.11., swarm-view.js)
+    : snap.browse ? snap.browse.map((b, i) => ({ ...b, role: `browse:${i}`, choice: true }))
     : [...real.map((t) => ({ ...t, role: `sp:${t.n}` })), ...(snap.incoming ?? []).map((x, i) => ({ ...x, role: `incoming:${i}`, waitsForMe: true })),
       ...(snap.acceptThere ? [{ label: snap.acceptThere.label, role: 'accept-there', waitsForMe: true }] : [])];
   const self = snap.self ?? { id: 'me', label: snap.own };
   const accounts = [{ ...self, current: true, roleKey: `person:${self.id}` }, ...(snap.persons ?? []).map((p) => ({ ...p, roleKey: `person:${p.id}` })),
     ...(snap.accounts ?? []).map((a, i) => ({ ...a, roleKey: `account:${i}` })).filter((a) => a.role && !a.current)]; // Admin, Atlas, Groups: square; my own login is my person (20.11.: not a second time beside it)
-  const piles = snap.hellos?.length && !snap.browse ? Object.fromEntries(snap.hellos.map((p) => [p.pile, p.count ?? 0])) : null;
+  const piles = snap.hellos?.length && !snap.browse && !snap.swarm ? Object.fromEntries(snap.hellos.map((p) => [p.pile, p.count ?? 0])) : null;
   const native = snap.apps?.length ? snap.apps.slice(0, 5).map((a, i) => ({ id: a.glyph ?? (/mail|gm/i.test(a.pkg ?? '') ? 'mail' : /bluetooth/.test(a.pkg ?? '') ? 'bluetooth' : 'messenger'), label: a.label ?? a.glyph, i, role: `app:${i}` }))
     : [{ id: 'save', role: 'web:save' }, { id: 'more', role: 'out:system' }]; // the web: save as download, the system's share sheet
   const L = menuLayout({ accounts, tiles, piles, native: snap.apps?.length ? [] : native, join: door.look }, size);
@@ -79,6 +82,7 @@ export function sharingView(snap, size, { drag = null } = {}) {
     }
     for (const to of t.copyTo ?? []) { const o = L.tiles.find((x) => x.n === to); if (o) svg.push(`<path class="flow new" d="${bridge(c, { x: o.x + o.s / 2, y: o.y + o.s / 2 })}"/>`); }
   }
+  if (snap.swarm) { const v = swarmView(snap.swarm, size); html.push(v.html); svg.push(v.svg); }
   for (const n of L.native) html.push(`<span class="native" data-role="${n.role}" style="left:${f1(n.x)}px;top:${f1(n.y)}px;width:${f1(n.s)}px;height:${f1(n.s)}px">${GLYPH[n.id] ?? esc(String(n.label ?? '').charAt(0))}</span>`);
   if (snap.apps?.length) html.push(appRow(snap.apps, L.k)); // the native app: every app that takes a share, side by side, sliding (as until 16.11.)
   if (snap.confirm) html.push(confirmHtml(snap.confirm, size, L.k));

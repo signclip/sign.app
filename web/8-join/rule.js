@@ -16,8 +16,9 @@ import { timeLabel, timeRange, inTime } from '../1-model/time.js';
  * Returns "auto" or "signer" (a signer of the sharing point always remains as the other way).
  */
 export function joinDecision(join, { now = Date.now(), where = null, gestures = 0, vouches = 0 } = {}) {
-  if (!join || (!join.gestures && !join.vouch)) return 'signer';
+  const taken = join?.within || join?.vouch || 0; // (within n), written (vouch n) before: n devices within take her in (swarm.js counts them)
+  if (!join || (!join.gestures && !taken)) return 'signer';
   const ok = inTime(timeLabel(now), timeRange(join.time)) && (!join.where || join.where === where) &&
-    gestures >= join.gestures && vouches >= join.vouch;
+    gestures >= join.gestures && vouches >= taken;
   return ok ? 'auto' : 'signer';
 }

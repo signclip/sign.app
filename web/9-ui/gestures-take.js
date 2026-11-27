@@ -756,7 +756,7 @@ export function gesturesOf(A) {
     if (ev.type === 'tap') {
       if (r === 'confirm:box') return null; // the first circle itself: only its bars and its middle do something
       if (A.data.snap?.confirm && (r === 'sheet' || r === 'sharing' || !r)) { on('sheet'); return H.swipe('down'); } // a tap beside the first circle: nothing goes
-      if (!r || r === 'sharing') return A.engine.show(false);
+      if (!r || r === 'sharing') return A.data.snap?.swarm ? A.engine.back() : A.engine.show(false); // beside an open swarm: the tiles again (26.11.)
       if (r === 'web:save') return saveLast();
       if (r.startsWith('dev:')) return null;
       return A.engine.tapped(r);

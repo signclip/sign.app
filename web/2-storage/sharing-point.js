@@ -30,12 +30,12 @@ export function labelOf(path) {
 
 /**
  * Text of sharing-point.sign. label: its name · path: where it lies (a planned move = a new path) ·
- * kinds: what consent covers · join: { gestures, vouch, where, time } · key: z_ of a device ·
+ * kinds: what consent covers · join: { gestures, vouch | within, where, time } · key: z_ of a device ·
  * signers: [{ label, id, key }] who may seal the next version (the admin is just the signer of atlas).
  */
 export function describe({ id, by, time, label, path = null, kinds, join = null, key = null, signers = [] }) {
   const rule = join ? [defLine('_.1', {
-    body: `((join)${join.gestures ? ` (gestures ${join.gestures})` : ''}${join.vouch ? ` (vouch ${join.vouch})` : ''})`,
+    body: `((join)${join.gestures ? ` (gestures ${join.gestures})` : ''}${join.vouch ? ` (vouch ${join.vouch})` : ''}${join.within ? ` (within ${join.within})` : ''})`, // within n: n devices within take her in (8-join/swarm.js); the older word (vouch n) is read the same
   }) + (join.where ? `°(${join.where})` : '') + (join.time ? `'t(${join.time})` : '')] : [];
   const defs = [...signers.map((sg, i) => defLine(`sharing-point.${i + 1}`, { hint: sg.label, id: `${sg.id} z_${sg.key}` })), ...rule];
   return fileText(headLine('sharing-point', { '^': label, '=': path, '!': key ? `${id} z_${key}` : id, '@': by, "'t": time }), defs, [
@@ -56,7 +56,7 @@ export function readDescription(text) {
     label: f.head['^'] ?? null,
     path: f.head['='] ?? null,
     kinds: (kindRow?.items[0]?.items ?? []).map((r) => r.kind),
-    join: rule ? { gestures: num('gestures'), vouch: num('vouch'), where: rule.where, time: rule.part } : null,
+    join: rule ? { gestures: num('gestures'), vouch: num('vouch'), within: num('within'), where: rule.where, time: rule.part } : null,
     signers: [...f.defs.values()].filter((d) => d.kind === 'sharing-point' && d.id?.z).map((d) => ({ label: d.hint, id: d.id.q, key: d.id.z.slice(2) })),
   };
 }

@@ -39,6 +39,7 @@ import { readName } from '../1-model/filename.js';
 import { newSource } from '../1-model/ids.js';
 import { deviceKeys, joins, accessKey } from './device-keys.js';
 import { copy } from './system-share.js';
+import { signerLook, touchOnWelcome } from './share-swarm.js';
 
 const dec = new TextDecoder();
 
@@ -179,7 +180,10 @@ export async function hellosToWelcome(ctx) {
     ...(await groupsHere(ctx))];
   for (const [n, store] of look) {
     try {
-      for (const helloPath of await waitingHellos(store)) out.push({ n, store, helloPath, name: /@\(([^)]*)\)/.exec(helloPath)?.[1] ?? '?' });
+      const waiting = await waitingHellos(store);
+      const taken = store === door ? [] // the project's door keeps its signer: an account is made there
+        : await signerLook({ store, description: ctx.s.open.get(n)?.description, waiting, welcome: (helloPath) => welcome(ctx, { n, helloPath, store }) }).catch(() => []); // a group's swarm (26.11.): touches published, who is within by its rule welcomed without a tap
+      for (const helloPath of waiting.filter((p) => !taken.includes(p))) out.push({ n, store, helloPath, name: /@\(([^)]*)\)/.exec(helloPath)?.[1] ?? '?' });
       await groupUpkeep(store);
     } catch { /* not reachable now */ }
   }
@@ -258,7 +262,10 @@ export async function welcome(ctx, { n, helloPath, store = null }, { into } = {}
       });
   } else if (sharingPoints.length) {
     const here = sp.spec?.kind === 'gateway' ? { gateway: { grants: await ownerChainFor(ctx, sp.entry.path) } } : {}; // object storage: her own grant, chained to mine (own folder or Groups)
-    await welcomeToGroup({ store: sp.store, helloPath, group: { sharingPoints, ...here }, signer: await signerOf(ctx) });
+    const signer = await signerOf(ctx);
+    await welcomeToGroup({ store: sp.store, helloPath, group: { sharingPoints, ...here }, signer });
+    await touchOnWelcome({ store: sp.store, helloPath, group: sp.entry.label, by: { person: signer.person, device: { id: signer.device, key: signer.deviceKey.public, label: signer.person.label }, deviceKey: signer.deviceKey } })
+      .catch(() => {}); // my welcome is my touch: the swarm shows her within, taken in by me (26.11.)
   } else return null;
   return ctx.say(`${ctx.t('share')} → ${/@\(([^)]*)\)/.exec(helloPath)?.[1] ?? ''}`);
 }

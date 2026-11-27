@@ -238,6 +238,18 @@ video::-webkit-media-controls { display: none !important; }
 .flow { fill: none; stroke: var(--rc-stroke); stroke-width: 3; } .flow.new { stroke-dasharray: 7 6; } .flow.all { stroke-width: 6; opacity: .7; }
 .carry { stroke: var(--rc-stroke); stroke-width: 3; stroke-dasharray: 6 5; fill: none; } .carry.all { stroke-width: 6; stroke-dasharray: none; opacity: .7; }
 .native { border-radius: 14px; background: var(--card); border: 1.5px solid var(--line); font-size: 20px; color: var(--fg); }
+/* a group's swarm (26.11., swarm-view.js): within = solid, round the Startpoint (gold); me coral; waiting dashed on the strip; a net apart in one dashed yellow bubble */
+.sw { border-radius: 50%; background: var(--sc); border: 2px solid var(--sc-stroke); font: 600 11px Inter, system-ui, sans-serif; color: #0C447C; overflow: hidden; white-space: nowrap; }
+.sw.start { background: var(--nest-paper); border: 3px solid var(--nest-b); color: var(--ink); }
+.sw.gives { border-color: var(--nest-b); } /* everyone within takes in: the Startpoint's gold edge on each */
+.sw.me { background: var(--rc); border-color: var(--rc-stroke); color: var(--ink); }
+.sw.waits { background: var(--card); border-style: dashed; color: var(--fg); } .sw.waits.me { border-color: var(--rc-stroke); }
+.sw.more { background: var(--nest-paper); border: 1.5px solid var(--nest-b); color: var(--ink); } .sw.more.waits { border-style: dashed; }
+.sw.fresh { animation: appear .32s cubic-bezier(.2,.8,.3,1.2) both; } .sw.sending { border-style: solid; border-color: var(--hold); }
+.sw-name { font: 600 12px Inter, system-ui, sans-serif; color: var(--mut); transform: translateY(-100%); white-space: nowrap; }
+.sw-line { fill: none; stroke: var(--nest-b); stroke-width: 2; stroke-linecap: round; }
+.sw-time { fill: none; stroke: var(--nest-b); stroke-width: 3; stroke-linecap: round; opacity: .55; }
+.sw-net { fill: var(--nest); stroke: var(--nest-b); stroke-width: 1.5; stroke-dasharray: 5 5; }
 .menu-note { left: 0; right: 0; bottom: 92px; color: var(--mut); font-size: 13px; text-align: center; }
 
 /* onboarding: the next thing pulses, a pale point shows the gesture */

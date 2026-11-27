@@ -23,6 +23,7 @@ import { connect } from '../2-storage/connect.js';
 import { note as debugNote } from './debug.js';
 import { doorPart } from './share-door.js';
 import { accountPart } from './share-accounts.js';
+import { swarmPart } from './share-swarm.js';
 import { pilesOf, roleOf, accountsOf } from '../8-join/flow.js';
 import { findList, changeList, rulesOf } from '../2-storage/list.js';
 import { readList } from '../2-storage/sharing-point.js';
@@ -341,6 +342,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   const ctx = { every: () => every(), confirmed: () => confirmed(), project, s, keychain, edit, logout: (a) => logout(a), load, say, t, all, device, person, nameSign, helloTakes, doorLabel, doorSigner: project?.signer ?? null, atlasUser: project?.atlas ?? null, group: project?.group ?? undefined, gateway: project?.gateway || null, tileOf: (n) => all().find((x) => x.n === n), draw: () => draw(), show: (on) => show(on), newPerson: () => onOwnHold() };
   // the admin's door and what Admin, Atlas, Groups do: their own files (15.11., share-door.js, share-accounts.js)
   const { refreshDoor, lookPile, pileList, adminStore, signerVerdict } = doorPart(ctx, { panel, onLookAll });
+  const swarm = swarmPart(ctx); // a group's tile spread open (26.11.): who is in, who waits, a tap takes in
   const { atlasCount, atlasSummary, newGroup, showIndex, indexTiles, showAccounts, accountTiles, showGroups, groupTiles, addToGroup } = accountPart(ctx, { words, onLookAll, project });
   ctx.showIndex = showIndex;
 
@@ -529,6 +531,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   async function tapped(role) {
     if (!role) return show(false); // a tap beside the sheet = back
     if (role === 'sheet' || role === 'row-area') return null; // the sheet itself, the row's strip
+    if (role === 'swarm' || role.startsWith('swarm:')) return swarm.tap(role); // an open swarm: a waiting bubble = my touch
     const [what, a, b] = role.split(':');
     if (what === 'sp' && a === '0') { // this device (14.11.): a tap chooses a new folder or disk on it
       if (canPick()) return pickFolder(ctx);
@@ -856,7 +859,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       : s.hellos.length ? pilesOf({ hello: count('hello') }).slice(0, 1) : []; // a group's signer: its hellos
     s.piles = s.piles.map((p) => ({ ...p, n: s.adminN, label: p.count == null ? p.pile : `${p.pile} ${p.count}` }));
     const hellos = s.piles;
-    onDraw({ tiles: all(), confirm: s.confirm ?? null, own: person.label, sent: s.sent ?? 0, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: new Set(s.fresh), focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, apps: s.index || s.accounts || s.groupList || s.browse ? [] : rowApps(), outOnly: Boolean(s.pending), persons: others().map(withState).filter(Boolean), self: (() => { const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current()); return me ? withState({ ...me, label: me.label || person.label }) : null; })(), accounts: logins(), choosing: Boolean(s.choosing), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: new Map(s.joinStates), leaving: new Set(s.leaving ?? []), sending: s.sending ?? null, note: s.note, role: ctx.role ?? null });
+    onDraw({ tiles: all(), confirm: s.confirm ?? null, own: person.label, sent: s.sent ?? 0, admin: s.adminN ?? null, pulse: s.pulse ?? null, flash: s.flash ?? null, appear: s.appear, fresh: new Set(s.fresh), focus: s.focus, waitSecret: Boolean(s.waitSecret), clip: s.clip ?? 'ghost', shake: s.shake ?? null, apps: s.index || s.accounts || s.groupList || s.browse ? [] : rowApps(), outOnly: Boolean(s.pending), persons: others().map(withState).filter(Boolean), self: (() => { const P = globalThis.signPersons, me = P?.persons().find((x) => x.id === P.current()); return me ? withState({ ...me, label: me.label || person.label }) : null; })(), accounts: logins(), choosing: Boolean(s.choosing), browse, incoming, acceptThere: s.acceptThere, hellos, joinStates: new Map(s.joinStates), leaving: new Set(s.leaving ?? []), sending: s.sending ?? null, note: s.note, role: ctx.role ?? null, swarm: swarm.view() });
 
     s.appear = false; // only the first drawing after opening builds up
     s.fresh.clear();
@@ -932,6 +935,13 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       return apply(gestureOn(n, dir, s.rules));
     },
     pinch: (factor) => { // two fingers on an account: apart = more space, together = less (steps of 25 %)
+      const groupN = role?.startsWith('sp:') && swarm.isGroup(Number(role.split(':')[1])) ? Number(role.split(':')[1]) : null;
+      if (swarm.opened() || groupN) { // a group's tile spread = its swarm (26.11.); squeezed anywhere = the tiles again
+        pinched *= factor;
+        if (pinched >= 1.25 && groupN && !swarm.opened()) { pinched = 1; return swarm.open(groupN); }
+        if (pinched <= 0.8 && swarm.opened()) { pinched = 1; return swarm.close(); }
+        return null;
+      }
       if (role?.startsWith('person:') && factor > 1.2) { globalThis.signPersons?.switchTo(role.slice(7)); return location.reload(); } // a small person pulled big = that person (15.11.)
       if (!role?.startsWith('browse:') || !s.accounts) return null;
       s.zoom = { role, scale: Math.max(0.7, Math.min(1.4, (s.zoom?.scale ?? 1) * factor)) }; // seen: the tile follows the fingers
@@ -943,6 +953,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       return accountTiles()[Number(role.split(':')[1])]?.more?.(by);
     },
     pinchEnd: () => { // the tile settles back to its size (250 ms)
+      pinched = 1;
       if (!s.zoom) return;
       const from = s.zoom.scale, start = performance.now();
       const step = (now) => {
@@ -953,7 +964,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
       };
       requestAnimationFrame(step);
     },
-    holdLong: () => { if (circleOf(role) != null) { navigator.vibrate?.(15); s.flash = role; draw(); } }, // held on: now carried = everything so far too (15.11.)
+    holdLong: () => { if (role === 'swarm:me') navigator.vibrate?.(15); if (circleOf(role) != null) { navigator.vibrate?.(15); s.flash = role; draw(); } }, // held on: now carried = everything so far too (15.11.)
     holdMove: () => null, // the line that follows the finger is drawn by paint-sharing.js
 
 
@@ -965,6 +976,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
 
     dragEnd: (el, moved, _r, { long = false } = {}) => {
       if (s.flash === role) s.flash = null;
+      if (role?.startsWith('swarm')) return moved ? null : swarm.hold(role); // a Startpoint holds her bubble: everyone within takes in ↔ only Startpoints (26.11.)
       if (role === 'add:new' && !moved) return addNew(ctx, { person: false }); // + held: only what is on the clipboard (no new person by holding, 16.11.)
       if (role?.startsWith('person:') && moved) { globalThis.signPersons?.switchTo(role.slice(7)); return location.reload(); } // a small person dragged out = pulled big: that person (15.11.)
       const from = circleOf(role);
@@ -1025,11 +1037,12 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   setTimeout(() => resumeLogin(ctx).catch(() => {}), 1500); // a login left open when Android closed the app: it goes on
   function show(on) {
     panel.hidden = !on;
-    if (!on) { s.pending = null; s.held = null; if (s.carry) { s.carry = null; s.pulse = null; } } // closed: nothing prepared waits, nobody carried
+    if (!on) { s.pending = null; s.held = null; if (s.carry) { s.carry = null; s.pulse = null; } swarm.close({ silent: true }); } // closed: nothing prepared waits, nobody carried, no swarm read on
     if (on) { s.appear = true; draw(); look(); loadApps().catch(() => {}); }
   }
   /** One step back (Android back, → in the accounts): an account → the accounts → closed. → true if it stepped */
   function back() {
+    if (swarm.close()) return true; // an open swarm = the tiles again
     if (s.index) { s.index = null; draw(); return true; }
     if (s.account) { s.account = null; draw(); return true; }
     if (s.accounts) { s.accounts = null; draw(); return true; }
