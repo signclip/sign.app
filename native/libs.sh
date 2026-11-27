@@ -1,5 +1,5 @@
 #!/bin/sh
-# libs.sh <target folder> — the libraries the app loads at run time, put beside the app (27.11., audit H5).
+# libs.sh <target folder> [server] — the libraries the app loads at run time, put beside the app (27.11., audit H5).
 #
 # Before, the app fetched them from jsDelivr on every device: whoever serves that address could hand the app other
 # code. Now each build takes the packages once from the npm registry, checks every one against the SHA-512 written
@@ -9,6 +9,11 @@
 #   <target>/h3/            H3 cells for o_                                ≈ 0.5 MB
 #   <target>/mediapipe/     MediaPipe's vision tasks (landmarks :~l)       ≈ 15 MB, its model ≈ 14 MB (see model below)
 # The app (signclip/sign, 5-take/whisper-engine.js, 3-index/sqlite.js, 5-take/where.js) asks for exactly these paths.
+# With `server` as second word, for the server that computes for atlas (signclip/sign gateway/compute.mjs) – never for
+# the web app or the APK, it is far too large for a phone:
+#   <target>/litert-lm/     LiteRT-LM (vectors by EmbeddingGemma 2)        ≈ 117 MB, its model beside it (see model below)
+#   <target>/litertjs/      its helper, one file                           ≈ 2 KB
+#   on the server:  sh native/libs.sh /opt/sign/app/lib server
 # Run by all three workflows: web/lib for the web app and the APK. For the app straight from signclip/sign in a
 # browser: sh native/libs.sh ../sign/app/lib (the folder is not kept in git).
 # A new version = a new line here with its integrity (npm view <package>@<version> dist.integrity), nothing else.
@@ -40,6 +45,23 @@ get https://registry.npmjs.org/@mediapipe/tasks-vision/-/tasks-vision-1.2.3.tgz 
   'sxJyfhbN+EamexhaaCmUlw7v8vWWMum7VDsORe6d4c8Dk/xlI4qiIgoSw9cE9hpvYhVRRVLIA8y605FbqWkNeQ==' mediapipe \
   vision_bundle.mjs wasm/vision_wasm_module_internal.js wasm/vision_wasm_module_internal.wasm
 
+tree() { # tree <tarball address> <sha512, Base64> <folder> <folders of the package…>: whole folders, as they are
+  url=$1; want=$2; dir=$3; shift 3
+  curl -fsSL --retry 3 -o "$tmp/p.tgz" "$url"
+  got=$(openssl dgst -sha512 -binary "$tmp/p.tgz" | openssl base64 -A)
+  if [ "$got" != "$want" ]; then echo "libs: $url is not the file expected"; echo "  got  sha512-$got"; echo "  want sha512-$want"; exit 1; fi
+  rm -rf "$tmp/x" && mkdir -p "$tmp/x" "$out/$dir"
+  tar -xzf "$tmp/p.tgz" -C "$tmp/x"
+  for d in "$@"; do rm -rf "$out/$dir/$d"; cp -R "$tmp/x/package/$d" "$out/$dir/$d"; done
+  echo "libs: $dir ← $(basename "$url")"
+}
+if [ "${2:-}" = server ]; then
+  tree https://registry.npmjs.org/@litert-lm/core/-/core-0.20.0.tgz \
+    'F89VykxY1aIGeB5TzkASMwaYPGgOd8AFxURPHvnnz4CoRm9yLn/IMJvtnCxsuBOCsIKClnheJz+NmwtEDXSOBg==' litert-lm dist wasm
+  get https://registry.npmjs.org/@litertjs/wasm-utils/-/wasm-utils-2.6.0.tgz \
+    'rxARtl8owf+aPV2TsMiAClYDBaEDemML3PjrzBxIpGCvv6POswR7068Kt0sIkrK5XvKkY2Z+JLcm3a9CHmvuUg==' litertjs dist/index.js
+fi
+
 # A model is no npm package: it is taken from its maker's address and checked against the SHA-512 a person wrote
 # into native/models.txt (one line: <name> <sha512 as Base64>). No line yet, or another file than the line says:
 # the model is left out and the run says so with the hash it saw – the app then computes no landmarks, everything
@@ -56,4 +78,8 @@ model() { # model <address> <folder> <name>
 }
 model https://storage.googleapis.com/mediapipe-models/holistic_landmarker/holistic_landmarker/float16/latest/holistic_landmarker.task \
   mediapipe holistic_landmarker.task
+if [ "${2:-}" = server ]; then
+  model https://huggingface.co/litert-community/embeddinggemma-2-740m-litert-lm/resolve/main/embeddinggemma-2-740m.litertlm \
+    litert-lm embeddinggemma-2.litertlm
+fi
 du -sh "$out" | cut -f1
