@@ -29,6 +29,7 @@ import { findList, changeList, rulesOf } from '../2-storage/list.js';
 import { readList } from '../2-storage/sharing-point.js';
 import { openAll, afterTakeTargets, afterTakeWants, sources, runRules, reconnect } from '../2-storage/sharing-points.js';
 import { sendingOf } from '../2-storage/sending.js';
+import { piecesIn } from '../2-storage/pieces.js';
 import { dueRules, remember, backupKey, summary, reopen, bringHome, sealPaper, PAPER_ID } from '../2-storage/upkeep.js';
 import { newPaperPassword } from '../2-storage/backup-key.js';
 import { readFile } from '../1-model/file.js';
@@ -152,7 +153,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   const alwaysTo = (n) => s.rules.find((r) => r.mark === 'always' && r.from == null && r.to === n);
   const shortly = (id, path) => `${s.entries.find((e) => e.id === id)?.label ?? id} ${path.slice(path.lastIndexOf('/') + 1).slice(-44)}`;
   const sending = sendingOf({
-    read: (path) => own.read(path),
+    read: (path) => (own.blob ? own.blob(path) : piecesIn(own, path)), // the file on the disk, unread: sending asks piece by piece (27.11.)
     target: (id) => {
       const n = s.entries.findIndex((e) => e.id === id) + 1, rule = n ? alwaysTo(n) : null;
       if (!rule) return s.loaded ? undefined : null; // gone from the list, or no longer sent there by itself (said only once the list is read)

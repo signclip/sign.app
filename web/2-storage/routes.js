@@ -15,9 +15,14 @@
 //            never change, so the same name means the same bytes). It is told (differs), never replaced and never
 //            removed here: which side is whole is said by the hash in the chain, and replacing is a decision.
 //            Seen without reading a byte: both listings carry the sizes. A size of 0 or none counts as unknown.
+// Large (27.11.): a file above PIECE = 8 MiB goes piece by piece (pieces.js), never whole in memory where both sides
+//            know pieces, and is not read back (that would bring it over the line once more): the write's answer
+//            counts. A smaller file is read back and compared, as before. A side that takes a file only whole
+//            refuses one above 256 MiB in numbers (failed), nothing is cut off.
 
 import { readName } from '../1-model/filename.js';
 import { ExistsError } from './memory.js';
+import { PIECE, copyPieces } from './pieces.js';
 import { KINDS, FOLDERS, withFollowers } from '../1-model/symbols.js';
 
 const kindOf = (path) => readName(path.slice(path.lastIndexOf('/') + 1))?.kind ?? null;
@@ -37,9 +42,12 @@ export async function copyRoute(from, to, { kinds, chains = true, skip = () => f
     if (since && (readName(path.slice(path.lastIndexOf('/') + 1))?.time ?? '') < since) continue; // new only: made before the connection = not here
     if (have.has(path)) { (size > 0 && have.get(path) > 0 && have.get(path) !== size ? result.differs : result.kept).push(path); continue; }
     try {
-      const bytes = await from.read(path);
-      await to.write(path, bytes);
-      if (!same(await to.read(path), bytes)) throw new Error('copy differs');
+      if (size > PIECE) await copyPieces(from, to, path, { size, hash: false });
+      else {
+        const bytes = await from.read(path);
+        await to.write(path, bytes);
+        if (!same(await to.read(path), bytes)) throw new Error('copy differs');
+      }
       result.copied.push(path);
     } catch (err) {
       if (err instanceof ExistsError) result.kept.push(path); else result.failed.push([path, String(err.message ?? err)]);

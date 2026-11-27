@@ -24,7 +24,7 @@ const put64 = (b, o, v) => { put32(b, o, Math.floor(v / 2 ** 32)); put32(b, o + 
 const type = (b, o) => String.fromCharCode(b[o + 4], b[o + 5], b[o + 6], b[o + 7]);
 
 /** The boxes between start and end: [{ type, at, size }] (size 0 = to the end; null when a box is 64-bit). */
-function boxes(b, start, end) {
+export function boxes(b, start, end) {
   const found = [];
   for (let o = start; o + 8 <= end;) {
     let size = u32(b, o);
@@ -72,6 +72,14 @@ function trackEnds(b, top, defaults) {
     }
   }
   return ends;
+}
+
+/** How long an MP4 says it is, in seconds, read from its beginning (the mvhd in its moov); null when it does not say. */
+export function secondsOf(bytes) {
+  const moov = (boxes(bytes, 0, bytes.length) ?? []).find((x) => x.type === 'moov'), mvhd = moov && child(bytes, moov, 'mvhd');
+  if (!mvhd) return null;
+  const scale = timescaleOf(bytes, mvhd), length = readDuration(bytes, mvhd);
+  return scale > 0 && length > 0 ? length / scale : null;
 }
 
 /** The recording with its real length written in (see above). bytes: Uint8Array → Uint8Array */

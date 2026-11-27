@@ -26,6 +26,7 @@
 //            going on works within that day · device clock ± 5 min.
 
 import { ExistsError, MissingError } from './memory.js';
+import { pieceSize } from './pieces.js';
 import { gatewayParts } from './spec.js';
 import { askGateway } from './gateway-ask.js';
 
@@ -33,8 +34,7 @@ export { gatewayParts };
 
 const enc = new TextEncoder();
 const MiB = 2 ** 20, IN_PIECES = 16 * MiB, AT_ONCE = 3, TRIES = 3, LINK_MS = 60000;
-/** Piece size: 8 MiB, or more so that a file needs at most 10,000 pieces. */
-export const pieceSize = (bytes) => Math.max(8 * MiB, Math.ceil(bytes / 10000 / MiB) * MiB);
+export { pieceSize }; // 8 MiB, or more so that a file needs at most 10,000 pieces (pieces.js: the Nextcloud cuts by the same)
 const b64 = (buf) => { let s = ''; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s); };
 
 export class GatewayStore {

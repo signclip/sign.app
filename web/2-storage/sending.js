@@ -12,15 +12,23 @@
 //                         at the sharing point (SCHEMA B5: originals first, chain last)
 //              lanes      one file at a time per sharing point, at most LANES sharing points at once; a file is read
 //                         from the device when its turn comes, not before
+//              pieces     27.11.: a file goes piece by piece (pieces.js): read from the device's disk as far as the
+//                         sharing point asks, never whole in memory where the sharing point takes pieces (Nextcloud,
+//                         object storage); after a break such a sharing point goes on where it stopped
 //              not there  a sharing point that does not answer rests (30 s, doubling to 15 min) and nothing more of
 //                         it is tried meanwhile; a file the sharing point will not take (too large, refused) rests
 //                         with the rest of its take for PARK_MS, the takes after it go on
 //              saving     while the phone saves data only small files go (context, wake, chain of takes without
 //                         picture and sound); pictures and sound wait
-// Depends:   nothing (a store's write and the device's read are passed in); memory.js (ExistsError, MissingError)
+// Depends:   pieces.js (writePieces); memory.js (ExistsError, MissingError); the device's read is passed in
 // Test:      tests/sending.test.mjs
-// Limits:    LANES = 2: at most two files on their way and in memory at once (≈ 2 MB per second of video each; in
-//            the native app with its Base64 ≈ 3.5 × that, dav-fetch.js) · the list: ≈ 200 B per job, at most MAX_JOBS =
+// Limits:    LANES = 2: at most two files on their way at once; in memory of each one piece (8 MiB) where the
+//            sharing point takes pieces, the whole file where it does not (any other WebDAV server, a sealed
+//            sharing point: up to 256 MiB, in the native app 48 MiB – beyond that the take rests, said in numbers;
+//            in the native app with its Base64 ≈ 3.5 × what is in memory, dav-fetch.js) · no hash is summed on
+//            the way (≈ 0.2 s per piece on a phone, and nobody asks for it here) · a large file holds its sharing
+//            point's lane until it is through: 1 GiB at 8 Mbit/s ≈ 18 min, the takes after it wait that long ·
+//            the list: ≈ 200 B per job, at most MAX_JOBS =
 //            5,000 (≈ 1,000 takes to one sharing point; beyond that the oldest leave the list and the daily copy
 //            of that sharing point catches them up, upkeep.js) · what it costs the line: a take is ≈ 17 Mbit/s
 //            (picture 15, sound raw 1.5), so sending as fast as taking needs that much upload per sharing point; at
@@ -29,6 +37,7 @@
 //            job then says what to make instead of where to send (SCHEMA §2 take: also an order, ask-take.js).
 
 import { ExistsError, MissingError } from './memory.js';
+import { piecesOf, writePieces, TooLargeError } from './pieces.js';
 
 export const LANES = 2, MAX_JOBS = 5000, REST_MS = 30_000, REST_MAX_MS = 15 * 60_000, PARK_MS = 60 * 60_000;
 
@@ -52,11 +61,11 @@ export function orderOf(jobs) {
 /** Is this failure about the file (the sharing point answered and will not take it), not about reaching the sharing point? */
 export function aboutFile(err) {
   const text = String(err?.message ?? err), code = Number(/: (\d{3})$/.exec(text)?.[1] ?? 0);
-  return /too large/.test(text) || (code >= 400 && code < 500 && ![401, 403, 407, 408, 423, 429].includes(code));
+  return err instanceof TooLargeError || /too large|only whole/.test(text) || (code >= 400 && code < 500 && ![401, 403, 407, 408, 423, 429].includes(code));
 }
 
 /**
- * read(path) → bytes of a file of this device · target(to) → { store, accepts(path) } of a sharing point that is open
+ * read(path) → a file of this device: its bytes, the file on the disk (Blob) or its pieces (pieces.js piecesOf) · target(to) → { store, accepts(path) } of a sharing point that is open
  * now, null when it is not open now, undefined when it is no longer in the list · load() → the kept list ·
  * save(list) · allowed() → false while the phone saves data · now() ms · onSent({ to, path, bytes, ms }) ·
  * onFailed({ to, path, error, file }).
@@ -96,15 +105,20 @@ export function sendingOf({ read, target, load = () => [], save = () => {}, allo
       if (!job) return;
       if (t.accepts && !t.accepts(job.path)) { drop(job); keepList(); continue; } // this sharing point does not take this kind (its description says so)
       const t0 = now();
+      let here = null; // what went wrong reading this device (not the sharing point's doing)
       try {
-        let bytes;
-        try { bytes = await read(job.path); } catch (err) { if (err instanceof MissingError) { drop(job); keepList(); continue; } throw err; }
-        try { await t.store.write(job.path, bytes); } catch (err) { if (!(err instanceof ExistsError)) throw err; } // there already = there
+        let from;
+        try { from = piecesOf(await read(job.path)); } catch (err) { here = err; throw err; }
+        const pieces = { size: from.size, async slice(a, b) { // as far as the sharing point asks: one piece, or the whole file where it takes no pieces
+          try { const bytes = await from.slice(a, b); if (bytes.length !== Math.min(b, from.size) - a) throw new Error(`${job.path}: ${bytes.length} bytes read instead of ${Math.min(b, from.size) - a}`); return bytes; } catch (err) { here = err; throw err; }
+        } };
+        try { await writePieces(t.store, job.path, pieces, { hash: false }); } catch (err) { if (!(err instanceof ExistsError)) throw err; } // there already = there
         drop(job); keepList();
         rest.delete(to);
-        onSent({ to, path: job.path, bytes: bytes.length ?? bytes.byteLength ?? 0, ms: now() - t0 });
+        onSent({ to, path: job.path, bytes: from.size, ms: now() - t0 });
       } catch (err) {
-        const file = aboutFile(err);
+        if (here instanceof MissingError || here?.name === 'NotFoundError') { drop(job); keepList(); continue; } // no longer on this device
+        const file = Boolean(here) || aboutFile(err);
         onFailed({ to, path: job.path, error: String(err?.message ?? err), file });
         if (file) { for (const j of jobs) if (j.to === to && j.take === job.take) j.parked = now() + PARK_MS; keepList(); continue; } // this take rests, the next ones go on
         const tries = (rest.get(to)?.tries ?? 0) + 1;

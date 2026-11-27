@@ -18,9 +18,11 @@
 //            BRIDGE_MAX = 48 MiB (≈ 25 s of video at 15 Mbit/s): beyond that the phone's memory is at risk (the bytes,
 //            their Base64 and the copy on the native side are held at once, ≈ 3.5 × the file), so it is refused
 //            with an error and the file stays where it is.
-// EXTEND(S10, pieces): a file larger than BRIDGE_MAX goes in pieces (Nextcloud: chunked upload; object storage:
-//            pieces of 16 MiB already, gateway-store.js) – then no body is ever larger than one piece. Or, once
-//            takes lie in the app's own folder: sent by the native side from the file itself (RESEARCH: file transfer).
+//            27.11.: to a Nextcloud and to the object storage a file goes in pieces of 8 MiB (webdav.js writeFrom,
+//            gateway-store.js): no body is larger than one piece there, whatever the file's size. BRIDGE_MAX still
+//            holds for a server that takes a file only whole (any other WebDAV server, a sealed sharing point).
+// EXTEND(S10, pieces): once takes lie in the app's own folder: sent by the native side from the file itself
+//            (RESEARCH: file transfer).
 
 export const DAV_VERBS = new Set(['PROPFIND', 'PROPPATCH', 'MKCOL', 'MOVE', 'COPY', 'LOCK', 'UNLOCK', 'REPORT', 'SEARCH']);
 export const BRIDGE_MAX = 48 * 1024 * 1024;

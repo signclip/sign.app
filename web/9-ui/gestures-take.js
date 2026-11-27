@@ -795,7 +795,7 @@ export function gesturesOf(A) {
     const chain = take && [...(A.index?.tables.chains.values() ?? [])].find((c) => c.from?.path === take.id);
     const at = chain && A.media.visualOf(chain);
     if (!at) return A.engine.tapped('out:system');
-    const { url } = await A.media.playable(at);
+    const { url } = await A.media.playable(at, { whole: true }); // the file itself, not one that is still coming (27.11.)
     const a = Object.assign(document.createElement('a'), { href: url, download: at.path.split('/').pop() });
     document.body.append(a); a.click(); a.remove();
     return null;

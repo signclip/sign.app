@@ -7,9 +7,10 @@
 // Depends:   browser (the #replay video inside the window); line.js (partsOf, locate); media.js through A
 // Test:      locate/partsOf in tests/ui.test.mjs; playing needs a browser (checked in Chrome with the test camera).
 // Limits:    one take at a time · a part's end is met within one animation frame (≈ 16 ms, at half speed ≈ 8 ms of
-//            the take) · files from far away are read whole once (≈ 2 MB per second of video), the next 2 takes of the
-//            line while one plays, and kept among the last 10 (ahead.js); a take of this device is not read at all, the
-//            browser plays it from the disk (26.11., media.js) · a new take fades in over the last frame (250 ms).
+//            the take) · a video from far away plays while it comes (27.11., stream.js: its first seconds are here
+//            when it was read ahead, as for the next 2 takes of the line; a moment not yet here waits until it has
+//            come); a take of this device is not read at all, the browser plays it from the disk (26.11., media.js) ·
+//            a new take fades in over the last frame (250 ms).
 
 import { partsOf, locate } from './line.js';
 import { note as debugNote } from './debug.js';

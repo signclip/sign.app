@@ -2,14 +2,43 @@
 //
 // Purpose:   same four functions as memory.js over HTTP (RFC 4918). Writing uses
 //            "If-None-Match: *" so the server refuses to overwrite (RFC 9110 → 412).
-// Depends:   memory.js (errors), a fetch function (browser, Node, or CapacitorHttp in the app).
+//            27.11.: a Nextcloud takes a file of any size, piece by piece (writeFrom, pieces.js) – its "chunked
+//            upload": a folder at …/remote.php/dav/uploads/<user>/<id>/, the pieces put there as 00001, 00002 …,
+//            then one MOVE of its .file to where the file belongs (Overwrite: F, so never over). Every request
+//            names that address (Destination), as version 2 of the protocol asks; version 1 ignores it.
+//            After a break the next try goes on where it stopped: the folder's name comes from the file's address
+//            and size, so the same file finds its folder again and asks which pieces lie there – nothing is kept
+//            on the device for it.
+// Depends:   memory.js (errors), pieces.js (piece size, WHOLE), 1-model/hash.js (the folder's name), a fetch function
+//            (browser, Node, or CapacitorHttp in the app).
 // Test:      tests/storage.test.mjs (against a small fake server)
 // Limits:    the browser needs CORS on the server (Nextcloud: WebAppPassword app); the native
 //            app has no CORS limit. Listing walks folders with Depth 1 (Depth infinity is often
 //            switched off): one request per folder.
+//            Pieces: 8 MiB each (the server asks 5 MB to 5 GB, the last one may be smaller), at most 10,000 – so
+//            8 MiB up to 78 GiB, larger pieces above · one piece in memory at a time (in the native app with its
+//            Base64 ≈ 3.5 × that, dav-fetch.js) · a file of one piece or less goes as one PUT, as before · before
+//            a large file 2 small requests (is it there? is its folder there?), after it 1 (the MOVE) · the
+//            server clears a folder of pieces 24 h after its last piece: a break longer than that starts anew ·
+//            a piece that lies there with the right size counts as arrived, it is not read back · only for an
+//            address …/remote.php/dav/files/<user>/…: any other server (NAS, Storage Box, a public link) and one
+//            that has no such uploads folder gets the file whole, up to WHOLE = 256 MiB.
+//            Not tried against a real Nextcloud yet (27.11.): built by its manual, tested against the fake server.
 // Security:  credentials are passed in, never stored here (they live in the device keychain).
+// EXTEND(W2, storage): OC-Total-Length on every piece (the server then says "full" at the first piece, not at the
+//            MOVE) once the web app's CORS list is known to allow it · other WebDAV servers: one streamed PUT.
 
 import { ExistsError, MissingError } from './memory.js';
+import { pieceSize, WHOLE, TooLargeError } from './pieces.js';
+import { hashBytes } from '../1-model/hash.js';
+
+/** Where a Nextcloud takes the pieces of a file: …/remote.php/dav/files/<user>/… → …/remote.php/dav/uploads/<user>/ · any other address: null. */
+export function uploadsOf(base) {
+  const m = /^(https?:\/\/.+?\/remote\.php\/dav)\/files\/([^/]+)\//.exec(base);
+  return m ? `${m[1]}/uploads/${m[2]}/` : null;
+}
+
+const SIZE_ONLY = '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:getcontentlength/></d:prop></d:propfind>';
 
 export class WebDavStore {
   /** base: e.g. https://cloud.example/remote.php/dav/files/lena/Sign/ */
@@ -18,6 +47,9 @@ export class WebDavStore {
     this.auth = 'Basic ' + btoa(`${user}:${password}`);
     this.fetch = fetch;
     this.name = name;
+    this.uploads = uploadsOf(this.base);
+    this.known = new Set(); // folders known to be there (asked once before a file goes in pieces)
+    if (this.uploads) this.writeFrom = (path, pieces, how) => this.writeInPieces(path, pieces, how); // a store without it gets a file whole (pieces.js)
   }
 
   url(path) {
@@ -97,9 +129,70 @@ export class WebDavStore {
     return res.status === 206 ? bytes : bytes.subarray(from, to);
   }
 
-  // EXTEND(W2, storage): writeFrom – Nextcloud takes pieces at /remote.php/dav/uploads/<user>/<id>/ and joins them with
-  //                      a MOVE (Overwrite: F), other WebDAV servers one streamed PUT. Until then pieces.js gives this
-  //                      store a file whole, up to 256 MiB.
+  /** Is there a file (or folder) at this path? One small request, nothing is read. */
+  async has(path) {
+    const res = await this.request('PROPFIND', path, { headers: { Depth: '0', 'Content-Type': 'application/xml' }, body: SIZE_ONLY });
+    if (res.status === 207) return true;
+    if (res.status === 404) return false;
+    throw new Error(`PROPFIND ${path}: ${res.status}`);
+  }
+
+  /** The pieces that lie in a folder of pieces: Map(number → bytes) · null when the server has no such folder. */
+  async piecesAt(folder) {
+    const res = await this.fetch(folder, { method: 'PROPFIND', body: SIZE_ONLY, headers: { Authorization: this.auth, Depth: '1', 'Content-Type': 'application/xml' } });
+    if ([404, 405, 501].includes(res.status)) return null;
+    if (res.status !== 207) throw new Error(`PROPFIND pieces: ${res.status}`);
+    const there = new Map();
+    for (const block of (await res.text()).split(/<d:response>/i).slice(1)) {
+      const name = decodeURIComponent(/<d:href>([^<]*)<\/d:href>/i.exec(block)?.[1] ?? '').replace(/\/$/, '').split('/').pop();
+      if (/^\d+$/.test(name)) there.set(Number(name), Number(/<d:getcontentlength>(\d+)/i.exec(block)?.[1] ?? -1)); // 00003 and 3 are the same piece
+    }
+    return there;
+  }
+
+  /** A file the server takes only whole: up to WHOLE, said in numbers beyond. */
+  async writeWhole(path, pieces) {
+    if (pieces.size > WHOLE) throw new TooLargeError(`${this.name} takes a file only whole: ${path} has ${pieces.size} bytes, more than ${WHOLE}`);
+    return this.write(path, await pieces.slice(0, pieces.size));
+  }
+
+  /**
+   * A file of any size to a Nextcloud, piece by piece (pieces.js writeFrom): never over (ExistsError, asked before
+   * the first byte goes and once more by the MOVE); after a break the next call sends only what did not arrive.
+   * pieces: { size, slice(from, to) → Uint8Array } · piece: bytes per piece (tests pass a small one).
+   */
+  async writeInPieces(path, pieces, { piece = pieceSize(pieces.size) } = {}) {
+    const size = pieces.size;
+    if (!this.uploads || size <= piece) return this.writeWhole(path, pieces); // one piece: one PUT, as every small file
+    if (await this.has(path)) throw new ExistsError(path);
+    const parent = path.slice(0, path.lastIndexOf('/') + 1);
+    if (parent && !this.known.has(parent)) { if (!(await this.has(parent))) await this.makeFolders(path); this.known.add(parent); }
+    const to = this.url(path), folder = `${this.uploads}sign-${(await hashBytes(`${to}\n${size}\n${piece}`)).slice(0, 32)}/`;
+    const ask = (method, name = '', { body, headers = {} } = {}) => this.fetch(folder + name, { method, body, headers: { Authorization: this.auth, Destination: to, ...headers } });
+    let there = new Map();
+    const made = await ask('MKCOL');
+    if (made.status !== 201) {
+      const had = made.status === 405 ? await this.piecesAt(folder) : null; // 405 = it is there: an earlier try broke off
+      if (!had && [404, 405, 501].includes(made.status)) { this.uploads = null; return this.writeWhole(path, pieces); } // this server has no uploads folder: whole, as before
+      if (!had) throw new Error(`MKCOL pieces of ${path}: ${made.status}`);
+      there = had;
+    }
+    for (let n = 1, from = 0; from < size; n++, from += piece) {
+      const length = Math.min(piece, size - from);
+      if (there.get(n) === length) continue; // arrived before the break
+      const body = await pieces.slice(from, from + length);
+      if (body.length !== length) throw new Error(`piece ${n} came with ${body.length} bytes instead of ${length}: ${path}`);
+      const res = await ask('PUT', String(n).padStart(5, '0'), { body });
+      if (!res.ok) throw new Error(`PUT piece ${n} of ${path}: ${res.status}`);
+    }
+    const res = await ask('MOVE', '.file', { headers: { Overwrite: 'F' } });
+    if (res.status === 412) { // someone else wrote it meanwhile: the pieces are of no use
+      try { await this.fetch(folder, { method: 'DELETE', headers: { Authorization: this.auth } }); } catch { /* the server clears them after 24 h */ }
+      throw new ExistsError(path);
+    }
+    if (!res.ok) throw new Error(`MOVE pieces of ${path}: ${res.status}`);
+  }
+
   async write(path, bytes) {
     const body = typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes;
     let res = await this.request('PUT', path, { body, headers: { 'If-None-Match': '*' } });

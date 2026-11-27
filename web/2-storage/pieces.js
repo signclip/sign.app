@@ -20,14 +20,16 @@
 // Test:      tests/pieces.test.mjs · the object storage: tests/gateway.test.mjs
 // Limits:    in memory at once: 1 piece (device, disk, memory) or ≤ 4 (object storage: 3 on their way, 1 being
 //            read) – 8 MiB each up to 78 GiB, 19 MiB at 190 GB · the hash costs ≈ 165 MB/s on a server CPU
-//            (hash-stream.js), a phone less: it is the slowest step on a fast line, the line is on a slow one ·
-//            who has which calls today: memory, device and folder both; object storage both; WebDAV (Nextcloud,
-//            Sciebo, NAS) readPiece only, so it takes a file up to WHOLE = 256 MiB (≈ 14 min of video at
-//            2.5 Mbit/s) until it learns writeFrom; a sealed sharing point (sealed-store.js) neither yet ·
+//            (hash-stream.js), a phone less: it is the slowest step on a fast line, the line is on a slow one –
+//            who only sends (sending.js, routes.js) asks for no hash ({ hash: false }) ·
+//            who has which calls today: memory, device and folder both; object storage both; a Nextcloud both
+//            (27.11., webdav.js: pieces into its uploads folder); any other WebDAV server (NAS, Storage Box, a public
+//            link) readPiece only, so it takes a file up to WHOLE = 256 MiB (≈ 2 min of video at 17 Mbit/s) until
+//            it learns writeFrom; a sealed sharing point (sealed-store.js) neither yet ·
 //            a copy is not read back: the object storage checks SHA-256 per piece, the device writes to a file of
 //            its own first; whoever needs more compares the hash given here with the one in the chain.
-// EXTEND(W2, storage): writeFrom for WebDAV (Nextcloud takes pieces at /remote.php/dav/uploads/, other servers one
-//                      streamed PUT) · sealed pieces from pieces (sealed.js already seals 8 MiB at a time) ·
+// EXTEND(W2, storage): writeFrom for the other WebDAV servers (one streamed PUT) · sealed pieces from pieces
+//                      (sealed.js already seals 8 MiB at a time) ·
 //                      another device as a store (near, direct) brings the same two calls.
 
 import { hashStream } from '../1-model/hash-stream.js';
@@ -38,6 +40,8 @@ const MiB = 2 ** 20;
 export const PIECE = 8 * MiB;
 /** The most a store without readPiece / writeFrom gives or takes in one piece. */
 export const WHOLE = 256 * MiB;
+/** The piece a store cuts by that takes at most 10,000 of them (object storage, Nextcloud): 8 MiB, or more for a file above 78 GiB. */
+export const pieceSize = (bytes) => Math.max(PIECE, Math.ceil(bytes / 10000 / MiB) * MiB);
 
 /** A file too big for a store that only knows whole files. */
 export class TooLargeError extends Error {}
@@ -84,17 +88,18 @@ export async function hashPieces(from, { piece = PIECE } = {}) {
 /**
  * Write a file to a sharing point, piece by piece, never over an existing one (ExistsError, as every write).
  * onPiece({ done, size }): after every piece that was read – for the running rim of a tile.
- * → { size, hash }: the hash for the definition in the chain; summed on the way when the store asks in order
- * (every store here does), otherwise in a second pass.
+ * → { size, hash }: the hash for the definition in the chain; summed on the way when the store asks in order and
+ * for every byte (a store that goes on after a break skips what is there), otherwise in a second pass.
+ * hash: false – who only sends needs none ({ size, hash: null }): the sum is the slowest step on a phone.
  */
-export async function writePieces(store, path, from, { whole = WHOLE, onPiece = null } = {}) {
-  const pieces = piecesOf(from), size = pieces.size, sum = hashStream();
+export async function writePieces(store, path, from, { whole = WHOLE, onPiece = null, hash = true } = {}) {
+  const pieces = piecesOf(from), size = pieces.size, sum = hash ? hashStream() : null;
   let next = 0, inOrder = true;
   const passing = {
     size,
     async slice(a, b) {
       const bytes = await pieces.slice(a, b);
-      if (inOrder && a === next) { sum.add(bytes); next = a + bytes.length; } else inOrder = false;
+      if (sum && inOrder && a === next) { sum.add(bytes); next = a + bytes.length; } else inOrder = false;
       onPiece?.({ done: Math.min(b, size), size });
       return bytes;
     },
@@ -104,10 +109,10 @@ export async function writePieces(store, path, from, { whole = WHOLE, onPiece = 
     if (size > whole) throw new TooLargeError(`${store.name ?? 'this store'} takes a file only whole: ${path} has ${size} bytes, more than ${whole}`);
     await store.write(path, await passing.slice(0, size));
   }
-  return { size, hash: inOrder && next === size ? sum.done() : await hashPieces(pieces) };
+  return { size, hash: !hash ? null : inOrder && next === size ? sum.done() : await hashPieces(pieces) };
 }
 
 /** Copy one file from a sharing point to another (as: its path there). → { size, hash } */
-export async function copyPieces(from, to, path, { as = path, size = null, whole = WHOLE, onPiece = null } = {}) {
-  return writePieces(to, as, await piecesIn(from, path, { size, whole }), { whole, onPiece });
+export async function copyPieces(from, to, path, { as = path, size = null, whole = WHOLE, onPiece = null, hash = true } = {}) {
+  return writePieces(to, as, await piecesIn(from, path, { size, whole }), { whole, onPiece, hash });
 }

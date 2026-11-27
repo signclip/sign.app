@@ -3,13 +3,16 @@
 // Purpose:   ahead     the first results of Similar and the next takes of the line are read while the present one
 //                      plays, so a tap starts at once. On with mobile data too; off only when the phone saves data
 //                      (Data Saver: navigator.connection.saveData; iOS does not tell, there it stays on).
+//                      27.11. (user): of a video far away only its first seconds are read ahead (stream.js FIRST =
+//                      4 MiB ≈ 2 s); the rest comes while it plays (media.js). Everything else as before.
 //            files     a small store of playable files (path → object URL), read once, the oldest let go: the
 //                      cache that makes reading ahead count.
 //            fade      when a video moves to another take, its last frame stays on a canvas above it and fades out
 //                      once the next one shows (no black, no jump). Sound is not faded here.
 // Depends:   browser for fade (canvas); the rest is plain and tested
 // Test:      tests/ui.test.mjs (allowed, files, nextOf, firstOf)
-// Limits:    AHEAD.similar = 3 results, AHEAD.line = 2 takes: a take ≈ 3–10 MB, so ≤ 30–50 MB read ahead at most;
+// Limits:    AHEAD.similar = 3 results, AHEAD.line = 2 takes: of far videos 4 MiB each, so ≤ 12 MiB per page of
+//            results (before 27.11.: whole files, a take ≈ 2 MB per second, 24–60 MB);
 //            files keeps MAX = 10 (≈ 30–100 MB in memory), the one just used never goes · fade 250 ms, given up
 //            after 1.5 s when the next one does not show.
 
