@@ -45,6 +45,7 @@
   "run.ok": "{label}: {n} neu",
   "run.waiting": "{label} wartet",
   "run.error": "{label}: nicht erreicht",
+  "run.differs": "{label}: {n} Kopien weichen ab",
   "home.restored": "{n} aus dem Backup geholt",
   "home.copied": "{n} geholt",
   "home.key": "Backup: Papier-Passwort kopieren, dann erneut ziehen",

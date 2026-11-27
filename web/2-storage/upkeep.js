@@ -113,7 +113,8 @@ export function summary(report) {
     else if (x.result) {
       s.copied += x.result.copied?.length ?? 0;
       s.failed += x.result.failed?.length ?? 0;
-      if (s.failed && s.state === 'ok') s.state = 'error';
+      if (x.result.differs?.length) s.differs = (s.differs ?? 0) + x.result.differs.length; // there, but not the same file (routes.js, 26.11.); only named when there are some
+      if ((s.failed || s.differs) && s.state === 'ok') s.state = 'error';
     }
     out.set(n, s);
   }

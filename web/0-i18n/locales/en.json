@@ -45,6 +45,7 @@
   "run.ok": "{label}: {n} new",
   "run.waiting": "{label} is waiting",
   "run.error": "{label}: not reached",
+  "run.differs": "{label}: {n} copies differ",
   "home.restored": "{n} brought back from the backup",
   "home.copied": "{n} brought here",
   "home.key": "Backup: copy the paper password, then drag again",

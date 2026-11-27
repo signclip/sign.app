@@ -86,6 +86,20 @@ export class WebDavStore {
     return new Uint8Array(await res.arrayBuffer());
   }
 
+  /** A range of a file (pieces.js): HTTP Range (RFC 9110); a server that ignores it sends the whole file, cut here. */
+  async readPiece(path, from, to) {
+    if (to <= from) return new Uint8Array();
+    const res = await this.request('GET', path, { headers: { Range: `bytes=${from}-${to - 1}` } });
+    if (res.status === 404) throw new MissingError(path);
+    if (res.status === 416) return new Uint8Array(); // the range lies behind the end
+    if (!res.ok) throw new Error(`GET ${path}: ${res.status}`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    return res.status === 206 ? bytes : bytes.subarray(from, to);
+  }
+
+  // EXTEND(W2, storage): writeFrom – Nextcloud takes pieces at /remote.php/dav/uploads/<user>/<id>/ and joins them with
+  //                      a MOVE (Overwrite: F), other WebDAV servers one streamed PUT. Until then pieces.js gives this
+  //                      store a file whole, up to 256 MiB.
   async write(path, bytes) {
     const body = typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes;
     let res = await this.request('PUT', path, { body, headers: { 'If-None-Match': '*' } });

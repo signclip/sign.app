@@ -179,7 +179,9 @@ export function arcsOf(L, olderLines = 0) {
     const [a, b] = ARCS[kind], pts = strandPoints(L, kind);
     out.push({ id: `strand:${kind}`, kind, d: pathOf(pts), mid: L.full ? pts[Math.floor(pts.length / 2)] : edge(L, (a + b) / 2, off) });
   }
-  out.push({ id: 'line', d: pathOf(curve(L, ARCS.line[0], ARCS.line[1], L.lineOff)), mid: edge(L, 0, L.lineOff) });
+  let run = curve(L, ARCS.line[0], ARCS.line[1], L.lineOff);
+  if (L.home) { const j = run.findIndex(([x, y]) => x > L.button.x && y < L.cy); if (j > 1) run = [...run.slice(0, j), [L.button.x, run[j - 1][1]]]; } // a line chosen: it ends at the button on the right (26.11.)
+  out.push({ id: 'line', d: pathOf(run), mid: edge(L, 0, L.lineOff) });
   for (let i = 0; i < Math.min(olderLines, OLD_LINES); i++) {
     const o = L.lineOff - (14 + 6 * i) * L.k * s, span = 46 - 6 * i;
     out.push({ id: `old:${i}`, d: pathOf(curve(L, -span, span, o)), mid: edge(L, 0, o) });
@@ -193,12 +195,14 @@ export function arcsOf(L, olderLines = 0) {
  */
 export function lineSlots(L, count, at, shift = 0) {
   const s = L.scale || 1, step = slotPx(L), out = [], run = curve(L, -90, 90, L.lineOff, 120);
+  const moved = L.home ? L.button.x - L.home.x : 0; // a line chosen (26.11.): the button stands further right, the takes go along
+  if (L.home) at += (count - at) * (L.mark ?? 1); // … and all of them lie left of it
   for (let i = 0; i < count; i++) {
     const off = i - at + shift; // < 0 left of the button; shift = how far the finger pulled the line (in takes, 17.11.)
     const a = Math.abs(off);
     if (a < 0.02 || a > LINE_SIDE + 0.5) continue;
     const d = Math.sign(off) * (a < 1 ? step * 1.25 * a : step * (a + 0.25)); // along the line, through the button without a jump
-    const p = along(run, d);
+    const p = along(run, d + moved);
     out.push({ i, x: p.x, y: p.y, r: 15 * L.k * s * (a < 1 ? 0.7 + 0.3 * a : 1), off });
   }
   return out;
@@ -225,15 +229,28 @@ export function timeline(L, take, ms, zoom = 1) {
 /**
  * The empty button spread for its two times (calm.js, 20.11., user). Left: a little = a new take at once after each
  * one (the button gets a coloured ring), past the first catch = plus a countdown; right: past the catch = the stillness
- * after which a take ends. The same px per second on both sides (≤ 10 s each, fits beside the button).
+ * after which a take ends (1–10 s; 26.11.). The same px per second on both sides (≤ 10 s each, fits beside the button).
  * times { restartMs (null = off, 0 = at once), stillEndMs (0 = off) } · f 0…1 = opening or closing
  * → { x, y, w, h, S (px per s), left, right, off (below = off), at (the catch), px(t, side), times(leftPx, rightPx) }
  */
+/**
+ * A line chosen (26.11., user): the button moves to the right at the same height – what is done in the take now goes
+ * onto the line, all its takes; they lie left of the button, the line ends there. w: the screen's width · t 0…1 = on
+ * the way. On a 390 px phone ≈ 128 px to the right (it stays 6 px inside the screen with its ring). → L with button,
+ * home (where it stood), mark (t)
+ */
+export function markedButton(L, w, t = 1) {
+  const to = Math.max(L.button.x, Math.min(L.cx + L.rx - L.ring, w - L.ring - 6 * L.k));
+  return { ...L, button: { ...L.button, x: L.button.x + (to - L.button.x) * t }, home: L.button, mark: t };
+}
+
+/** The shortest stillness after which a take ends (26.11., user: at least 1 s). */
+export const STILL_LEAST = 1000;
 export function timerPill(L, { restartMs = null, stillEndMs = 0 } = {}, f = 1) {
   const r = L.button.r, k = L.k, off = 6 * k, at = 26 * k, S = Math.max(4, Math.min(15 * k, (L.button.x - r - at - 8 * k) / 10));
   const px = (t, left) => (t == null || (!left && !t) ? 0 : left && !t ? (off + at) / 2 : at + (t / 1000) * S);
-  const timeAt = (d) => Math.min(10000, Math.max(500, Math.round(((d - at) / S) * 2) * 500));
-  const times = (lp, rp) => ({ restartMs: lp < off ? null : lp < at ? 0 : timeAt(lp), stillEndMs: rp < at ? 0 : timeAt(rp) });
+  const timeAt = (d, least = 500) => Math.min(10000, Math.max(least, Math.round(((d - at) / S) * 2) * 500));
+  const times = (lp, rp) => ({ restartMs: lp < off ? null : lp < at ? 0 : timeAt(lp), stillEndMs: rp < at ? 0 : timeAt(rp, STILL_LEAST) }); // stillness: at least 1 s (26.11.)
   const left = px(restartMs, true) * f, right = px(stillEndMs, false) * f;
   return { x: L.button.x - r - left, y: L.button.y - r, w: 2 * r + left + right, h: 2 * r, S, left, right, off, at, px, times };
 }

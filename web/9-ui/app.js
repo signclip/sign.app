@@ -7,13 +7,14 @@
 // the onboarding (name, name sign, password gestures, the two drawn words).
 // Depends:   browser; 0-i18n, 2-storage/local, 3-index, 9-ui
 // Test:      every part without a screen in tests/ui.test.mjs; the whole in Chrome and on the phone.
-// Limits:    one paint per animation frame at most; the index is rebuilt after each take (≈ 5 ms per 100 files) and every
-//            5 min while seen (21.11.).
+// Limits:    one paint per animation frame at most; what this device writes is in the index at once (26.11.,
+//            3-index/follow.js), every sharing point is read again every 5 min while seen (21.11.), one build at a time.
 
 import './persons-boot.js';
 import { translator } from '../0-i18n/t.js';
 import { LocalStore, lasting } from '../2-storage/local.js';
-import { buildIndex } from '../3-index/index.js';
+import { buildIndex, Index } from '../3-index/index.js';
+import { followIndex } from '../3-index/follow.js';
 import { cachePrefix } from '../3-index/parts.js';
 import { openDevice } from '../3-index/sqlite.js';
 import { mergedOf } from '../3-index/merged.js';
@@ -24,7 +25,7 @@ import { deviceKeys } from './device-keys.js';
 import { keychain } from './keychain.js';
 import { installDebug, note as debugNote } from './debug.js';
 import { initial, next } from './take-state.js';
-import { takeLayout } from './layout.js';
+import { takeLayout, markedButton } from './layout.js';
 import { outline } from './form.js';
 import { takeSvg, fanRows, nowHtml, rowHtml } from './paint.js';
 import { similarHtml } from './paint-similar.js';
@@ -69,7 +70,21 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     st: initial(), data: { thumbs: {}, buttonPic: null, entries: [], typing: '', hint: null, sharing: null, drag: null } };
   const ownKeys = await deviceKeys().then((k) => ({ [device]: k.device.public }), () => ({}));
   let indexedAt = Date.now();
-  A.reindex = async () => { indexedAt = Date.now(); A.index = await buildIndex(A.sources, { keys: ownKeys, cache: A.merged?.store ?? store }); A.similar?.refresh(); A.pass?.scan().catch(() => {}); }; // + requests to pass on her takes (21.11.)
+  // The index follows this device (26.11., user: the app hung): a take just written is in it when the write returns –
+  // no build after every take. A.reindex() after own writes only waits for those; A.reindex({ all: true }) reads every
+  // sharing point again (start, every SYNC_MS, new sharing points, something written elsewhere), one build at a time.
+  const asked = new Map(); // small pictures asked for (A.thumbOf below)
+  const follower = followIndex({
+    first: new Index(), // empty until the first build is in: the start does not wait for it
+    build: () => { indexedAt = Date.now(); return buildIndex(A.sources, { keys: ownKeys, cache: A.merged?.store ?? store }); },
+    onIndex: (index, { all }) => {
+      A.index = index;
+      A.similar?.refresh();
+      if (all) { asked.clear(); A.pass?.scan().catch(() => {}); A.paint?.(); } // pictures that waited for the index are asked again · requests to pass on her takes (21.11.)
+    },
+  });
+  follower.follow(store);
+  A.reindex = (how) => follower.reindex(how);
   // All sharing points in one SQLite database on the device (21.11., user; 3-index/merged.js). Opened beside the start,
   // never in its way: until it is there (and if it cannot be: no OPFS, library not loadable) the parts stay as files.
   if (globalThis.Worker && navigator.storage?.getDirectory) {
@@ -78,17 +93,24 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   }
   // New takes of others also while the app is open (21.11., user): every SYNC_MS when seen, at once when coming back
   // (after ≥ 1 min away); never while recording. Cost: one listing per folder of each sharing point (parts.js).
-  const SYNC_MS = 5 * 60 * 1000, freshen = (after) => { if (document.visibilityState === 'visible' && A.st.rec === 'idle' && Date.now() - indexedAt > after) A.reindex().catch(() => {}); };
+  const SYNC_MS = 5 * 60 * 1000, freshen = (after) => { if (document.visibilityState === 'visible' && A.st.rec === 'idle' && Date.now() - indexedAt > after) A.reindex({ all: true }).catch(() => {}); };
   setInterval(() => freshen(SYNC_MS), 60 * 1000);
   document.addEventListener('visibilitychange', () => freshen(60 * 1000));
-  A.index = await buildIndex(A.sources, { keys: ownKeys, cache: store }).catch(() => null);
+  A.index = follower.index;
+  A.reindex({ all: true }).catch(() => {}); // beside the start, never in its way (26.11.)
   A.media = mediaOf(store, () => A);
   /** The chain whose file lies at a path of a sharing point (a take's id on the line), found once per index. */
   const byPath = new WeakMap();
   A.chainAt = (path) => {
     if (!A.index) return null;
-    if (!byPath.has(A.index)) { const m = new Map(); for (const c of A.index.tables.chains.values()) if (c?.from?.path && !m.has(c.from.path)) m.set(c.from.path, c); byPath.set(A.index, m); }
-    return byPath.get(A.index).get(path) ?? null;
+    const chains = A.index.tables.chains;
+    let m = byPath.get(A.index);
+    if (!m || m.count !== chains.size) { // also when chains were added to the same index (26.11.): found anew, ≈ 1 ms per 10,000 chains
+      m = { count: chains.size, at: new Map() };
+      for (const c of chains.values()) if (c?.from?.path && !m.at.has(c.from.path)) m.at.set(c.from.path, c);
+      byPath.set(A.index, m);
+    }
+    return m.at.get(path) ?? null;
   };
   /**
    * The small picture of a take on the line (26.11., user: they were black after a cut and after a restart). What it
@@ -96,7 +118,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
    * cut, a join the first take's. One that is not there yet is asked for here, whenever it is painted without one
    * (again after ASK_AGAIN_MS at the earliest), and painted when it arrives. → URL or null
    */
-  const asked = new Map(), ASK_AGAIN_MS = 15_000;
+  const ASK_AGAIN_MS = 15_000;
   A.thumbOf = (take) => {
     if (!take) return null;
     const k = thumbKey(take), have = A.data.thumbs[k.key] ?? (k.at ? null : A.data.thumbs[take.id]);
@@ -122,8 +144,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   A.st = st;
   A.keepLines = () => keep('sign.lines', A.st.lines.filter((l) => !l.guest).map((l) => ({ ...l, takes: l.takes.map(({ thumb, ...x }) => x) })));
 
-  let frame = 0;
-  A.paint = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; paint(); }); };
+  let frame = 0, up = false; // up: the start is through (26.11.: the index or a sharing point may answer before the first paint)
+  A.paint = () => { if (up && !frame) frame = requestAnimationFrame(() => { frame = 0; paint(); }); };
   /** Similar full (21.11., user): the take's drawing slides there and back in 0.32 s (layout.js fullOf, t = A.data.fullT). */
   function glideFull(to) {
     const from = A.data.fullT ?? (to ? 0 : 1), t0 = performance.now(), id = t0;
@@ -204,7 +226,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       const key = (x) => x.id ?? x.name, gone = A.sources.filter((o) => !list.some((x) => key(x) === key(o)));
       A.sources = list;
       for (const g of gone) A.merged?.forget(cachePrefix(key(g))).catch(() => {}); // access ended: its parts leave the device
-      await A.reindex();
+      await A.reindex({ all: true });
     },
     words: () => (A.st.onboard.on ? [] : nowWords(A.st.context, A.st.sticky).map((w) => w.text)), // the onboarding's own words ("Name", the drawn ones) find nobody
     onDoor: (state) => { A.data.door = state; A.paint(); },
@@ -277,8 +299,22 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     carry(L, now);
     if (first) requestAnimationFrame(function step(t) { if (!fly) return; carry(A.L, t); if (fly) requestAnimationFrame(step); });
   }
+  // the button moving to the right and back when a line is chosen (26.11.): 300 ms, eased, one frame after another
+  let markT = 0, markAt = 0, markFrame = 0;
+  const ease = (t) => t * t * (3 - 2 * t);
+  function markStep(want) {
+    const now = performance.now(), dt = markAt ? Math.min(100, now - markAt) : 0;
+    markAt = now;
+    if (matchMedia?.('(prefers-reduced-motion: reduce)').matches) markT = want;
+    else markT = want > markT ? Math.min(want, markT + dt / 300) : Math.max(want, markT - dt / 300);
+    if (markT !== want && !markFrame) markFrame = requestAnimationFrame(() => { markFrame = 0; paint(); });
+    if (markT === want) markAt = 0;
+    return markT;
+  }
   function paint() {
-    const st = A.st, L = takeLayout(size(), st.similar, st.form, A.data.picture ?? 1, A.data.fullT ?? (st.similar === 'full' ? 1 : 0));
+    const st = A.st, L0 = takeLayout(size(), st.similar, st.form, A.data.picture ?? 1, A.data.fullT ?? (st.similar === 'full' ? 1 : 0));
+    const mark = markStep(st.chosenLine != null && st.similar !== 'full' && st.wide < 0.02 ? 1 : 0);
+    const L = mark > 0 ? markedButton(L0, innerWidth, ease(mark)) : L0; // a line chosen: the button to the right (26.11.)
     A.L = L;
     const win = $('#window'), m = L.media, focus = $('#focus'); // the picture covers the window (form.js cover); only what lies inside the window is seen (20.11., user)
     Object.assign(win.style, { left: `${m.x}px`, top: `${m.y}px`, width: `${m.w}px`, height: `${m.h}px`, clipPath: `path('${outline(L, 0, m.x, m.y)}')` });
@@ -406,6 +442,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
 
   // the small pictures of the kept lines are asked for as they are painted (A.thumbOf, 26.11.); the camera after the first paint (15.11.)
   measure();
+  up = true;
   paint();
   requestAnimationFrame(() => document.body.classList.add('ready'));
   setTimeout(() => A.take.openCamera(), 350);

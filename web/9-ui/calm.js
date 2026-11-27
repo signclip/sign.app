@@ -8,12 +8,12 @@
 //            that started by itself and saw no motion is dropped and the next start waits for motion or a touch; after
 //            the app opens the same; typing or a touch begins the countdown anew. Seen on the button (21.11., no numbers, a
 //            tick per second): the countdown = the pill as wide as set, narrowing from the left onto the button (green);
-//            stillness in a take = the pill growing to the right up to its end, round like the button (red); it opens
+//            stillness in a take = after half the time set (26.11.) the pill growing to the right up to its end (red); it opens
 //            and closes moving (≈ 0.2 s), back onto the button with motion or when the take was kept. A ring inside the
 //            button shows what is seen right now: bright = motion, faint = a little, gone = still (21.11., phone test).
 // Depends:   browser; settings.js (calmStep, normalize), layout.js (timerPill), ready.js (watch), take-state.js (live)
 // Test:      calmStep, timerPill in tests/ui.test.mjs; the sensing on a phone.
-// Limits:    0–10 s each, in half seconds; ≈ 15 px per second beyond a catch of 26 px; checked every 100 ms; the camera
+// Limits:    0–10 s each, in half seconds, stillness at least 1 s (26.11.); ≈ 15 px per second beyond a catch of 26 px; checked every 100 ms; the camera
 //            is watched only while a time is set; the catch is shown and felt (a short vibration).
 
 import { calmStep, normalize } from './settings.js';
@@ -63,7 +63,8 @@ export function calmOf(A) {
     if (step === 'keep') return run(A.take.keep); // the series goes on: the button is free, the countdown begins
     if (step === 'pause') return run(A.take.pause); // waits for ← (keep) or ↓ far (drop)
     if (step === 'drop') { armed = false; return run(A.take.anew); }
-    return show(recording && s.stillEndMs && now - still > STILL_SEEN_MS ? { kind: 'stop', t0: still, ms: s.stillEndMs }
+    // stillness shows only after half the time set (26.11., user: not at once); then the pill opens as wide as set, half run
+    return show(recording && s.stillEndMs && now - still > Math.max(STILL_SEEN_MS, s.stillEndMs / 2) ? { kind: 'stop', t0: still, ms: s.stillEndMs }
       : idle && armed && s.restartMs > 0 ? { kind: 'start', t0: free, ms: s.restartMs } : null);
   }
 

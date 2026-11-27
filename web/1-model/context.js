@@ -36,6 +36,7 @@ export function contextTree(text) {
       case 'spell': return { text: n.letters.join('') };
       case 'group': return n.items.length === 1 ? node(n.items[0]) : { items: n.items.filter((x) => x.t !== 'sym').map(node) };
       case 'prefix': {
+        if (!elements(n).length) return { head: chips(n.head).map((c) => c.text), items: [] }; // its bracket open and empty (stepOn)
         const body = node(n.body);
         return { head: chips(n.head).map((c) => c.text), items: body.items && !body.head ? body.items : [body] };
       }
@@ -58,6 +59,7 @@ function chips(n) {
     case 'group': return n.items.flatMap(chips);
     case 'prefix': {
       const heads = chips(n.head);
+      if (!elements(n).length) return heads; // an open, empty bracket: the prefix alone
       const bodies = chips(n.body);
       return heads.flatMap((h) => bodies.map((b) => chip(`${h.text} ${b.text}`, [...h.metaNodes, ...b.metaNodes])));
     }
@@ -111,14 +113,19 @@ export function afterTake(text) {
 // A prefix series (15.11.): (hallo)((apfel) (birne) (du)) gives one take per element — (hallo apfel), then (hallo birne) …
 // The prefix stays in front until its last element is taken; nested prefixes step the same way inside.
 const unwrap = (n) => (n?.t === 'group' && n.items?.length === 1 && n.items[0].t === 'prefix' ? n.items[0] : n);
-const elements = (prefix) => prefix.body.items.filter((n) => n.t !== 'sym');
+// a prefix's bracket: a group's items · "()" (read as an empty value) = nothing · one word alone = that one
+const isEmpty = (n) => n?.t === 'value' && n.text === '';
+const itemsOf = (prefix) => (prefix.body?.t === 'group' ? prefix.body.items : isEmpty(prefix.body) || !prefix.body ? [] : [prefix.body]);
+const elements = (prefix) => itemsOf(prefix).filter((n) => n.t !== 'sym');
+/** The prefix's bracket as a group of its own (so it can be changed where it is). → its items */
+const openBody = (prefix) => { if (prefix.body?.t !== 'group') prefix.body = { t: 'group', items: itemsOf(prefix), meta: [] }; return prefix.body.items; };
 
 function removeFirstGesture(items) {
   const i = items.findIndex((n) => n.t !== 'sym');
   if (i < 0) return false;
   const p = unwrap(items[i]);
   if (p.t === 'prefix' && elements(p).length) { // take one element of the prefix's bracket, keep the prefix for the rest
-    const inner = p.body.items, j = inner.findIndex((n) => n.t !== 'sym'), first = unwrap(inner[j]);
+    const inner = openBody(p), j = inner.findIndex((n) => n.t !== 'sym'), first = unwrap(inner[j]);
     if (first.t === 'prefix' && elements(first).length > 1) removeFirstGesture(inner);
     else inner.splice(j, 1);
     if (!elements(p).length) items.splice(i, 1);
@@ -137,10 +144,36 @@ export function nextOfSeries(text) {
   if (!first) return '';
   const pick = (n) => {
     const p = unwrap(n);
-    if (p.t !== 'prefix' || !elements(p).length) return n;
-    return { t: 'group', items: [{ ...p, body: { ...p.body, items: [pick(elements(p)[0])] } }], meta: [] };
+    if (p.t !== 'prefix') return n;
+    if (!elements(p).length) return p.head; // its bracket emptied (26.11., stepOn): the prefix alone
+    return { t: 'group', items: [{ ...p, body: { t: 'group', items: [pick(elements(p)[0])], meta: [] } }], meta: [] };
   };
   return write([pick(first)]);
+}
+
+/**
+ * After a take kept with ← on the button (26.11., user). how:
+ *   'inner' (← a little) the innermost element goes; when it was the last of its bracket, every prefix stays, the bracket
+ *           open and empty – more can be written into it. A prefix whose bracket is empty goes itself (the next ←
+ *           a little: again the innermost).
+ *   'whole' (← far)      the whole first gesture goes, with its prefixes and whatever its brackets still held.
+ *   ((Obst)((Banane) (Apfel))) → ((Obst)((Apfel))) → ((Obst)()) → ''      ((A)((B)((x)))) → ((A)((B)())) → ((A)()) → ''
+ * → the text that stays ('' = nothing)
+ */
+export function stepOn(text, how = 'inner') {
+  const items = parse(text ?? '');
+  const i = items.findIndex((n) => n.t !== 'sym');
+  if (i < 0) return '';
+  if (how === 'whole') items.splice(i, 1);
+  else stepInner(items);
+  return write(items).trim();
+}
+function stepInner(items) {
+  const i = items.findIndex((n) => n.t !== 'sym');
+  if (i < 0) return;
+  const p = unwrap(items[i]);
+  if (p.t === 'prefix' && elements(p).length) return void stepInner(openBody(p)); // deeper; an emptied bracket stays, open
+  items.splice(i, 1); // a word, or a prefix whose bracket is empty: this level goes
 }
 
 /**

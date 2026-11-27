@@ -18,7 +18,7 @@
 // Limits:    bubbles drawn up to 3 levels deep (deeper ones share the look); 6 nesting colours, then they repeat;
 //            ≈ 26 + 8.4 px per letter per chip.
 
-import { contextTree, nextOfSeries, afterTake, withSticky, chipTexts } from '../1-model/context.js';
+import { contextTree, nextOfSeries, afterTake, withSticky, chipTexts, stepOn } from '../1-model/context.js';
 
 export const chipWidth = (text, k = 1) => Math.round((text ? 22 + String(text).length * 8 : 48) * k);
 /** The edges of the nestings, in the order they appear: warm and muted, none of them Similar's blue or the password's mint. */
@@ -81,6 +81,8 @@ export const contextForTake = (text, sticky = '') => withSticky(sticky, nextOfSe
 
 /** After a take: the first element leaves the series (it went up into the chain). */
 export const afterOne = (text) => (text ? afterTake(text) : '');
+/** After a take kept with ← (26.11., user): a little = the innermost goes, the prefixes stay · far = the whole gesture goes. */
+export const stepAfter = (text, how = 'inner') => (text ? stepOn(text, how) : '');
 
 /** All words of the row in reading order, flat (for similar, onboarding checks). */
 export function rowWords(row) {

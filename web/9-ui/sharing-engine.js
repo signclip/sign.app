@@ -26,8 +26,9 @@ import { accountPart } from './share-accounts.js';
 import { pilesOf, roleOf, accountsOf } from '../8-join/flow.js';
 import { findList, changeList, rulesOf } from '../2-storage/list.js';
 import { readList } from '../2-storage/sharing-point.js';
-import { openAll, afterTake, sources, runRules, reconnect } from '../2-storage/sharing-points.js';
-import { dueRules, remember, retry, backupKey, summary, reopen, bringHome, sealPaper, PAPER_ID } from '../2-storage/upkeep.js';
+import { openAll, afterTakeTargets, afterTakeWants, sources, runRules, reconnect } from '../2-storage/sharing-points.js';
+import { sendingOf } from '../2-storage/sending.js';
+import { dueRules, remember, backupKey, summary, reopen, bringHome, sealPaper, PAPER_ID } from '../2-storage/upkeep.js';
 import { newPaperPassword } from '../2-storage/backup-key.js';
 import { readFile } from '../1-model/file.js';
 import { sheetPdf, sheetData, sheetName, paperChoice } from './emergency.js';
@@ -144,6 +145,28 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     .filter((x) => ![s.adminN, s.atlasN, s.groupsN].includes(x.n)) // Admin, Atlas, Groups (15.11.): a login is an account (the small circle upper left), no storage tile
     .filter((x) => !(ctx.role && doorLabel && x.label === doorLabel)); // a role has no door // Admin and Atlas are no storage (15.11.) // devices (this one and the person's others) are no tiles: their check keys are for the seals // this device is the own tile (0), not a second one
 
+  // ---------- sending: what a take still owes its sharing points (2-storage/sending.js, 26.11.) ----------
+  // In the background, kept on this device until it is there: closing the app or a sharing point that does not answer
+  // loses nothing and holds nothing. A sharing point is named by its id (the number in the list may change).
+  const alwaysTo = (n) => s.rules.find((r) => r.mark === 'always' && r.from == null && r.to === n);
+  const shortly = (id, path) => `${s.entries.find((e) => e.id === id)?.label ?? id} ${path.slice(path.lastIndexOf('/') + 1).slice(-44)}`;
+  const sending = sendingOf({
+    read: (path) => own.read(path),
+    target: (id) => {
+      const n = s.entries.findIndex((e) => e.id === id) + 1, rule = n ? alwaysTo(n) : null;
+      if (!rule) return s.loaded ? undefined : null; // gone from the list, or no longer sent there by itself (said only once the list is read)
+      const sp = s.open.get(n);
+      return sp?.store ? { store: sp.store, accepts: (path) => afterTakeWants(rule, sp, path) } : null;
+    },
+    load: () => { const list = kept('sign.sending'); return Array.isArray(list) ? list : []; },
+    save: (list) => keep('sign.sending', list),
+    allowed: () => !globalThis.navigator?.connection?.saveData,
+    // the line as it really is, for the debug file: every file of 1 MB or more with its speed
+    onSent: ({ to, path, bytes, ms }) => { if (bytes >= 1048576) debugNote({ method: 'sent', where: shortly(to, path), status: `${(bytes / 1048576).toFixed(1)} MB at ${((bytes * 8) / 1e6 / Math.max(0.001, ms / 1000)).toFixed(1)} Mbit/s`, ms }); },
+    onFailed: ({ to, path, error }) => debugNote({ method: 'send', where: shortly(to, path), error: error.slice(0, 200), ms: 0 }),
+  });
+  globalThis.addEventListener?.('online', () => { sending.wake(); sending.run().catch(() => {}); }); // the line is back: at once, not at the next rest's end
+
   // ---------- upkeep: what is due runs by itself (2-storage/upkeep.js) ----------
   const host = async () => { const { pickup } = await deviceKeys(); return { id: device, pickup: pickup.public, privateKey: pickup.privateKey }; };
   const paper = async () => { const text = (await clipboardText()).toUpperCase().replace(/[\s-]/g, ''); return /^[0-9A-Z]{26}$/.test(text) ? text : null; }; // as printed: groups of 4 with spaces
@@ -155,6 +178,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   }
   /** Run what is due (or, with only = n, everything of that sharing point now). → report */
   const run = async (only = null) => {
+    await firstLoad; // the rules come with the list (26.11.: it loads beside the start)
     if (s.running) return [];
     const rules = only == null ? dueRules(s.rules, s.last) : s.rules.filter((r) => r.to === only || r.from === only);
     if (!rules.length) return [];
@@ -177,6 +201,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   /** One line about sharing point n under the tiles. */
   function tell(n) {
     const line = s.runs.get(n), label = s.entries[n - 1]?.label ?? '';
+    if (line?.differs) return say(t('run.differs', { label, n: line.differs })); // copies that are not the same file (26.11.)
     if (line) say(t(`run.${line.state}`, { label, n: line.copied }));
   }
 
@@ -208,6 +233,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
   // One load at a time, each after the one before (17.11.): two side by side left the older one's opened sharing
   // points standing over the newer list, so the door's drop link was missing and no hello went out.
   let loading = Promise.resolve();
+  let firstLoad = Promise.resolve(); // the load at the start (below); what needs the list waits for it, the take never does
   const load = () => (loading = loading.then(loadOnce, loadOnce));
   async function loadOnce() {
     const at = await findList(own, person.label); // my list: several persons may share this device
@@ -221,6 +247,7 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     }
     if (await takePendingLogin().catch(() => false)) return loadOnce(); // a role login moved here from another account (15.11.)
     s.open = await openAll(s.entries, { keychain, own, folders, access: accessKey }); // access: an object storage through the gateway (21.11.)
+    s.loaded = true; // the list and its sharing points are there (26.11.)
     onSources(sources(s.rules, s.open, own));
     waitingShares(ctx).then(async (list) => { // asks in the background
       const expected = expectedOf(ctx, list); // from accounts I brought in: taken in without a tap
@@ -972,14 +999,20 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     } catch { say(t('home.key')); } // a backup of another device: the paper password on the clipboard opens it
   }
 
-  await load();
+  // The first load runs beside the start (26.11., user: the app hung): it opens every sharing point over the network,
+  // and until 26.11. the take window, the gestures and the camera waited for the last of them to answer. Now the menu
+  // is there at once, empty, and fills when the list is read; afterTake and the rules wait for it by themselves.
+  firstLoad = load().then(() => { if (!panel.hidden) draw(); }, (err) => { debugNote({ method: 'load', where: 'sharing points', error: String(err?.message ?? err).slice(0, 200), ms: 0 }); });
+  firstLoad.then(() => sending.run()).catch(() => {}); // what was still owed when the app was closed
   setInterval(async () => { // every 30 s: a disk plugged in again, a sharing point online again, what is due
+    if (!s.loaded) await load().catch(() => {}); // the list could not be read at the start: once more
     let changed = false;
     for (const n of await reconnect(s.open, folders)) { changed = true; await run(n).catch(() => {}); }
     if (globalThis.navigator?.onLine !== false && [...s.open.values()].some((sp) => sp.error)) {
       if ((await reopen(s.open, s.entries, { keychain, own, folders })).length) changed = true;
     }
     if (changed) onSources(sources(s.rules, s.open, own));
+    sending.run().catch(() => {}); // what is still owed and can go now
     await run().catch(() => {});
     if (changed && !panel.hidden) draw();
   }, 30e3);
@@ -1028,14 +1061,13 @@ export async function mountSharing({ panel, onDraw = () => {}, own, keychain, pe
     },
     /** Start 'choose' (14.11.): the persons of this device breathe, tap = in. */
     choose: () => { s.choosing = true; show(true); },
+    /** A take was kept: its files go to every (always) sharing point – in the background, kept until they are there (sending.js, 26.11.). → { waiting } */
     async afterTake(paths) {
-      const files = await Promise.all(paths.map(async (path) => ({ path, bytes: await own.read(path) })));
-      const result = await afterTake(s.rules, s.open, files);
-      if (result.failed.length) { // e.g. offline: the copy rule of that sharing point runs again on the next tick
-        s.last = retry(s.last, s.rules, [...new Set(result.failed.map(([n]) => n))]);
-        keep('sign.upkeep', s.last);
-      }
-      return result;
+      await firstLoad; // a take made in the first seconds: sent once the list is read
+      const take = paths.find((p) => p.endsWith('.chain.sign')) ?? paths.at(-1); // what belongs together: its chain goes last
+      sending.add(afterTakeTargets(s.rules, s.open, paths).map(({ n, path }) => ({ to: s.entries[n - 1]?.id, path, take })));
+      await sending.run();
+      return { waiting: sending.waiting.length };
     },
     runRules: () => run(), // what is due (all new rules at the first start)
     /** The open store of the sharing point with this path (a share target named in a chain), or null. */

@@ -38,6 +38,11 @@ export function tileForm(s, L) {
  * HTML of Similar. entries: [{ key, thumb, words, t, person, sharing, spot }] (ordered, filtered) · L: take layout ·
  * all: the results before any choice narrowed them (what the rails list) · lang: for the months' names
  */
+/** A tile's words (26.11., user: they were cut off): each word once, its own chip – "Obst Banane" = Obst · Banane, wrapping. */
+/** A word's size in w px (the tile's width inside its rounded edge, without the chip's padding): 11.5 px, smaller for a long word so it fits (Inter semibold ≈ 0.66 em a letter), at least 9.5 px – longer than that, it breaks onto a second line (look.css). */
+const fitFont = (word, w) => Math.max(9.5, Math.min(11.5, w / (0.66 * Math.max(1, word.length)))).toFixed(1);
+const wordsOf = (list) => (list ?? []).flatMap((w) => String(w).split(/\s+/)).filter((w, i, ws) => w && ws.indexOf(w) === i);
+
 export function similarHtml(st, entries, L, { compare = null, picked = null, search = null, reach = [], kindCloud = null, searches = 0, asks = 0, spotMap = null, spotBase = null, spots = [], all = null, lang = 'de', near = null } = {}) {
   if (st.similar === 'closed' || !L.similarBox) return '';
   const box = L.similarBox, f = st.filters, out = [], k = L.k, single = st.similar === 'single' && L.singleBox;
@@ -48,7 +53,7 @@ export function similarHtml(st, entries, L, { compare = null, picked = null, sea
     const clip = outline(L.single, 0, d.x, d.y); // the take's form (20.11.)
     out.push(`<div class="single" style="left:${px(d.x)};top:${px(d.y)};width:${px(d.w)};height:${px(d.h)};clip-path:path('${clip}')" data-role="single"><svg class="single-edge" viewBox="0 0 ${d.w.toFixed(1)} ${d.h.toFixed(1)}"><path d="${clip}"/></svg>${compare ? `<div class="who"><b>${esc(compare.label)}</b><small>${esc(compare.id)}</small>${compare.n > 1 ? `<i>${Array.from({ length: compare.n }, (_, i) => (i === compare.i ? '●' : '○')).join('')}</i>` : ''}</div>` : ''}</div>`);
     // its words (26.11., user: "die Begriffe sehen"): all of them, along the lower edge of its window as the take's own lie in the take window – not cut by the window's form, a long row can be pushed sideways
-    if (st.dstrands?.x !== false && (e?.words?.length || e?.heard?.length)) out.push(`<div class="single-words" data-key="single-words" style="left:${px(d.x)};top:${px(d.y + d.h - 38 * k)};width:${px(d.w)}">${(e.words ?? []).flatMap((w) => String(w).split(/\s+/)).filter((w, i, ws) => w && ws.indexOf(w) === i).map((w) => `<span class="chip tag">${esc(w)}</span>`).join('')}${(e.heard ?? []).map((w) => `<span class="chip tag heard">${esc(w)}</span>`).join('')}</div>`); // every word once, each its own chip; what was said in it with a wave (26.11.)
+    if (st.dstrands?.x !== false && (e?.words?.length || e?.heard?.length)) out.push(`<div class="single-words" data-key="single-words" data-role="sword:all" style="left:${px(d.x)};top:${px(d.y + d.h - 38 * k)};width:${px(d.w)}">${(e.words ?? []).flatMap((w) => String(w).split(/\s+/)).filter((w, i, ws) => w && ws.indexOf(w) === i).map((w, i) => `<span class="chip tag" data-role="sword:${i}">${esc(w)}</span>`).join('')}${(e.heard ?? []).map((w) => `<span class="chip tag heard">${esc(w)}</span>`).join('')}</div>`); // every word once (tapped: its context into the take window, 26.11.), each its own chip; what was said in it with a wave (26.11.)
     out.push(singleStrands(L, st.dstrands ?? {}, { v: Boolean(e?.at || e?.thumb || e?.pieces), x: Boolean(e?.words?.length || e?.heard?.length), a: Boolean(e?.sound) }));
   } else {
     const groups = bundlesOf(entries, f, { near }), step = f.group ? LADDERS[f.group.by]?.[f.group.level] : null;
@@ -59,7 +64,7 @@ export function similarHtml(st, entries, L, { compare = null, picked = null, sea
     }
     else for (const sp of cloudSpots(entries.length, inner, { beside: L.wide && !L.full, k })) {
       const e = entries[sp.i], t = tileForm(sp.s, L); // the window's form (21.11.): its aspect and its corners
-      out.push(`<div class="tile${e.key === st.pick ? ' picked' : ''}${e.kind ? ` chain-${e.kind}` : ''}" data-key="tile:${esc(e.key)}" data-role="tile:${sp.i}" style="left:${px(sp.x - t.w / 2)};top:${px(sp.y - t.h / 2)};width:${px(t.w)};height:${px(t.h)};clip-path:path('${t.d}');--r:${(L.round ?? 1).toFixed(2)}">${e.thumb ? `<img src="${esc(e.thumb)}" alt="">` : ''}${e.kind ? `<em class="sign">${KIND_SIGN[e.kind] ?? ''}</em>` : ''}<div class="tags">${(e.words ?? []).slice(0, 3).map((w) => `<span class="chip tag">${esc(w)}</span>`).join('')}${(e.words?.length ? [] : e.heard ?? []).slice(0, 3).map((w) => `<span class="chip tag heard">${esc(w)}</span>`).join('')}</div><svg class="tile-edge" viewBox="0 0 ${t.w.toFixed(1)} ${t.h.toFixed(1)}"><path d="${t.d}"/></svg></div>`);
+      out.push(`<div class="tile${e.key === st.pick ? ' picked' : ''}${e.kind ? ` chain-${e.kind}` : ''}" data-key="tile:${esc(e.key)}" data-role="tile:${sp.i}" style="left:${px(sp.x - t.w / 2)};top:${px(sp.y - t.h / 2)};width:${px(t.w)};height:${px(t.h)};clip-path:path('${t.d}');--r:${(L.round ?? 1).toFixed(2)}">${e.thumb ? `<img src="${esc(e.thumb)}" alt="">` : ''}${e.kind ? `<em class="sign">${KIND_SIGN[e.kind] ?? ''}</em>` : ''}<div class="tags">${wordsOf(e.words).slice(0, 4).map((w) => `<span class="chip tag" data-role="tword:${sp.i}" style="font-size:${fitFont(w, t.w * (1 - 0.28 * (L.round ?? 0)) - 18)}px">${esc(w)}</span>`).join('')}${(e.words?.length ? [] : e.heard ?? []).slice(0, 3).map((w) => `<span class="chip tag heard">${esc(w)}</span>`).join('')}</div><svg class="tile-edge" viewBox="0 0 ${t.w.toFixed(1)} ${t.h.toFixed(1)}"><path d="${t.d}"/></svg></div>`);
     }
     if (!entries.length) out.push(`<div class="empty" style="left:${px(inner.x)};top:${px(inner.y + inner.h / 2 - 20)};width:${px(inner.w)}">∅</div>`);
   }

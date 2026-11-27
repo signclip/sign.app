@@ -11,6 +11,10 @@
 // Test:      tests/connect.test.mjs
 // Limits:    a copy run lists both sides once (Nextcloud: ~1 s per 10⁴ files) and copies what is new;
 //            Nextcloud shares whole folders; strand folders per kind make "only some kinds" a share.
+// Differs (26.11.): a file that is there already but with another size than here is no copy of it (strands and chains
+//            never change, so the same name means the same bytes). It is told (differs), never replaced and never
+//            removed here: which side is whole is said by the hash in the chain, and replacing is a decision.
+//            Seen without reading a byte: both listings carry the sizes. A size of 0 or none counts as unknown.
 
 import { readName } from '../1-model/filename.js';
 import { ExistsError } from './memory.js';
@@ -21,17 +25,17 @@ const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 /**
  * copy: kinds e.g. ['x', 'l'] ('chain' comes along so the strands keep their order); skip(path) for
- * removed ones (remove.quietIds). → { copied, kept, failed }
+ * removed ones (remove.quietIds). → { copied, kept, failed, differs }
  */
 export async function copyRoute(from, to, { kinds, chains = true, skip = () => false, since = null } = {}) {
   const want = new Set([...withFollowers(kinds), ...(chains ? ['chain'] : [])]); // v brings its wake (w) along
-  const have = new Set((await to.list()).map((f) => f.path));
-  const result = { copied: [], kept: [], failed: [] };
-  for (const { path } of await from.list()) {
+  const have = new Map((await to.list()).map((f) => [f.path, f.size ?? 0]));
+  const result = { copied: [], kept: [], failed: [], differs: [] };
+  for (const { path, size = 0 } of await from.list()) {
     const kind = kindOf(path);
     if (!want.has(kind) || skip(path)) continue;
     if (since && (readName(path.slice(path.lastIndexOf('/') + 1))?.time ?? '') < since) continue; // new only: made before the connection = not here
-    if (have.has(path)) { result.kept.push(path); continue; }
+    if (have.has(path)) { (size > 0 && have.get(path) > 0 && have.get(path) !== size ? result.differs : result.kept).push(path); continue; }
     try {
       const bytes = await from.read(path);
       await to.write(path, bytes);

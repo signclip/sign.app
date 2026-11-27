@@ -26,6 +26,7 @@ import { mainLens } from './camera.js';
 import { deviceKeys } from './device-keys.js';
 import { contextForTake } from './chips.js';
 import { count } from './take-state.js';
+import { withContext } from './line.js';
 
 const sealKey = async () => (await deviceKeys().catch(() => null))?.device ?? null;
 
@@ -125,28 +126,30 @@ export function takeFlow(A) {
   const pause = () => { t.recorder?.pause(); A.dispatch({ type: 'rec', to: 'paused' }); };
   const resume = () => { t.recorder?.resume(); A.dispatch({ type: 'rec', to: 'recording' }); };
 
-  /** ↓ far: the take is dropped, nothing is saved; the button starts fresh. */
-  async function anew() {
+  /** ↓ while recording (26.11.: a little = the video anew, the context stays; far = the context goes too, all = true): the take is dropped, nothing is saved; the button starts fresh. */
+  async function anew(all = false) {
     A.heard?.cut(); // what was read of it goes too
     if (t.recorder) await t.recorder.stop().catch(() => null);
     t.recorder = null; A.data.buttonPic = null;
-    navigator.vibrate?.([12, 50, 12]);
+    navigator.vibrate?.(all ? [12, 50, 12, 50, 12] : [12, 50, 12]);
     A.dispatch({ type: 'discard' });
+    if (all) A.dispatch({ type: 'clear-context' });
   }
 
   /**
    * ← while recording or paused: kept. The button is free at once (17.11.): the next tap starts the next take, it no
    * longer pauses a take that is still being written. Takes are saved one after another, in the order they were made.
+   * step (26.11.): 'inner' = the innermost of the series goes next (← a little) · 'whole' = the whole gesture (← far).
    */
   let saving = Promise.resolve();
-  function keep() {
+  function keep(step = 'inner') {
     const rec = t.recorder, began = t.began, wake = t.wake, heard = A.heard?.cut() ?? null; // heard: what Whisper read of it so far
     t.recorder = null;
     navigator.vibrate?.([15, 60, 15]);
     A.dispatch({ type: 'rec', to: 'idle' });
     const run = saving.then(async () => {
       const r = rec ? await rec.stop() : { video: null, audio: null, lengthMs: Date.now() - began };
-      const out = await save({ video: r.video, audio: r.audio, lengthMs: r.lengthMs, began, wake });
+      const out = await save({ video: r.video, audio: r.audio, lengthMs: r.lengthMs, began, wake, step });
       if (heard && r.audio && A.st.strands.a) A.heard.finish(heard, r.audio, out); // the rest of its words, then the echo – the next take need not wait
       return out;
     });
@@ -158,17 +161,29 @@ export function takeFlow(A) {
    * One picture, kept at once (21.11.: ← or ↑ on the ready button, instead of the photo dot). Visual strand off: a take
    * of the other strands (its context) without a picture.
    */
-  async function photo() {
-    if (!A.st.strands.v) return save({ lengthMs: 0, began: Date.now(), wake: null });
+  async function photo(step = 'inner') {
+    if (!A.st.strands.v) return save({ lengthMs: 0, began: Date.now(), wake: null, step });
     await openCamera();
     if (!t.camera) return A.shake('button');
     const picture = await snapshot(live);
     navigator.vibrate?.(8);
     const small = await stillOf(live).catch(() => null);
-    return save({ picture, lengthMs: 0, began: Date.now(), wake: small });
+    return save({ picture, lengthMs: 0, began: Date.now(), wake: small, step });
+  }
+  /** → while recording or paused (26.11., user): kept, and at once played in the window – the take just made, in the button. */
+  async function keepAndPlay() {
+    const out = await keep('inner');
+    const take = out?.take;
+    if (!take) return null;
+    const i = A.st.lines.at(-1).takes.findIndex((x) => x.id === take.id);
+    if (i >= 0 && A.st.rec === 'idle') A.dispatch({ type: 'at', at: i });
+    const back = () => { if (A.st.rec === 'idle' && A.st.lines.at(-1).takes[A.st.at]?.id === take.id) A.dispatch({ type: 'at', at: count(A.st) }); A.paint(); }; // played: ready again for the next
+    const onLine = A.st.lines.at(-1).takes[i] ?? take; // as the line holds it (with its parts): what the player knows how to show
+    if (!A.chainAt?.(onLine.id)) await A.reindex?.().catch(() => {}); // just written: the player finds its file through the index
+    return A.player.show(onLine, 0, { play: true, onEnd: back }).then((ok) => { if (!ok) back(); return ok; }, () => back());
   }
 
-  async function save({ video = null, audio = null, picture = null, lengthMs, began, wake }) {
+  async function save({ video = null, audio = null, picture = null, lengthMs, began, wake, step = 'inner' }) {
     const adding = t.addTo; t.addTo = null;
     if (adding) return addStrandSave(adding, { video, audio, lengthMs });
     const st = A.st, on = st.strands, answering = st.similar === 'single' ? A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === st.pick) : null;
@@ -186,7 +201,7 @@ export function takeFlow(A) {
     const take = { id: saved.chain.path, ms: lengthMs, t: began, context, kinds: Object.keys(on).filter((k) => on[k]), thumb };
     if (thumb) A.data.thumbs[take.id] = thumb;
     const before = A.st.lines.length;
-    A.dispatch({ type: 'took', take });
+    A.dispatch({ type: 'took', take, step });
     A.data.buttonPic = null;
     // the series in the chain: the first take of a line is its own chain; the next ones lay onto the line (add-line.js)
     if (A.st.lines.length !== before || count(A.st) === 1) remember(A.st.lines.length - 1, saved.chain.path);
@@ -270,6 +285,25 @@ export function takeFlow(A) {
     if (n === A.st.lines.length - 1) await saveLine();
     A.reindex();
     return id;
+  }
+  /**
+   * The words written now onto the element shown single, or out of it (26.11., user: as for a chosen line, ← far / ↓ far).
+   * Like a changed context (retext): a new chain of mine on top of it, picture and sound by reference, the new context
+   * recorded – someone else's take stays as it is (G4b). e: Similar's entry · → the new chain's path, or null
+   */
+  async function wordsOnElement(e, words, without) {
+    const from = e?.chain?.from, store = (A.sources ?? []).find((x) => x.name === from?.store)?.store ?? null;
+    if (!store || !from?.path || !words.length) return null;
+    const had = (await Promise.resolve(A.media.contextTextOf?.(e.chain)).catch(() => null)) ?? (e.words ?? []).map((w) => `(${w})`).join(' '); // its context as written
+    const lines = withContext([{ takes: [{ id: from.path, context: had }] }], 0, words, { without });
+    const text = lines[0].takes[0].context;
+    if (text === had) return null; // it has them all already / has none of them
+    try {
+      const saved = await saveTake({ device: A.device, person: A.person, store: A.store, now: Date.now(), lengthMs: e.ms ?? 0, context: text,
+        onto: from.path, ontoStore: store, keep: (e.kinds ?? ['v', 'a']).filter((k) => k !== 'x'), deviceKey: await sealKey() });
+      A.reindex();
+      return saved.chain.path;
+    } catch (err) { console.warn('element words', err); return null; }
   }
   /**
    * A take taken in the single view (21.11.): a line of one's own with both, the result first – one's own version of
@@ -389,5 +423,5 @@ export function takeFlow(A) {
   /** The chain of the line in force (↑ on the button shares it). */
   const lastChain = async () => A.data.shareChain ?? (await chosenChain()) ?? t.lineChain; // what was just made to share (a search, an answer, a template), else a chosen line (20.11.)
 
-  return { here: () => here.now?.() ?? null, saveLine, lineWith, retext, addStrand, takeStrand, shareTake, shareElement, showLine, saveTemplate, setCamera: (stream, facing) => { t.camera = stream; if (facing) t.facing = facing; }, openCamera, liveAgain, start, pause, resume, keep, anew, photo, lastChain, get camera() { return t.camera; } };
+  return { here: () => here.now?.() ?? null, saveLine, lineWith, retext, addStrand, takeStrand, shareTake, shareElement, showLine, saveTemplate, setCamera: (stream, facing) => { t.camera = stream; if (facing) t.facing = facing; }, openCamera, liveAgain, start, pause, resume, keep, keepAndPlay, anew, photo, wordsOnElement, lastChain, get camera() { return t.camera; } };
 }

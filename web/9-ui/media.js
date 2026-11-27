@@ -12,8 +12,16 @@
 //                       time; a folder's listing is asked again when a wake is missing (≥ LIST_AGAIN_MS later).
 // Depends:   1-model (ids, filename, file), 9-ui/frame.js, 9-ui/debug.js
 // Test:      needs a browser (pictures); the index it reads is tested in tests/index.test.mjs.
+//            26.11. (user: the app hung, waiting before a take plays): a file of this device is no longer read to be
+//            played – the browser plays it from the disk (store.blob, local.js), so an own take starts at once however
+//            long it is (before: read whole, ≈ 2 MB per second of video, and copied once more). A wake that has to be
+//            drawn from a video far away asks for the video's beginning only (WAKE_FIRST through readPiece, pieces.js: the first picture lies there)
+//            instead of the whole file; only if that gives no picture the whole file is read as before – and not at
+//            all when the phone saves data (ahead.js allowed).
 // Limits:    one listing per folder, asked again at most every 30 s; pictures kept as object URLs for the session (≈ 5 KB each);
-//            playable files: the last 10 (ahead.js MAX), a take ≈ 3–10 MB.
+//            playable files: the last 10 (ahead.js MAX), a take ≈ 2 MB per second (15 Mbit/s); of those only the ones from
+//            far away lie in memory · WAKE_FIRST = 1.5 MiB (≈ 0.8 s of video: its first whole picture and more), so
+//            40 tiles without a wake ≈ 60 MB instead of 40 whole videos (≈ 350 MB at 4 s each).
 
 import { writeId } from '../1-model/ids.js';
 import { readName } from '../1-model/filename.js';
@@ -26,9 +34,13 @@ const dec = new TextDecoder();
 /** A chain that only adds something computed on top of the chain below (an echo: Whisper, later landmarks), no take of its own. */
 export const isEcho = (c) => Boolean(c?.defs?.has('chain.1')) && [...c.defs.values()].every((d) => d.kind === 'chain' || d.echo) && [...c.defs.values()].some((d) => d.kind !== 'chain' && d.echo && d.echo !== ':chain.1');
 const LIST_AGAIN_MS = 30_000;
+export const WAKE_FIRST = 3 * 512 * 1024;
+const typeOf = (path) => (path.endsWith('.png') ? 'image/png' : path.endsWith('.wav') ? 'audio/wav' : path.endsWith('.webm') ? 'video/webm' : 'video/mp4'); // as recorded (settings.js pickVideoType)
+/** A file of this device as the browser holds it (nothing read), under the type its name says; null where the store has none. */
+const onDisk = async (p) => { const b = p.store.blob ? await p.store.blob(p.path).catch(() => null) : null; return b && b.type !== typeOf(p.path) ? b.slice(0, b.size, typeOf(p.path)) : b; };
 
-/** Bind to the device store and a getter for { index, sources }. → helpers */
-export function mediaOf(store, now) {
+/** Bind to the device store and a getter for { index, sources }. frame: draws a picture from a video (frame.js; tests pass their own). → helpers */
+export function mediaOf(store, now, { frame = frameOf } = {}) {
   const pics = new Map(), listings = new WeakMap();
   const at = (where) => {
     if (!where) return null;
@@ -62,10 +74,8 @@ export function mediaOf(store, now) {
   }
   /** The playable file of a picture or video: { url, picture } — read once, kept among the last few (ahead.js). */
   const files = filesOf(async (p) => {
-    const bytes = await p.store.read(p.path);
-    const picture = p.path.endsWith('.png');
-    const type = picture ? 'image/png' : p.path.endsWith('.wav') ? 'audio/wav' : p.path.endsWith('.webm') ? 'video/webm' : 'video/mp4'; // as recorded (settings.js pickVideoType)
-    return { url: URL.createObjectURL(new Blob([bytes], { type })), picture };
+    const blob = (await onDisk(p)) ?? new Blob([await p.store.read(p.path)], { type: typeOf(p.path) }); // on this device: played from the disk, not read (26.11.)
+    return { url: URL.createObjectURL(blob), picture: p.path.endsWith('.png') };
   });
   /** The words Whisper read from a take's sound (its newest echo on top, 26.11., heard.js), as written: (Wort)'t(…) … or ''. */
   async function heardOf(chain) {
@@ -96,11 +106,16 @@ export function mediaOf(store, now) {
         if (hit) { const b = await p.store.read(hit).catch(() => null); if (b) return keep(b); }
       }
     }
-    let blob;
-    try { // the file itself: the playable copy if it is there already (a take just looked at), else read for this picture only
-      blob = files.has(p) ? await files.get(p).then((x) => fetch(x.url)).then((r) => r.blob()) : new Blob([await p.store.read(p.path)], { type: p.path.endsWith('.webm') ? 'video/webm' : 'video/mp4' });
+    // the file itself: the playable copy if it is there already (a take just looked at) · on this device the file on
+    // the disk · else read for this picture only
+    const near = files.has(p) || Boolean(p.store.blob);
+    const whole = async () => (files.has(p) ? files.get(p).then((x) => fetch(x.url)).then((r) => r.blob()) : (await onDisk(p)) ?? new Blob([await p.store.read(p.path)], { type: typeOf(p.path) }));
+    let f = null;
+    try {
+      // far away, its first picture (26.11.): only the video's beginning is fetched; a picture that came out dark or not at all is not believed
+      if (!near && !ms && p.store.readPiece) f = await p.store.readPiece(p.path, 0, WAKE_FIRST).then((bytes) => frame(new Blob([bytes], { type: typeOf(p.path) }), { path: p.path, at: 0 })).catch(() => null);
+      if ((!f?.url || f.dark) && (near || allowed())) f = (await frame(await whole(), { path: p.path, at: ms / 1000 })) ?? f;
     } catch (err) { debugNote({ method: 'frame', where: p.path, error: `read: ${err?.message ?? err}`, ms: 0 }); throw err; }
-    const f = await frameOf(blob, { path: p.path, at: ms / 1000 });
     if (f?.url && cached && !f.dark) fetch(f.url).then((r) => r.arrayBuffer()).then((b) => store.write(cached, new Uint8Array(b))).catch(() => {}); // a dark frame is not kept: drawn anew next time
     return f?.url ?? null;
   }

@@ -27,14 +27,14 @@
 // Limits:    the moment slides ± 3 s across the spread button; a cut needs ≥ 200 ms on both sides (line.js).
 
 import { buttonMeaning, live, count } from './take-state.js';
-import { joinTakes, cutTake, withContext } from './line.js';
-import { nowWords } from './chips.js';
+import { joinTakes, cutTake, withContext, nestStep } from './line.js';
+import { nowWords, stepAfter } from './chips.js';
 import { slotPx, onTake, similarSide, onArc, timeline, wideButton } from './layout.js';
 import { zoomed, tapFilter, turnOrder, setFilter } from './similar-view.js';
 import { zoneOf, zoomZone, openBundle, bundlesOf, periodRange } from './similar-zoom.js';
 import { SECTORS, READY, wideOpen, stepRange } from './similar-range.js';
-import { insertGesture, fromField, contextTree } from '../1-model/context.js';
-import { removeBefore, nestBetween, closeAt, unwrapAt, appendWord } from '../1-model/context-edit.js';
+import { insertGesture, fromField, contextTree, leadOf } from '../1-model/context.js';
+import { removeBefore, nestBetween, closeAt, unwrapAt, appendWord, toFront, takeOut } from '../1-model/context-edit.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
 import { flipPicture, focusAt, mainLens } from './camera.js';
 import { BOW, fanReach } from './paint.js';
@@ -45,7 +45,8 @@ const onLine = (r) => r === 'line' || r.startsWith('take:') || r.startsWith('old
 const fake = (role) => ({ target: { closest: () => ({ dataset: { role } }) } });
 
 export const ZW = '\u200b'; // a mark at the start of the typing field: deleting it = Backspace with nothing typed (21.11.)
-const inRow = (r) => r === 'context' || r === 'under' || r.startsWith('gap:') || r.startsWith('chip:') || r.startsWith('bubble:');
+const inRow = (r) => r === 'context' || r === 'under' || r.startsWith('gap:') || r.startsWith('chip:') || r.startsWith('bubble:') || r.startsWith('xt:');
+const pathOf = (r) => r.slice(r.indexOf(':') + 1).split('.').filter(Boolean).map(Number); // xt:0.1 → [0, 1]
 
 export function gesturesOf(A) {
   const say = document.querySelector('#say');
@@ -98,10 +99,13 @@ export function gesturesOf(A) {
       }
       if (r === 'window') return focusHere(ev);
       if (r === 'screen' && A.L && A.st.strands.x && ev.y > A.L.cy + A.L.R + 10 * A.L.k && Math.abs(ev.x - A.L.cx) < A.L.rx + 60 * A.L.k) return openTyping('context'); // anywhere under the bottom arc = write (17.11.)
+      if (r.startsWith('xt:') && !A.st.typing && live(A.st) && !A.st.onboard.on && pathOf(r).some((x) => x > 0)) return frontTake(pathOf(r)); // a take further on: it comes first (26.11.)
+      if (r.startsWith('sword:') && A.st.similar === 'single') return wordsOver(); // the words of the result shown single: into the take window (26.11.)
+      if (r.startsWith('tword:')) return wordsOver(A.data.entries?.[Number(r.slice(6))]); // a tile's words in the cloud: the same (26.11.)
       if (inRow(r)) return openTyping(r);
     }
-    if (r.startsWith('tile:') || r === 'single') { // a result carried into the take window = it lies there as a line (17.11.)
-      const key = r === 'single' ? A.st.pick : A.data.entries[Number(r.slice(5))]?.key;
+    if (r.startsWith('tile:') || r === 'single' || (r.startsWith('tword:') && ev.type !== 'tap')) { // a result carried into the take window = it lies there as a line (17.11.; also by its words, 26.11.)
+      const key = r === 'single' ? A.st.pick : A.data.entries[Number(r.slice(r.indexOf(':') + 1))]?.key;
       if (ev.type === 'drag' && Math.abs(ev.dy) > 14) { A.data.carry = { x: ev.x, y: ev.y, pic: (A.data.entries ?? []).find((x) => x.key === key)?.thumb ?? null }; return A.paint(); }
       if ((ev.type === 'swipe' || ev.type === 'drag-end') && A.data.carry) {
         const c = A.data.carry, L = A.L; A.data.carry = null; A.paint();
@@ -127,7 +131,9 @@ export function gesturesOf(A) {
       if (r.startsWith('chip:') && ev.dir === 'down' && r.slice(5) === 'Name' && A.st.onboard.on) { A.dispatch({ type: 'onboard', patch: { dropped: true } }); return A.syncOnboard(); }
       if (ev.dir === 'down' && r === 'search-off') return A.similar.closeSearch(); // pulled down = away (21.11., user: no ✕)
       if (ev.dir === 'down' && r === 'kinds-off') return A.similar.closeKind();
-      if (inRow(r) && ev.dir === 'up' && live(A.st) && !A.st.onboard.on && A.st.context) { // the written series pushed up over the edge = shared as a template (21.11.)
+      if (r.startsWith('xt:') && ev.dir === 'down' && !A.st.onboard.on) return dropTake(pathOf(r)); // a take pushed down: it goes (26.11.)
+      if (inRow(r) && ev.dir === 'up' && !ev.far && !A.st.onboard.on) return similarByDate(); // ↑ a little: Similar, the chains with these words by date (26.11.)
+      if (inRow(r) && ev.dir === 'up' && live(A.st) && !A.st.onboard.on && A.st.context) { // the written series pushed up over the edge (far) = shared as a template (21.11.)
         navigator.vibrate?.(12);
         return A.take.saveTemplate(A.st.context).then((p) => { if (!p) return A.shake('context'); A.engine?.show(true); return A.dispatch({ type: 'share', open: true }); });
       }
@@ -166,6 +172,10 @@ export function gesturesOf(A) {
     if (ev.type === 'swipe' && (ev.dir === 'up' || ev.dir === 'down') && (A.similar.carried || (A.similar.looking && st.pick))) return A.similar.decide(ev.dir);
     if (ev.type === 'tap' && A.similar.carried && !live(st)) return play(); // the guest in the window: tap = it stops / plays on
     const across = Math.abs(ev.dx ?? 0) > Math.abs(ev.dy ?? 0);
+    if (ev.type === 'swipe' && ev.far && across && st.rec === 'idle' && st.chosenLine == null && count(st) && !(live(st) && ev.dir === 'left')) { // far across (26.11.): a whole nesting, the line does not follow the finger
+      pulled = null; A.data.lineShift = 0; navigator.vibrate?.(8);
+      return A.dispatch({ type: 'step', to: nestStep(A.st.lines.at(-1).takes, st.at, ev.dir === 'left' ? 'next' : 'before', leadOf) });
+    }
     const towardsNothing = live(st) && !pulled && (ev.dx ?? 0) < 0; // on the ready button there is nothing newer: ← is the picture (21.11.)
     if (st.rec === 'idle' && count(st) && st.chosenLine == null && !towardsNothing && ((ev.type === 'drag' && (across || pulled)) || ((ev.type === 'swipe' || ev.type === 'drag-end') && pulled))) return pull(ev);
     const m = buttonMeaning(st, ev);
@@ -174,20 +184,27 @@ export function gesturesOf(A) {
       case 'start': A.similar.dropGuest(); return A.take.start();
       case 'pause': return A.take.pause();
       case 'resume': return A.take.resume();
-      case 'photo': A.similar.dropGuest(); return A.take.photo();
+      case 'photo': A.similar.dropGuest(); return A.take.photo(m.step);
       case 'photo-share': A.similar.dropGuest(); return A.take.photo().then(() => { A.engine?.show(true); A.dispatch({ type: 'share', open: true }); }); // the picture just taken is what is shared
-      case 'keep': return A.take.keep();
-      case 'anew': return A.take.anew();
+      case 'keep': return A.take.keep(m.step); // ← a little: the innermost of the series goes next · far: the whole gesture (26.11.)
+      case 'keep-play': return A.take.keepAndPlay(); // → : kept and played at once (26.11.)
+      case 'anew': return A.take.anew(); // ↓ a little: the video anew, the context stays (26.11.)
+      case 'anew-all': return A.take.anew(true); // ↓ far: the context goes too
       case 'clear-context': navigator.vibrate?.(10); return A.dispatch({ type: 'clear-context' });
       case 'next': return A.dispatch({ type: 'step', dir: 'left' });
       case 'before': return A.dispatch({ type: 'step', dir: 'right' });
+      case 'next-nest': case 'before-nest': navigator.vibrate?.(8); return A.dispatch({ type: 'step', to: nestStep(A.st.lines.at(-1).takes, A.st.at, m.do === 'next-nest' ? 'next' : 'before', leadOf) }); // far: a whole nesting (26.11.)
+      case 'peel': { navigator.vibrate?.(m.step === 'whole' ? [10, 40, 10] : 8); return A.dispatch({ type: 'context', text: stepAfter(A.st.context, m.step) }); } // ← without a take: out, nothing saved (26.11.)
       case 'play': return play();
+      case 'play-line': return playLine(); // a line chosen: its takes one after another (26.11.)
       case 'share': return Promise.resolve(!live(A.st) && A.st.rec === 'idle' ? A.take.shareTake() : null).then(() => { A.engine?.show(true); A.dispatch({ type: 'share', open: true }); }); // the take in the button: that one (21.11.)
       case 'share-line': A.engine?.show(true); return A.dispatch({ type: 'share', open: true }); // what is shared: the chosen line (take-flow lastChain)
       case 'share-cloud': return A.similar.shareCloud().then(() => { A.engine?.show(true); A.dispatch({ type: 'share', open: true }); }); // the cloud chosen: its question, opening as it is seen (21.11., G4c)
       case 'share-element': return A.similar.shareElement().then((r) => { if (r === 'asked') return; A.engine?.show(true); A.dispatch({ type: 'share', open: true }); }); // the element shown single; not hers to pass on = a request to the author (pass-flow.js)
       case 'line-with': return lineContext(false);
       case 'line-without': return lineContext(true);
+      case 'with': return chosenContext(m.what, false); // ← far: the words written now onto the cloud / the element (26.11.)
+      case 'without': return chosenContext(m.what, true); // ↓ far: out of it
       default: return null;
     }
   }
@@ -209,6 +226,22 @@ export function gesturesOf(A) {
     A.take.lineWith(n, words, without);
     return null;
   }
+  /**
+   * The cloud or the element shown single chosen (26.11., user: as for a line): the words written now onto it (←
+   * far) or out of it (↓ far). The element: a new chain of mine on top of it (take-flow wordsOnElement). The cloud:
+   * every element would need its own chain – not yet (a shake; md/TODO.md).
+   */
+  function chosenContext(what, without) {
+    const words = nowWords(A.st.context, '').map((w) => w.text);
+    if (!words.length || what !== 'element') return A.shake('button');
+    const e = A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === A.st.pick);
+    return A.take.wordsOnElement(e, words, without).then((path) => {
+      if (!path) return A.shake('button');
+      navigator.vibrate?.(without ? [12, 50, 12] : 20);
+      A.dispatch({ type: 'context', text: '' });
+      return A.similar.refresh?.();
+    });
+  }
   /** Tap on an earlier take: it plays in the window (what it really is: its parts, one after another), tap again = pause. */
   function play() {
     const take = takeNow();
@@ -217,10 +250,28 @@ export function gesturesOf(A) {
     return A.player.show(take, 0, { play: true, onEnd: () => A.paint() }).then((ok) => (ok ? null : A.shake('button')));
   }
 
+  /** A line chosen (26.11., user: selected = ▶ at once): its takes play one after another; tap again = pause. */
+  function playLine() {
+    const takes = A.st.lines[A.st.chosenLine]?.takes ?? [];
+    if (!takes.length) return A.shake('button');
+    if (A.player.playing) { A.player.pause(); return A.paint(); }
+    const from = (i) => (i < takes.length && A.st.chosenLine != null ? A.player.show(takes[i], 0, { play: true, onEnd: () => { A.paint(); from(i + 1); } }) : A.paint());
+    return Promise.resolve(from(0)).then(() => A.paint());
+  }
+
   // ---------- the line under the finger (17.11.): it slides, lets go, rests on the nearest take ----------
   let pulled = null; // { v (px/ms), x, t }
   function pull(ev) {
     const px = slotPx(A.L), n = count(A.st);
+    // pulled up (26.11., user): the stacked lines open upwards (the fan, as with two fingers) – a finger that starts upright
+    const upright = (ev.dy ?? 0) < -8 && Math.abs(ev.dy) > 1.6 * Math.abs(ev.dx ?? 0);
+    if (!pulled && (lifting || (ev.type === 'drag' && upright) || (ev.type === 'swipe' && ev.dir === 'up'))) {
+      if (ev.type === 'drag') { lifting = true; return null; }
+      lifting = false;
+      if ((ev.dy ?? 0) > -28 || A.st.lines.length < 2 || A.st.rec !== 'idle') return A.paint();
+      if (!A.data.fan) { A.data.fan = true; A.data.fanOff = 0; A.data.fanShift = null; navigator.vibrate?.(8); }
+      return A.paint();
+    }
     if (ev.type === 'drag') {
       const v = pulled ? (ev.dx - pulled.x) / Math.max(1, ev.t - pulled.t) : 0;
       pulled = { x: ev.dx, t: ev.t, v: pulled ? pulled.v * 0.6 + v * 0.4 : 0 };
@@ -280,6 +331,7 @@ export function gesturesOf(A) {
     return null;
   }
   let fanFrom = null; // the row a finger pushes sideways, and where it stood
+  let lifting = false; // a finger on the line going up: the fan opens when it lets go (26.11.)
   function pinch(ev) {
     const L = A.L, [a, b] = ev.roles ?? [];
     const upright = ev.at?.length === 2 && Math.abs(ev.at[0].y - ev.at[1].y) > Math.abs(ev.at[0].x - ev.at[1].x);
@@ -290,6 +342,7 @@ export function gesturesOf(A) {
       if (ev.scale < 0.87 && A.data.fan) { A.data.fan = false; return A.paint(); }
       return null;
     }
+    if (upright && [a, b].every((x) => x && inRow(x))) return ev.phase === 'end' && ev.scale > 1.15 ? similarByDate() : null; // the row spread upright = Similar by date (26.11.)
     const kindRole = [a, b].find((x) => x?.startsWith('kinds:'));
     if (kindRole) return ev.phase === 'end' && ev.scale > 1.12 ? A.similar.openKind(kindRole.slice(6)) : null; // spread on a bubble = its cloud
     const nearButton = L && Math.hypot(ev.centre.x - L.button.x, ev.centre.y - L.button.y) < 70 * L.k;
@@ -406,8 +459,39 @@ export function gesturesOf(A) {
   }
 
   // ---------- the context row ----------
+  /** A take further on in the row tapped (26.11., user): it becomes the take now, with its prefixes (context-edit.js toFront). */
+  function frontTake(at) {
+    const text = toFront(A.st.context, at);
+    if (!text || text === A.st.context) return A.shake('context');
+    navigator.vibrate?.(6);
+    return A.dispatch({ type: 'context', text });
+  }
+  /** A take of the row pushed down (26.11., user): it goes – of the series, or of the earlier take's own context. */
+  function dropTake(at) {
+    const text = takeOut(textNow(), at);
+    if (text == null) return A.shake('context');
+    navigator.vibrate?.([8, 40, 8]);
+    setText(text);
+    return editing() ? finish() : null;
+  }
+  /** The words of the result shown single, or of a tile, tapped (26.11., user): its context, as written, comes into the take window as the take now. */
+  async function wordsOver(tile = null) {
+    const e = tile ?? A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === A.st.pick);
+    const text = (await Promise.resolve(A.media.contextTextOf?.(e?.chain)).catch(() => null)) ?? (e?.words ?? []).map((w) => `(${w})`).join(' ');
+    if (!text) return A.shake('context');
+    navigator.vibrate?.(8);
+    return A.dispatch({ type: 'context', text: [text, A.st.context].filter(Boolean).join(' ') });
+  }
+  /** The row pushed up a little, or spread upright (26.11., user): Similar opens with the chains of these words, newest first, by date. */
+  function similarByDate() {
+    const f = A.st.filters;
+    navigator.vibrate?.(8);
+    if (A.st.similar === 'closed' || A.st.similar === 'single') { location.hash = 'many'; A.dispatch({ type: 'similar', level: 'many' }); }
+    return A.dispatch({ type: 'filters', filters: { ...f, open: 'date', full: null, order: { ...f.order, date: 'new' } } });
+  }
   /** Where a tap in the row writes: a gap, a take (behind it), a bubble (into it, as its last), the row itself (the end). */
   function caretOf(role) {
+    if (role.startsWith('xt:')) return { how: 'after', at: pathOf(role) }; // a take tapped while writing: the caret behind it
     if (role.startsWith('gap:')) { const [, how, path] = role.split(':'); return how === 'end' ? null : { how, at: path ? path.split('.').map(Number) : [] }; }
     if (role.startsWith('bubble:')) { const p = role.slice(7); return p ? { how: 'in', at: p.split('.').map(Number) } : null; }
     return null;

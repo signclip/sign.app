@@ -16,7 +16,10 @@
 // Depends:   connect.js, spec.js, list.js, routes.js, backup.js, sharing-point.js, layout.js, memory.js
 // Test:      tests/list.test.mjs
 //            A picked folder or disk that is not there = waiting; there again → reconnect, runRules.
-// Limits:    opening = one read of sharing-point.sign per sharing point (~0.2 s each over WebDAV);
+// Limits:    opening = one read of sharing-point.sign per sharing point (~0.2 s each over WebDAV), all at once
+//            (26.11.: before, one after another – five sharing points and one that does not answer held all the
+//            others and the start of the app), each at most OPEN_MS = 15 s: then it counts as not reached and is
+//            tried again like any that failed (upkeep.js reopen, every 30 s while online);
 //            a run lists source and target once; a failed sharing point is reported, the rest go on.
 
 import { connect, ReadOnlyStore } from './connect.js';
@@ -28,43 +31,54 @@ import { signed } from '../1-model/crypto.js';
 import { specOf } from './spec.js';
 import { SELF } from './layout.js';
 import { ExistsError } from './memory.js';
-import { KINDS } from '../1-model/symbols.js';
+import { KINDS, withFollowers } from '../1-model/symbols.js';
 
 const ALL = Object.keys(KINDS).filter((k) => k !== 'sharing-point' && k !== 'chain');
 const dec = new TextDecoder();
 
-/**
- * Open every sharing point of the list. → Map(n → { entry, spec, store, description }) or
- * { entry, error } · own: store of this device · keychain: { get(q_) } · devices are skipped.
- */
-export async function openAll(entries, { keychain, own, folders = null, fetch = globalThis.fetch, access = null }) {
-  const open = new Map();
-  for (const [i, entry] of entries.entries()) {
-    const spec = specOf(entry);
-    if (!spec || spec.kind === 'cloud') continue; // devices and expected accounts have no store here
-    try {
-      if (spec.kind === 'folder') {
-        const store = await folders?.open(entry.id);
-        open.set(i + 1, store ? { entry, spec, store } : { entry, spec, waiting: true }); // not plugged in = waiting
-        continue;
-      }
-      const secret = spec.kind === 'local' ? null : spec.kind === 'gateway' ? await Promise.resolve(keychain?.get?.(entry.id)).catch(() => null) ?? null // the signer's grant (no secret; the access key signs)
-        : await keychain.get(entry.id);
-      let { store } = connect(spec, { secret, local: own, fetch, access });
-      if (spec.kind === 'link') { // a public link: read only, read and write, or drop only ("File drop")
-        const { read, write } = await store.inner.rights().catch(() => ({ read: true, write: false }));
-        if (write) ({ store } = connect({ ...spec, write: true, drop: !read }, { secret, fetch }));
-      }
-      let description = null;
-      try {
-        const text = dec.decode(await store.read(SELF));
-        description = readDescription(text);
-        // verified = sealed (y_) by one of its signers; null = no signer named (a plain folder someone described)
-        description.trusted = description.signers.length ? await trusted(text, signerKeys(description)) : null;
-      } catch { /* not described yet */ }
-      open.set(i + 1, { entry, spec, store, description });
-    } catch (err) { open.set(i + 1, { entry, error: String(err.message ?? err) }); }
+export const OPEN_MS = 15_000;
+/** work, or an error once ms have passed (the work itself is not stopped: its answer just no longer counts). */
+const within = (ms, work) => new Promise((done, fail) => {
+  const timer = setTimeout(() => fail(new Error(`not reached in ${Math.round(ms / 1000)} s`)), ms);
+  work.then((v) => { clearTimeout(timer); done(v); }, (err) => { clearTimeout(timer); fail(err); });
+});
+
+/** Open one sharing point of the list. → { entry, spec, store, description } · { entry, spec, waiting } · throws */
+async function openOne(entry, spec, { keychain, own, folders, fetch, access }) {
+  if (spec.kind === 'folder') {
+    const store = await folders?.open(entry.id);
+    return store ? { entry, spec, store } : { entry, spec, waiting: true }; // not plugged in = waiting
   }
+  const secret = spec.kind === 'local' ? null : spec.kind === 'gateway' ? await Promise.resolve(keychain?.get?.(entry.id)).catch(() => null) ?? null // the signer's grant (no secret; the access key signs)
+    : await keychain.get(entry.id);
+  let { store } = connect(spec, { secret, local: own, fetch, access });
+  if (spec.kind === 'link') { // a public link: read only, read and write, or drop only ("File drop")
+    const { read, write } = await store.inner.rights().catch(() => ({ read: true, write: false }));
+    if (write) ({ store } = connect({ ...spec, write: true, drop: !read }, { secret, fetch }));
+  }
+  let description = null;
+  try {
+    const text = dec.decode(await store.read(SELF));
+    description = readDescription(text);
+    // verified = sealed (y_) by one of its signers; null = no signer named (a plain folder someone described)
+    description.trusted = description.signers.length ? await trusted(text, signerKeys(description)) : null;
+  } catch { /* not described yet */ }
+  return { entry, spec, store, description };
+}
+
+/**
+ * Open every sharing point of the list, all at once, each within limitMs. → Map(n → { entry, spec, store,
+ * description }) or { entry, error } · own: store of this device · keychain: { get(q_) } · devices are skipped.
+ * The numbers n and their order are those of the list, whichever answered first.
+ */
+export async function openAll(entries, { keychain, own, folders = null, fetch = globalThis.fetch, access = null, limitMs = OPEN_MS }) {
+  const opened = await Promise.all(entries.map((entry) => {
+    const spec = specOf(entry);
+    if (!spec || spec.kind === 'cloud') return null; // devices and expected accounts have no store here
+    return within(limitMs, openOne(entry, spec, { keychain, own, folders, fetch, access })).catch((err) => ({ entry, error: String(err.message ?? err) }));
+  }));
+  const open = new Map();
+  opened.forEach((sp, i) => { if (sp) open.set(i + 1, sp); });
   return open;
 }
 
@@ -89,13 +103,34 @@ const kindsFor = (rule, target) => {
   return target?.description ? want.filter((k) => target.description.kinds.includes(k)) : want;
 };
 
-/** After a take: files [{ path, bytes }] to every (always) target. → { saved, failed } */
+/**
+ * Does this (always) rule send this file to its sharing point? The rule's kinds inside what the sharing point's
+ * description allows, and what follows a kind goes with it (26.11.: the wake with its :v – before, a rule that named
+ * its kinds sent the picture without its wake). A description that allows none of the rule's kinds: nothing goes.
+ * target: the opened sharing point, or none yet (then the rule alone decides; asked again when it is open).
+ */
+export function afterTakeWants(rule, target, path) {
+  const kinds = withFollowers(kindsFor(rule, target));
+  return kinds.length ? wants(kinds, path) : false;
+}
+
+/** After a take: which of its files go to which (always) sharing point – the decision only, nothing is written. → [{ n, path }] */
+export function afterTakeTargets(rules, open, paths) {
+  const out = [];
+  for (const rule of rules.filter((r) => r.mark === 'always' && r.from == null)) for (const path of paths) if (afterTakeWants(rule, open.get(rule.to), path)) out.push({ n: rule.to, path });
+  return out;
+}
+
+/**
+ * After a take: files [{ path, bytes }] to every (always) target, written at once. → { saved, failed }
+ * The app itself sends through sending.js since 26.11. (in the background, kept until it is there); this is the same
+ * decision without a list, for tools and tests.
+ */
 export async function afterTake(rules, open, files) {
   const result = { saved: [], failed: [] };
   for (const rule of rules.filter((r) => r.mark === 'always' && r.from == null)) {
     const target = open.get(rule.to);
-    const kinds = kindsFor(rule, target);
-    for (const { path, bytes } of files.filter((f) => wants(kinds, f.path))) {
+    for (const { path, bytes } of files.filter((f) => afterTakeWants(rule, target, f.path))) {
       try {
         if (!target?.store) throw new Error(target?.error ?? 'not open');
         await target.store.write(path, bytes);

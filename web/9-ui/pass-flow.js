@@ -64,7 +64,7 @@ export function passFlow(A) {
     A.data.asks = (A.data.asks ?? []).filter((x) => x.path !== a.path);
     A.dispatch({ type: 'pick', key: null });
     if (!A.data.asks.length) A.similar.closeKind();
-    await A.reindex();
+    await A.reindex({ all: true }); // the answer lies where the request lay, maybe not on this device (26.11.)
     return true;
   }
 

@@ -30,7 +30,11 @@ export class ReadOnlyError extends Error {}
 
 /** A store that only reads: list and read pass through, everything else is refused. */
 export class ReadOnlyStore {
-  constructor(store) { this.inner = store; this.readOnly = true; }
+  constructor(store) { // what the store can beyond the five calls is passed on, as far as it only reads: a range (pieces.js), the file itself (local.js)
+    this.inner = store; this.readOnly = true;
+    if (store.readPiece) this.readPiece = (path, from, to) => store.readPiece(path, from, to);
+    if (store.blob) this.blob = (path) => store.blob(path);
+  }
   list(prefix) { return this.inner.list(prefix); }
   read(path) { return this.inner.read(path); }
   async write(path) { throw new ReadOnlyError(`read only: ${path}`); }

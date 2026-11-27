@@ -14,6 +14,8 @@
 //              appendWord    a word typed right behind a loose word of the row joins its take (words without a
 //                            bracket are one take together)
 //              takeWords     every word of a take's context in reading order, with its own time 't(from_to) if it has one
+//              toFront       a take further on tapped (26.11., user): it comes first, with its prefixes – the take now
+//              takeOut       a take pushed down (26.11., user): it goes; a bracket it leaves empty stays open
 // Depends:   notation.js
 // Test:      tests/model.test.mjs
 // Limits:    one bracket level per wrap (both carets in the same bracket); text that does not parse stays as it is;
@@ -176,4 +178,37 @@ export function takeWords(text) {
   };
   nodes.forEach((n) => visit(n, null));
   return out;
+}
+
+/**
+ * A take further on in the row tapped (26.11., user): it becomes the take now – first in every bracket on its way, so its
+ * prefixes stay in front of it (context.js nextOfSeries). at: its path in the row (paint.js rowHtml). → text, or null
+ *   toFront('((Obst)((Banane) (Apfel))) (Kaffee)', [0, 1]) → '((Obst)((Apfel) (Banane))) (Kaffee)'
+ */
+export function toFront(text, at) {
+  let nodes;
+  try { nodes = parse(text ?? ''); } catch { return null; }
+  if (!at?.length) return null;
+  let list = nodes;
+  for (let d = 0; d < at.length; d++) {
+    const r = real(list), hit = r[at[d]];
+    if (!hit) return null;
+    const [outer, ix] = hit, first = r[0][1];
+    if (ix !== first) { list.splice(ix, 1); list.splice(first, 0, outer); }
+    if (d === at.length - 1) break;
+    const n = inner(outer);
+    if (n.t !== 'prefix') return null;
+    list = asGroup(n);
+  }
+  return write(nodes).trim();
+}
+
+/** A take of the row pushed down (26.11., user): it goes; the bracket around stays, open, when it was the last. → text, or null */
+export function takeOut(text, at) {
+  let nodes;
+  try { nodes = parse(text ?? ''); } catch { return null; }
+  const hit = at?.length ? nodeAt(nodes, at) : null;
+  if (!hit) return null;
+  hit.list.splice(hit.ix, 1);
+  return write(nodes).trim();
 }

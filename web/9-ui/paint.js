@@ -22,12 +22,12 @@ const f1 = (n) => Number(n).toFixed(1);
 /**
  * The button's symbol: always one of three. 26.11. (user): ● only where a new take can begin (ready, nothing waiting to
  * be kept) · a take that runs: ❚❚ · a take that was paused: ▶ (it goes on), so ▶ and ❚❚ stay until it is kept (←) ·
- * an earlier take of the line in the button: ▶ (it stands) or ❚❚ (it plays) – never the dot.
+ * an earlier take of the line in the button, or a line chosen (26.11.): ▶ (it stands) or ❚❚ (it plays) – never the dot.
  */
 function symbol(st, x, y, r, live, playing = false) {
   const start = `<path class="sym" d="M${f1(x - r * 0.28)} ${f1(y - r * 0.38)}L${f1(x + r * 0.42)} ${f1(y)}L${f1(x - r * 0.28)} ${f1(y + r * 0.38)}Z"/>`;
   const pause = `<rect class="sym" x="${f1(x - r * 0.3)}" y="${f1(y - r * 0.32)}" width="${f1(r * 0.2)}" height="${f1(r * 0.64)}" rx="2"/><rect class="sym" x="${f1(x + r * 0.1)}" y="${f1(y - r * 0.32)}" width="${f1(r * 0.2)}" height="${f1(r * 0.64)}" rx="2"/>`;
-  if (!live) return playing ? pause : start;
+  if (!live || (st.chosenLine != null && st.rec === 'idle')) return playing ? pause : start; // a line chosen (26.11.): ▶ plays it
   if (st.rec === 'recording') return pause;
   if (st.rec === 'paused') return start;
   return `<circle class="sym rec" cx="${f1(x)}" cy="${f1(y)}" r="${f1(r * 0.36)}"/>`;
@@ -270,7 +270,7 @@ export function fanSvg(st, L, data = {}) {
     const shift = Math.max(0, Math.min(fanReach(L, line.takes.length, W), data.fanShift?.[n] ?? 0)), label = lineLabel(line);
     defs.push(`<clipPath id="fr${n}"><rect x="${f1(x0 + FAN.label * k + 4 * k)}" y="${f1(cy - h / 2)}" width="${f1(x1 - x0 - FAN.label * k - 6 * k)}" height="${f1(h)}" rx="${f1(8 * k)}"/></clipPath>`);
     out.push(`<g data-role="fan:${n}"><rect class="fan-row" x="${f1(x0)}" y="${f1(cy - h / 2)}" width="${f1(x1 - x0)}" height="${f1(h)}" rx="${f1(h / 2)}"/>`,
-      `<text class="fan-label${label ? '' : ' none'}" x="${f1(x0 + 14 * k)}" y="${f1(cy)}" style="font-size:${f1(13 * k)}px">${esc(clip(label || '·', 11))}</text><text class="fan-count" x="${f1(x0 + 14 * k)}" y="${f1(cy + 15 * k)}" style="font-size:${f1(10 * k)}px">${line.takes.length}</text></g>`,
+      `<text class="fan-label${label ? '' : ' none'}" x="${f1(x0 + 14 * k)}" y="${f1(cy)}" style="font-size:${f1(13 * k)}px">${esc(clip(label || '·', 11))}</text><text class="fan-count" x="${f1(x0 + 14 * k)}" y="${f1(cy + 15 * k)}" style="font-size:${f1(10 * k)}px">${line.takes.length}${dayOf(line) ? ` · ${dayOf(line)}` : ''}</text></g>`,
       `<g clip-path="url(#fr${n})">`);
     line.takes.forEach((t, j) => {
       const x = first + j * FAN.step * k - shift;
@@ -285,6 +285,15 @@ export function fanSvg(st, L, data = {}) {
   }
   if (off + rows < older) out.push(`<text class="more" x="${f1(b.x)}" y="${f1(top - 12 * k)}">↑ ${older - off - rows}</text>`);
   return `<defs>${defs.join('')}</defs>${out.join('')}`;
+}
+/** When a line was made (26.11., user: the lines stacked by time): its last take's day – heute · gestern (Intl, any language) · 24.11. · 24.11.25. */
+function dayOf(line) {
+  const t = line?.takes?.at(-1)?.t;
+  if (!(t > 1e11)) return ''; // no clock time (an old or a guest line)
+  const d = new Date(t), now = new Date(), day = (x) => Math.floor((x - x.getTimezoneOffset() * 6e4) / 864e5), ago = day(now) - day(d);
+  if (ago === 0 || ago === 1) return new Intl.RelativeTimeFormat(globalThis.document?.documentElement?.lang || 'de', { numeric: 'auto' }).format(-ago, 'day'); // heute · gestern, in the app's language
+  const dm = `${d.getDate()}.${d.getMonth() + 1}.`;
+  return d.getFullYear() === now.getFullYear() ? dm : `${dm}${String(d.getFullYear()).slice(2)}`;
 }
 /** A text cut to n letters, with … when something was cut. */
 const clip = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
@@ -348,7 +357,7 @@ export function rowHtml(row, { caret = null, typing = '', offers = [], all = fal
     if (hidden(n)) return '';
     if (n.take) {
       const words = n.words.map(chip).join('');
-      return `<span class="take ${n.tone}"${n.at ? ` data-role="gap:after:${n.at.join('.')}"` : ''}>${n.nest != null ? `<span class="bubble inner"${edge(n.nest)}>${words}</span>` : words}</span>`;
+      return `<span class="take ${n.tone}"${n.at ? ` data-role="xt:${n.at.join('.')}"` : ''}>${n.nest != null ? `<span class="bubble inner"${edge(n.nest)}>${words}</span>` : words}</span>`;
     }
     const tail = here(n.at, 'in') ? caretHtml() : '';
     const head = (n.head ?? []).map(chip).join('');

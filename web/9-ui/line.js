@@ -183,3 +183,25 @@ export function lineLabel(line) {
   if (shared.length) return shared.join(' ');
   return takes[0].join(' ') + (takes.length > 1 ? ' …' : '');
 }
+
+/**
+ * Jump to a nesting (26.11., user: → far = to the nesting before, ← far on an earlier take = to the next). A nesting
+ * on the line = takes one after another that share their prefix (context.js leadOf); a take without one stands alone.
+ * dir 'before': the first take of the nesting the take before at belongs to (mid-nesting: its own start) · 'next':
+ * the first take after the nesting at belongs to (none = n, ready). leadOf: text → [words] (given, so line.js needs no model).
+ * → the new at
+ */
+export function nestStep(takes, at, dir, leadOf) {
+  const n = takes.length, key = (i) => (leadOf(takes[i]?.context ?? '') ?? []).join(' ');
+  const same = (i, j) => i >= 0 && j >= 0 && i < n && j < n && key(i) !== '' && key(i) === key(j);
+  if (dir === 'before') {
+    let i = Math.min(n, at) - 1;
+    if (i < 0) return 0;
+    while (same(i - 1, i)) i--;
+    return i;
+  }
+  if (at >= n) return n;
+  let i = at;
+  while (same(i, i + 1)) i++;
+  return Math.min(n, i + 1);
+}

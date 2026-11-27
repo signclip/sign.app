@@ -22,6 +22,11 @@
 //            ~600 files, ~300 .sign) ≈ 0.25 MB · fresh = same names and sizes (a change that keeps the size is
 //            only seen by the seal, or when the folder gets a new file) · cost: one listing per folder
 //            (as before) + one read per folder instead of one per .sign.
+// Read once (26.11.): a part of a sharing point is asked for again only when the listing shows it changed (its size,
+//            and its time where the server tells one) – before, every build read every part again (one request
+//            per folder, ≈ 0.25 MB per person and month, every 5 minutes). Kept per store while the app runs, at
+//            most KEPT_MAX = 32 MiB of parts per store (then all of that store are let go and read once more).
+//            A part kept this way is still checked against the folder's listing (fresh), exactly as a read one.
 // EXTEND(S3, index): ETag of the folder instead of names and sizes, where the server gives it (Nextcloud does).
 
 export const PARTS = 'index/';
@@ -49,6 +54,24 @@ export function fresh(part, folder, files) {
 }
 
 const readPart = async (store, path) => { try { return JSON.parse(dec.decode(await store.read(path))); } catch { return null; } };
+export const KEPT_MAX = 32 * 1024 * 1024;
+const kept = new WeakMap(); // store → { parts: Map(path → { size, at, part }), bytes }
+/** The part at path, read from the store only when its listing (f: { size, at? }) is not the one it was read under. */
+async function readPartOnce(store, path, f) {
+  const mine = kept.get(store) ?? kept.set(store, { parts: new Map(), bytes: 0 }).get(store);
+  const have = mine.parts.get(path);
+  if (have && have.size === (f.size ?? 0) && have.at === f.at) return have.part;
+  const part = await readPart(store, path);
+  if (have) { mine.bytes -= have.size; mine.parts.delete(path); }
+  if (part && (f.size ?? 0) > 0) {
+    if (mine.bytes + f.size > KEPT_MAX) { mine.parts.clear(); mine.bytes = 0; }
+    mine.parts.set(path, { size: f.size, at: f.at, part });
+    mine.bytes += f.size;
+  }
+  return part;
+}
+/** A part this reader just wrote anew: what was kept of it no longer counts. */
+const forgetPart = (store, path) => { const mine = kept.get(store), have = mine?.parts.get(path); if (have) { mine.bytes -= have.size; mine.parts.delete(path); } };
 const replace = async (store, path, text) => { await store.remove(path).catch(() => {}); await store.write(path, enc.encode(text)); };
 const isSign = (p) => p.endsWith('.sign');
 
@@ -60,14 +83,14 @@ const isSign = (p) => p.endsWith('.sign');
  */
 export async function readThroughParts(store, { write = false, cache = null } = {}) {
   const listed = (await store.list()).filter((f) => !f.path.startsWith(PARTS));
-  const own = new Set((await store.list(PARTS).catch(() => [])).map((f) => f.path));
+  const own = new Map((await store.list(PARTS).catch(() => [])).map((f) => [f.path, f]));
   const byFolder = new Map();
   for (const f of listed) (byFolder.get(folderOf(f.path)) ?? byFolder.set(folderOf(f.path), []).get(folderOf(f.path))).push(f);
   const out = [], skipped = [];
   let read = 0;
   for (const [folder, files] of byFolder) {
     const at = partOf(folder), cached = cache ? `${cache.prefix}${at.slice(PARTS.length)}` : null;
-    let part = own.has(at) ? await readPart(store, at) : null;
+    let part = own.has(at) ? await readPartOnce(store, at, own.get(at)) : null;
     if (!fresh(part, folder, files) && cached) part = await readPart(cache.store, cached);
     const ok = fresh(part, folder, files);
     const texts = new Map();
@@ -81,7 +104,7 @@ export async function readThroughParts(store, { write = false, cache = null } = 
     }
     if (!ok) {
       const text = makePart(folder, files, texts);
-      if (write) await replace(store, at, text).catch(() => {}); // the sharing point's own index/, for every reader
+      if (write) { forgetPart(store, at); await replace(store, at, text).catch(() => {}); } // the sharing point's own index/, for every reader
       if (cached) await replace(cache.store, cached, text).catch(() => {});
     }
     for (const f of files) out.push(texts.has(f.path) ? { ...f, text: texts.get(f.path) } : f);

@@ -55,7 +55,7 @@ export function normalize(input = {}) {
     flows: subset(input.flows, FLOW_KINDS, d.flows),
     shape: formOf(input.shape ?? d.shape),
     restartMs: Number.isFinite(input.restartMs) ? timeOf(input.restartMs) : null,
-    stillEndMs: timeOf(input.stillEndMs, d.stillEndMs),
+    stillEndMs: ((t) => (t > 0 ? Math.max(1000, t) : 0))(timeOf(input.stillEndMs, d.stillEndMs)), // 0 = off, else at least 1 s (26.11.)
   };
 }
 

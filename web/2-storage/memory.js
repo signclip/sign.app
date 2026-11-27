@@ -5,6 +5,8 @@
 //              write(path, bytes) → never overwrites (ExistsError)   remove(path)
 //              move(from, to) → rename only (content and hash stay; nothing points to paths)
 //            Tests and the index run against it; WebDAV must behave the same.
+//            Two more calls a store may bring (pieces.js: a file of any size, piece by piece):
+//              readPiece(path, from, to) → Uint8Array   writeFrom(path, pieces) → never over, pieces asked in order
 // Depends:   nothing.
 // Test:      tests/storage.test.mjs
 // EXTEND(W2, storage): device folder (OPFS / app folder) and S3 via short-lived links get
@@ -34,6 +36,18 @@ export class MemoryStore {
   async write(path, bytes) {
     if (this.files.has(path)) throw new ExistsError(path); // files are written once
     this.files.set(path, bytes instanceof Uint8Array ? bytes : new TextEncoder().encode(bytes));
+  }
+
+  async readPiece(path, from, to) {
+    return (await this.read(path)).subarray(from, to);
+  }
+
+  async writeFrom(path, pieces, { piece = 8 * 2 ** 20 } = {}) {
+    if (this.files.has(path)) throw new ExistsError(path);
+    const bytes = new Uint8Array(pieces.size); // this store is memory: here the file does lie whole
+    for (let at = 0; at < pieces.size; at += piece) bytes.set(await pieces.slice(at, Math.min(at + piece, pieces.size)), at);
+    if (this.files.has(path)) throw new ExistsError(path); // someone else wrote it meanwhile
+    this.files.set(path, bytes);
   }
 
   async remove(path) {
