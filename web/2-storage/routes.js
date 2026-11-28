@@ -22,7 +22,8 @@
 
 import { readName } from '../1-model/filename.js';
 import { ExistsError } from './memory.js';
-import { PIECE, copyPieces } from './pieces.js';
+import { copyPieces } from './pieces.js';
+import { limit } from '../1-model/limits.js';
 import { KINDS, FOLDERS, withFollowers } from '../1-model/symbols.js';
 
 const kindOf = (path) => readName(path.slice(path.lastIndexOf('/') + 1))?.kind ?? null;
@@ -42,7 +43,7 @@ export async function copyRoute(from, to, { kinds, chains = true, skip = () => f
     if (since && (readName(path.slice(path.lastIndexOf('/') + 1))?.time ?? '') < since) continue; // new only: made before the connection = not here
     if (have.has(path)) { (size > 0 && have.get(path) > 0 && have.get(path) !== size ? result.differs : result.kept).push(path); continue; }
     try {
-      if (size > PIECE) await copyPieces(from, to, path, { size, hash: false });
+      if (size > limit('piece')) await copyPieces(from, to, path, { size, hash: false });
       else {
         const bytes = await from.read(path);
         await to.write(path, bytes);

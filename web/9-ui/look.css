@@ -134,10 +134,34 @@ video::-webkit-media-controls { display: none !important; }
 .sel.open { box-shadow: 0 0 0 3px var(--sc); }
 /* Similar's four respects (26.11.): a pale grip in the middle of each edge, filled while something of it is chosen;
    open = its rail along that edge, one arrow at its head for the order */
-.grip { position: absolute; width: 26px; height: 28px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font: 600 13px Inter, system-ui, sans-serif; color: var(--mut); background: var(--paper); border: 1.5px dashed var(--sc-stroke); opacity: .6; }
-.grip.on { opacity: 1; border-style: solid; background: var(--sc); color: #0C447C; }
+/* the four respects in one row at the top (27.11.): sign alone = nothing chosen · filled with what is chosen = chosen · dark = open. 28 px high, a finger gets 39 px (::after) */
+.quick, #similar > .quick { position: absolute; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; column-gap: 6px; pointer-events: none; z-index: 2; } /* letters far left · spot and who in the middle · date far right; only the four take a finger */
+.quick > .q:first-child { justify-self: start; } .quick > .q:last-child { justify-self: end; } .quick .q-mid { display: flex; gap: 6px; min-width: 0; justify-content: center; }
+.quick .q { position: relative; pointer-events: auto; flex: 0 1 auto; min-width: 36px; max-width: 108px; height: 28px; padding: 0 9px; box-sizing: border-box; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font: 600 13px Inter, system-ui, sans-serif; color: color-mix(in srgb, var(--ink) 62%, var(--paper)); background: color-mix(in srgb, var(--paper) 88%, transparent); border: 1.5px solid color-mix(in srgb, var(--sc-stroke) 50%, transparent); white-space: nowrap; transition: background-color .18s ease, border-color .18s ease, color .18s ease, transform .12s ease; }
+.quick .q::after { content: ''; position: absolute; inset: -3px -3px -8px; }
+.quick .q i { flex: none; font-style: normal; }
+.quick .q { flex-shrink: 0; }
+.quick .q.on { background: var(--sc); border-color: var(--sc-stroke); color: #0C447C; }
+.quick .q.open { background: var(--sc-stroke); border-color: var(--sc-stroke); color: #fff; }
+/* a finger rests on it (touch.js, 27.11.): a little darker; the respects in the row a little smaller too */
+.chip.down, .kind-bubble.down, .bundle.down, #similar .tile.down, .rail-list span.down, .rail-order.down, .who-group.down, .who-bubble.down, .key.down, .cal-day.down, .cal-title.down, .cal-year.down, .quick .q.down, #sharing-html .tile.down { filter: brightness(.88); }
+.quick .q.down { transform: scale(.93); }
 .rail { position: absolute; display: flex; background: color-mix(in srgb, var(--paper) 86%, transparent); border: 1.5px solid var(--sc-stroke); border-radius: 16px; overflow: hidden; animation: rail-in .22s ease-out both; }
-.rail.upright { flex-direction: column; align-items: stretch; } .rail.lying { flex-direction: row; align-items: center; }
+.rail.upright { flex-direction: column; align-items: stretch; animation: rail-down .24s ease-out both; } /* unfolds from its sign in the row */
+@keyframes rail-down { from { opacity: .3; clip-path: inset(0 0 100% 0 round 16px); } to { opacity: 1; clip-path: inset(0 0 0 0 round 16px); } }
+/* the date's rail (27.11., narrow 28.11.) and the letters' (A–Z, 28.11.): everything on it at once, no scrolling; the date a
+   bar without numbers, the marked part filled with the number of its first and last day on it */
+.rail.upright.span .rail-list { overflow: visible; touch-action: none; padding: 0; }
+.rail.upright.slim .rail-list span { position: relative; flex: 1 1 0; min-height: 0; height: auto; max-height: 22px; margin: 0; padding: 0; border-radius: 0; background: none; }
+.rail.upright.slim .rail-list span i { display: block; width: 12px; height: calc(100% - 2px); margin: 1px auto; border-radius: 3px; background: color-mix(in srgb, var(--sc) 75%, var(--paper)); transition: background-color .12s ease; }
+.rail.upright.slim .rail-list span.on { background: none; } .rail.upright.slim .rail-list span.on i { height: 100%; margin: 0 auto; border-radius: 0; background: var(--sc-stroke); }
+.rail.upright.slim .rail-list span.end b { position: absolute; left: 2px; right: 2px; top: 50%; transform: translateY(-50%); height: 16px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: var(--sc-stroke); color: #fff; font: 600 10px Inter, system-ui, sans-serif; z-index: 1; }
+.rail.upright.slim .rail-list span.month { flex: 0 0 7px; max-height: 7px; } .rail.upright.slim .rail-list span.month::before { content: ''; position: absolute; left: 9px; right: 9px; top: 3px; height: 1.5px; border-radius: 1px; background: var(--sc-stroke); opacity: .55; }
+.rail.upright.letters .rail-list span { flex: 1 1 0; min-height: 0; height: auto; max-height: 26px; margin: 0 3px; border-radius: 6px; font-size: 12px; line-height: 1; }
+.rail.upright.letters .rail-list span.none { color: color-mix(in srgb, var(--ink) 30%, var(--paper)); }
+.rail.upright.letters .rail-list { padding: 4px 0 8px; } .rail.upright.letters.tight .rail-list span { font-size: 10px; } .rail.upright.letters .rail-list span.on { position: relative; background: none; overflow: visible; }
+.rail.upright.letters .rail-list span.on b { position: absolute; left: 3px; right: 3px; top: 50%; transform: translateY(-50%); height: 16px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: var(--sc-stroke); color: #fff; font: 600 11px Inter, system-ui, sans-serif; z-index: 1; }
+.rail.lying { flex-direction: row; align-items: center; }
 .rail-order { flex: none; display: flex; align-items: center; justify-content: center; font: 700 15px Inter, system-ui, sans-serif; font-style: normal; color: #0C447C; background: var(--sc); }
 .rail.upright .rail-order { height: 30px; border-bottom: 1.5px solid var(--sc-stroke); } .rail.lying .rail-order { width: 34px; align-self: stretch; border-right: 1.5px solid var(--sc-stroke); }
 .rail-list { flex: 1; display: flex; scrollbar-width: none; overscroll-behavior: contain; } .rail-list::-webkit-scrollbar { display: none; }
@@ -175,8 +199,7 @@ video::-webkit-media-controls { display: none !important; }
 .over-panel { border-radius: 22px; background: var(--paper); box-shadow: 0 8px 30px rgba(0,0,0,.18); border: 1.5px solid var(--sc-stroke); overflow: hidden; animation: over-in .26s ease-out both; backdrop-filter: blur(6px); }
 @keyframes over-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
 .over-panel .spot-map { border-radius: 20px; }
-.over-back { position: absolute; width: 34px; height: 34px; border-radius: 17px; display: flex; align-items: center; justify-content: center; font: 700 15px Inter, system-ui, sans-serif; color: #0C447C; background: var(--sc); border: 1.5px solid var(--sc-stroke); z-index: 2; }
-.over-back.top { top: 8px; left: calc(50% - 17px); } .over-back.bottom { bottom: 8px; left: calc(50% - 17px); } .over-back.left { left: 8px; top: calc(50% - 17px); } .over-back.right { right: 8px; top: calc(50% - 17px); }
+.over-body { position: absolute; left: 0; width: 100%; }
 .over-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 34px; color: var(--sc-stroke); }
 .over-panel .who-rings { position: absolute; left: 0; top: 0; overflow: visible; }
 .who-ring { fill: var(--paper); fill-opacity: .9; stroke: var(--sc-stroke); stroke-width: 1.2; } .who-ring.on { fill: var(--sc); fill-opacity: .55; }
@@ -189,7 +212,7 @@ video::-webkit-media-controls { display: none !important; }
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; } .cal-head { font: 600 10px Inter, system-ui, sans-serif; color: var(--mut); text-align: center; }
 .cal-day { position: relative; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; } .cal-day b { position: relative; font: 600 12px Inter, system-ui, sans-serif; color: var(--ink); } .cal-day.empty b { color: var(--mut); opacity: .5; font-weight: 400; }
 .cal-day em { position: absolute; border-radius: 50%; background: var(--sc); border: 1.5px solid var(--sc-stroke); } .cal-day.on { background: var(--sc-stroke); } .cal-day.on b { color: #fff; } .cal-day.on em { background: transparent; border-color: #fff; }
-.letters-over { position: absolute; inset: 0; padding: 18px 18px 18px 56px; display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 10px; align-content: start; overflow-y: auto; touch-action: pan-y; }
+.letters-over { position: absolute; inset: 0; padding: 12px 18px 18px 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 10px; align-content: start; overflow-y: auto; touch-action: pan-y; }
 .letters-over .key { position: relative; height: 58px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font: 700 22px Inter, system-ui, sans-serif; color: var(--ink); background: var(--paper); border: 1.5px solid var(--sc-stroke); }
 .letters-over .key i { position: absolute; right: 6px; bottom: 4px; font: 600 10px Inter, system-ui, sans-serif; font-style: normal; color: var(--mut); } .letters-over .key.on { background: var(--sc-stroke); color: #fff; } .letters-over .key.on i { color: #fff; } .letters-over .key.none { opacity: .3; border-style: dashed; }
 /* how far Similar looks (21.11.): the halo round the take, the rings with sectors over it */

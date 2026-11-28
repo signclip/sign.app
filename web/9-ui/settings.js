@@ -69,15 +69,16 @@ export const CHOICES = {
 };
 
 /**
- * The button's two times (calm.js): → 'start' | 'keep' | 'pause' | 'drop' | null.
- * now: { idle (the button is free on the newest spot), freeMs (free for so long; typing and touches begin it anew),
- * armed (motion or a touch since the last drop), recording, stillMs (no motion for so long in the
- * running take), moved (motion in it at all), auto (it started by itself) }. A take that went still is kept when the
- * button starts anew by itself (a series without hands), else it waits for ←; one that started by itself and saw no
- * motion at all is dropped (nobody was there), and the next start then waits for motion or a touch.
+ * The button's two times (calm.js): → 'start' | 'keep' | 'drop' | null.
+ * now: { idle (the button is free on the newest spot, nothing else open, a sense on), freeMs (free for so long;
+ * typing and touches begin it anew), armed (motion or a touch since the last drop), recording, stillMs (no motion for
+ * so long in the running take, counted only with the take window), moved (motion in it at all), auto (it started by
+ * itself) }. The end without motion keeps the take (28.11., user: "dann wird automatisch gespeichert, take nach links
+ * rausgeschoben und bereit"), with the start by itself or without; one that started by itself and saw no motion at all
+ * is dropped (nobody was there), and the next start then waits for motion or a touch.
  */
 export function calmStep(settings, now) {
-  if (now.recording && settings.stillEndMs > 0 && now.stillMs >= settings.stillEndMs) return now.auto && !now.moved ? 'drop' : settings.restartMs != null ? 'keep' : 'pause';
+  if (now.recording && settings.stillEndMs > 0 && now.stillMs >= settings.stillEndMs) return now.auto && !now.moved ? 'drop' : 'keep';
   if (now.idle && now.armed && settings.restartMs != null && now.freeMs >= settings.restartMs) return 'start';
   return null;
 }

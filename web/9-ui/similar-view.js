@@ -71,32 +71,35 @@ export function passes(entry, f) {
   return true;
 }
 
-/** Px at k = 1: the gutter round the cloud (its four grips) and how much of its edge each open rail takes. */
-export const RAIL = Object.freeze({ gutter: 34, initial: 40, date: 50, who: 64, spotShare: 0.42, spotMin: 110, tilesMin: 96 });
+/** Px at k = 1: the row of the four respects at the top (quick), the gap at the other edges (side) and how much of its edge each open rail takes. */
+export const RAIL = Object.freeze({ quick: 34, side: 8, initial: 40, date: 36, who: 64, spotShare: 0.42, spotMin: 110, tilesMin: 96 });
 
 /**
- * Where Similar's parts lie (26.11., user: letters left, date right, spot at the top, who at the bottom). Round the
- * cloud a gutter for the four grips; the respect that is open takes its edge as a rail – the letters and the calendar
- * as bars, the spot's map as a band, who as a strip – and the tiles keep away from it, so nothing lies over them.
+ * Where Similar's parts lie. At the top one row with the four respects (27.11., user: "Metadaten-Auswahl als
+ * Kurzeinstellung, schön oben"): what is chosen can be read there, a tap opens a respect's rail, a hold its view
+ * over everything. Letters lie at its left end, the date at its right end (user, the same day): their rails unfold
+ * right under them, the arrow of the order at the rail's head; spot and who in the middle. Before, four pale grips lay at the four edges and took a gutter of 34 px on every side; now the
+ * tiles reach to 8 px from the other three edges (phone upright: 52 px wider, 26 px higher). The open respect still
+ * takes its own edge as a rail (26.11.: letters left, date right, spot at the top, who at the bottom) – bars, a band
+ * for the map, a strip – and the tiles keep away from it, so nothing lies over them.
  * box: Similar's box · open: 'initial' | 'date' | 'spot' | 'who' | null
- * → { inner (the tiles), rail ({ x, y, w, h } or null), grips: { initial, date, spot, who } (each { x, y } its middle) }
+ * → { inner (the tiles), rail ({ x, y, w, h } or null), quick ({ x, y, w, h }: the row) }
  */
 export function cloudParts(box, open = null, k = 1) {
-  const g = RAIL.gutter * k, pad = 6 * k;
-  const inner = { x: box.x + g, y: box.y + g, w: box.w - 2 * g, h: box.h - 2 * g };
-  const e = 15 * k; // a grip's middle, 15 px in from the cloud's edge: 28 px high, so 4 px stay free before the tiles (gutter 34)
-  const grips = { initial: { x: box.x + e, y: box.y + box.h / 2 }, date: { x: box.x + box.w - e, y: box.y + box.h / 2 }, spot: { x: box.x + box.w / 2, y: box.y + e }, who: { x: box.x + box.w / 2, y: box.y + box.h - e } };
+  const q = RAIL.quick * k, g = RAIL.side * k, pad = 6 * k;
+  const quick = { x: box.x + 6 * k, y: box.y + 3 * k, w: box.w - 12 * k, h: q - 6 * k }; // 28 px high, 3 px above and below; letters at its left end, the date at its right end (27.11.)
+  const inner = { x: box.x + g, y: box.y + q, w: box.w - 2 * g, h: box.h - q - g };
   let rail = null;
-  if (open === 'initial') { rail = { x: box.x, y: box.y + 4 * k, w: RAIL.initial * k, h: box.h - 8 * k }; inner.x = rail.x + rail.w + pad; inner.w = box.x + box.w - g - inner.x; }
-  if (open === 'date') { rail = { x: box.x + box.w - RAIL.date * k, y: box.y + 4 * k, w: RAIL.date * k, h: box.h - 8 * k }; inner.w = rail.x - pad - inner.x; }
+  if (open === 'initial') { rail = { x: box.x + 4 * k, y: box.y + q - 2 * k, w: RAIL.initial * k, h: box.h - q - 2 * k }; inner.x = rail.x + rail.w + pad; inner.w = box.x + box.w - g - inner.x; }
+  if (open === 'date') { rail = { x: box.x + box.w - (RAIL.date + 4) * k, y: box.y + q - 2 * k, w: RAIL.date * k, h: box.h - q - 2 * k }; inner.w = rail.x - pad - inner.x; }
   if (open === 'spot') { // the map: 42 % of the cloud, at least 110 px, but the tiles keep 96 px
-    const h = Math.max(Math.min(RAIL.spotMin * k, box.h * 0.6), Math.min(box.h * RAIL.spotShare, box.h - g - RAIL.tilesMin * k));
-    rail = { x: box.x + 4 * k, y: box.y, w: box.w - 8 * k, h };
+    const h = Math.max(Math.min(RAIL.spotMin * k, box.h * 0.6), Math.min(box.h * RAIL.spotShare, box.h - q - g - RAIL.tilesMin * k));
+    rail = { x: box.x + 4 * k, y: box.y + q, w: box.w - 8 * k, h }; // under the row
     inner.y = rail.y + rail.h + pad; inner.h = box.y + box.h - g - inner.y;
   }
   if (open === 'who') { rail = { x: box.x + 4 * k, y: box.y + box.h - RAIL.who * k, w: box.w - 8 * k, h: RAIL.who * k }; inner.h = rail.y - pad - inner.y; }
   inner.w = Math.max(40 * k, inner.w); inner.h = Math.max(40 * k, inner.h);
-  return { inner, rail, grips };
+  return { inner, rail, quick };
 }
 
 /** Order entries by the filter that is on (date first, then initial); otherwise as found (best match first). */

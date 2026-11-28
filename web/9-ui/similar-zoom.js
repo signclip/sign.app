@@ -181,5 +181,29 @@ export function railValues(entries, f, by, max = RAIL_MAX) {
   return { step, values };
 }
 
+/** A calendar key as short as a narrow rail holds (28.11.): a day '21.11.' · a month 'Nov' · a year '2026' – ≤ 31 px at 10 px. */
+export function shortLabel(key, lang = 'de') {
+  const p = String(key ?? '').split('.');
+  if (p.length === 3) return `${Number(p[2])}.${Number(p[1])}.`;
+  return periodLabel(key, lang);
+}
+
+/** From one calendar key to another, whichever comes first (27.11.: a finger drawn along the date's rail). → [from, to] in ms, or null */
+export function spanBetween(a, b) {
+  const x = periodRange(a), y = periodRange(b);
+  return x && y ? [Math.min(x[0], y[0]), Math.max(x[1], y[1])] : null;
+}
+
+/**
+ * Did two fingers go apart with a part across (27.11., user: "Aufzoomen vertikal = Leiste, mit horizontalem Anteil =
+ * Vollbild")? at / now: where the two fingers went down and where they are. Across = they went at least 24 px
+ * further apart sideways, and more than 0.6 of what they went apart upright (steeper than ≈ 59° counts as upright).
+ */
+export function spreadAcross(at, now) {
+  if (!at?.[1] || !now?.[1]) return false;
+  const gx = Math.abs(now[0].x - now[1].x) - Math.abs(at[0].x - at[1].x), gy = Math.abs(now[0].y - now[1].y) - Math.abs(at[0].y - at[1].y);
+  return gx >= 24 && gx > 0.6 * Math.max(0, gy);
+}
+
 /** Is a calendar key inside the chosen span? */
 export const inSpan = (key, span) => { const r = periodRange(key); return Boolean(r && span && r[0] >= span[0] && r[1] <= span[1]); };

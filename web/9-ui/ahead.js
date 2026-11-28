@@ -16,20 +16,22 @@
 //            files keeps MAX = 10 (≈ 30–100 MB in memory), the one just used never goes · fade 250 ms, given up
 //            after 1.5 s when the next one does not show.
 
-export const AHEAD = { similar: 3, line: 2 };
-export const MAX = 10, FADE_MS = 250;
+import { limit, LIMITS } from '../1-model/limits.js';
+
+export const AHEAD = { similar: LIMITS['ahead.similar'].value, line: LIMITS['ahead.line'].value }; // the preselection, 3 and 2; what counts: limit('ahead.similar'), limit('ahead.line')
+export const MAX = LIMITS.ahead.value, FADE_MS = 250; // 10: the preselection; what counts: limit('ahead')
 
 /** May the app read ahead now? (21.11., user: also with mobile data; not when the phone saves data) */
 export const allowed = (nav = globalThis.navigator) => !nav?.connection?.saveData;
 
 /** The next n takes after this one in its line (the line's order; none past its end). */
-export function nextOf(takes, take, n = AHEAD.line) {
+export function nextOf(takes, take, n = limit('ahead.line')) {
   const i = takes.findIndex((t) => t.id === take?.id);
   return i < 0 ? [] : takes.slice(i + 1, i + 1 + n);
 }
 
 /** The files of the first n results of Similar: [{ store, path }] (a person's pile: its first piece). */
-export function firstOf(entries, n = AHEAD.similar) {
+export function firstOf(entries, n = limit('ahead.similar')) {
   return entries.slice(0, n).map((e) => e.at ?? (e.pieces?.[0] ? { store: e.pieces[0].from, path: e.pieces[0].path } : null)).filter(Boolean);
 }
 
@@ -37,7 +39,7 @@ export function firstOf(entries, n = AHEAD.similar) {
  * Playable files, each read once: get(where) → Promise({ url, picture }). read(where) does the reading; at most max
  * kept, the least recently used goes and its URL is let go. ahead(list) starts reading without waiting.
  */
-export function filesOf(read, { max = MAX, revoke = (u) => URL.revokeObjectURL(u) } = {}) {
+export function filesOf(read, { max = limit('ahead'), revoke = (u) => URL.revokeObjectURL(u) } = {}) {
   const kept = new Map(); // path → Promise, in order of last use
   function get(where) {
     const key = where.path;

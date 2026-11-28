@@ -32,6 +32,7 @@ import { readName, flatWords } from '../1-model/filename.js';
 import { checkWitness } from '../1-model/crypto.js';
 import { leadOf } from '../1-model/context.js';
 import { readThroughParts, cachePrefix } from './parts.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 
 const CALM_MS = 12;
 const pause = () => (globalThis.scheduler?.yield ? globalThis.scheduler.yield() : new Promise((done) => setTimeout(done, 0))); // yield: no 4 ms wait as a nested timer has
@@ -126,7 +127,7 @@ export function announcedKeys(text) {
   return [...text.matchAll(/^:sharing-point(?:\.\d+)?[^\n]*?!\((q_[0-9A-Z]+) z_([0-9A-Z]+)\)/gm)].map((m) => [m[1], m[2]]);
 }
 
-export const PROVEN_MAX = 64e6;
+export const PROVEN_MAX = LIMITS['index.proven'].value; // the preselection, 64 million characters; what counts: limit('index.proven')
 const proven = new Map(); // text → the key z_ its seal held for
 let provenSize = 0;
 /** Does the seal of this text hold for this key? Checked once per text and key; a seal that did not hold is checked again every time. */
@@ -134,7 +135,7 @@ async function sealedBy(z, text) {
   if (proven.get(text) === z) return true;
   const ok = await checkWitness(z, text);
   if (ok) {
-    if (provenSize + text.length > PROVEN_MAX) { proven.clear(); provenSize = 0; }
+    if (provenSize + text.length > limit('index.proven')) { proven.clear(); provenSize = 0; }
     if (!proven.has(text)) provenSize += text.length;
     proven.set(text, z);
   }

@@ -6,8 +6,11 @@
 //              strand {kind}        an arc tapped: that strand on/off (visual off = the picture fades out)
 //              form {round, aspect} the window's form (double tap on the picture, two fingers with one still)
 //              rec {to}             'recording' | 'paused' | 'idle' (what the recorder did)
-//              took {take, step}    a take kept (← on the button): onto the line, left of the button; the series moves on –
-//                                   step 'inner' (← a little: the innermost, prefixes stay) · 'whole' (← far: the gesture)
+//              kept {take, step}    ← on the button (27.11.): the take onto the line at once, left of the button, marked
+//                                   saving; the series moves on – step 'inner' (← a little: the innermost, prefixes stay) ·
+//                                   'whole' (← far: the gesture) · unkept {id} its files failed: off the line again
+//              took {take, replace} its files are written: the real take where the one kept lies (replace = its id);
+//                                   without replace: onto the line and the series moves on, as kept
 //              discard              ↓ on the button while recording: the take is dropped, the button starts fresh
 //              clear-context        ↓ far on the button: the context of the take goes too
 //              step {dir}           ← / → on the button: the next / the one before on the line · at {at} a take tapped
@@ -51,7 +54,19 @@ export function next(s, e) {
     case 'dstrand': return { ...s, dstrands: { ...s.dstrands, [e.kind]: !s.dstrands[e.kind] } };
     case 'form': return { ...s, form: { round: e.round ?? s.form.round, aspect: e.aspect ?? s.form.aspect } };
     case 'rec': return { ...s, rec: e.to, ...(e.to === 'recording' ? { at: count(s), wide: 0, sel: null } : {}) };
+    case 'kept': { // ← on the button (27.11.): the take lies on the line at once and the series moves on; its files are written behind
+      const lines = addTake(s.lines, { ...e.take, saving: true }, s.sticky);
+      return { ...s, lines, at: s.rec === 'idle' ? lines.at(-1).takes.length : s.at, context: stepAfter(s.context, e.step ?? 'inner'), wide: 0, caret: null };
+    }
+    case 'unkept': { // its files could not be written: it leaves the line again
+      const lines = s.lines.map((l) => (l.takes.some((t) => t.id === e.id) ? { ...l, takes: l.takes.filter((t) => t.id !== e.id) } : l));
+      return { ...s, lines, at: Math.min(s.at, lines.at(-1).takes.length) };
+    }
     case 'took': {
+      if (e.replace != null) { // written: the real take where the one kept lies – nothing else changes (gone meanwhile: stays gone, its files are kept)
+        const lines = s.lines.map((l) => (l.takes.some((t) => t.id === e.replace) ? { ...l, takes: l.takes.map((t) => (t.id === e.replace ? e.take : t)) } : l));
+        return { ...s, lines };
+      }
       const lines = addTake(s.lines, e.take, s.sticky);
       const n = lines.at(-1).takes.length;
       return { ...s, lines, at: s.rec === 'idle' || s.at >= n - 1 ? n : s.at, context: stepAfter(s.context, e.step ?? 'inner'), wide: 0, caret: null }; // step: ← a little = 'inner', far = 'whole' (26.11.) · rec stays: the next take may run already (17.11.)

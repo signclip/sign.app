@@ -20,7 +20,7 @@
 //            to join/touch/, where everyone with the read side sees them (publishTouches).
 // Depends:   1-model (file, ids, crypto, filename, time)
 // Test:      tests/swarm.test.mjs
-// Limits:    a touch ≈ 0.5 KB · ≤ 500 read per look (the newest) ≈ 250 KB · ≤ 10 steps from a Startpoint · with
+// Limits:    a touch ≈ 0.5 KB · ≤ 500 read per look (the newest) ≈ 250 KB · as many steps from a Startpoint as the touches reach (27.11.: depth is free; a line of 500 devices = 500 rings) · with
 //            (within 1) and 2 touches a minute each, 3^5 = 243 devices are in after 5 minutes (one Startpoint alone:
 //            ≈ 2 hours) · the spot is what the giver's device says (o_, H3 resolution 5 ≈ 250 km²): it keeps mistakes
 //            out, not someone who lies about where she is – what counts is the line of seals back to a Startpoint.
@@ -30,8 +30,9 @@ import { newId, writeId, uOf, idTime } from '../1-model/ids.js';
 import { signed, checkWitness } from '../1-model/crypto.js';
 import { buildName, timeLabel } from '../1-model/filename.js';
 import { timeRange, inTime, msOf } from '../1-model/time.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 
-export const FOLDER = 'join/touch/', DROP = 'hello/', MOST = 500, DEEPEST = 10;
+export const FOLDER = 'join/touch/', DROP = 'hello/', MOST = LIMITS.touches.value; // 500: the preselection, what counts: limit('touches')
 const LINE = /^\(\(touch\) \(([^()]*)\) \{:sharing-point\.1\} \{:sharing-point\.2\}\)/;
 const enc = new TextEncoder(), dec = new TextDecoder();
 const named = (path) => path.endsWith('.chain.sign') && path.slice(path.lastIndexOf('/') + 1).startsWith('(touch ');
@@ -112,8 +113,8 @@ export function swarmOf({ startpoints = [], touches = [], hellos = [], rule = nu
     if (!t || seen.has(k) || (group != null && t.group !== group) || !inRule(t, rule)) continue;
     seen.add(k); good.push(t);
   }
-  const counts = (t) => { const g = within.get(t.giver.id); return Boolean(g) && g.key === t.giver.key && (everyone || g.startpoint) && g.depth < DEEPEST; };
-  for (let depth = 1; depth <= DEEPEST; depth++) { // ring by ring: whoever is taken in by enough devices of the rings before
+  const counts = (t) => { const g = within.get(t.giver.id); return Boolean(g) && g.key === t.giver.key && (everyone || g.startpoint); };
+  for (let depth = 1; ; depth++) { // ring by ring, as deep as the touches reach (27.11., user: depth is free): whoever is taken in by enough devices of the rings before; a ring that takes nobody in ends it
     const next = new Map();
     for (const t of good.filter((x) => !within.has(x.taken.id) && counts(x))) {
       const k = `${t.taken.id} ${t.taken.key}`; // a device counts with one key only
@@ -161,7 +162,7 @@ export const countOf = (swarm) => ({ within: swarm?.within?.size ?? 0, waiting: 
 /** May this device take someone in now? (within, the rule lets members, or it is a Startpoint) */
 export function mayTouch(swarm, id, rule) {
   const me = swarm.within.get(id);
-  return Boolean(me) && (me.startpoint || needOf(rule) > 0) && me.depth < DEEPEST;
+  return Boolean(me) && (me.startpoint || needOf(rule) > 0);
 }
 
 /** A member: her touch into the drop. → path */
@@ -174,7 +175,7 @@ export async function dropTouch(store, { name, text }) {
 /** Whoever may write the group's folder: sealed touches move from hello/ to join/touch/ (junk stays where it is). → how many */
 export async function publishTouches(store) {
   let moved = 0;
-  for (const f of (await store.list(DROP).catch(() => [])).filter((x) => named(x.path)).slice(0, MOST)) {
+  for (const f of (await store.list(DROP).catch(() => [])).filter((x) => named(x.path)).slice(0, limit('touches'))) {
     if (!(await checkTouch(dec.decode(await store.read(f.path))).catch(() => null))) continue;
     await store.move(f.path, `${FOLDER}${f.path.slice(f.path.lastIndexOf('/') + 1)}`).then(() => { moved += 1; }, () => {}); // there already: left
   }
@@ -182,7 +183,7 @@ export async function publishTouches(store) {
 }
 
 /** Every sealed touch a store shows: join/touch/ and, where hello/ can be listed, what waits there. → [touch], the newest first */
-export async function touchesIn(store, { max = MOST } = {}) {
+export async function touchesIn(store, { max = limit('touches') } = {}) {
   const list = async (folder) => (await store.list(folder).catch(() => [])).filter((f) => named(f.path));
   const files = [...await list(FOLDER), ...await list(DROP)].sort((a, b) => (b.at ?? 0) - (a.at ?? 0) || (a.path < b.path ? 1 : -1)).slice(0, max);
   const out = new Map();

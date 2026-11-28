@@ -3,10 +3,15 @@
 // it); past the first catch = after a countdown (sound or motion: no matter – time to settle, or to move from one rest
 // into the next start position). Right: past the catch = the stillness after which a running take ends. Kept until changed.
 //
-// Purpose:   a series without hands: start → sign → still → kept → countdown → the next. Without the left time a take
-//            that went still waits on the button (← keeps, ↓ far drops, a tap goes on). Against takes nobody meant: one
-//            that started by itself and saw no motion is dropped and the next start waits for motion or a touch; after
-//            the app opens the same; typing or a touch begins the countdown anew. Seen on the button (21.11., no numbers, a
+// Purpose:   two times on the button (28.11., user's words): "Start von selbst" (left) = a countdown, then a take
+//            starts by itself; "Ende ohne Bewegung" (right) = so many seconds without motion in the picture, then the take
+//            is kept – out to the left onto the line, the button ready; with the start by itself set, its countdown
+//            follows: a series without hands. A tap pauses; paused, ← (↑ →) keeps and the countdown begins; a tap goes
+//            on and the end without motion counts again. Against takes nobody meant: one that started by itself and saw
+//            no motion is dropped and the next start waits for motion or a touch; typing or a touch begins the countdown
+//            anew. After the app opens it may start at once (27.11., user: remembered). A stop on the way (27.11.): when
+//            ← leaves a nesting (the next take has other prefixes, take-flow.js fix), the next start waits for a touch.
+//            Both count and show only with the take window and a sense on (28.11., tick). Seen on the button (21.11., no numbers, a
 //            tick per second): the countdown = the pill as wide as set, narrowing from the left onto the button (green);
 //            stillness in a take = after half the time set (26.11.) the pill growing to the right up to its end (red); it opens
 //            and closes moving (≈ 0.2 s), back onto the button with motion or when the take was kept. A ring inside the
@@ -29,11 +34,14 @@ const on = (s) => s.restartMs != null || s.stillEndMs > 0;
 
 export function calmOf(A) {
   const video = document.querySelector('#live');
-  let free = performance.now(), still = free, armed = false, moved = false, auto = false, starting = false, was = 'idle', wasIdle = false;
+  let free = performance.now(), still = free, armed = A.settings.restartMs != null, moved = false, auto = false, starting = false, was = 'idle', wasIdle = false;
+  let held = false; // a stop on the way: only a touch goes on
   let watched = null, unwatch = null, setting = null;
 
-  /** A touch now: the countdown begins anew, a start by itself may come again, the take is not still. */
-  function poke() { free = still = performance.now(); armed = true; }
+  /** A touch now: the countdown begins anew, a start by itself may come again, the take is not still and not dropped. */
+  function poke() { free = still = performance.now(); armed = true; held = false; if (A.st.rec !== 'idle') moved = true; } // a finger on it: somebody is there, it is never dropped
+  /** ← left a nesting (take-flow.js): the next start waits for a touch. */
+  function hold() { if (A.settings.restartMs == null) return; held = true; armed = false; navigator.vibrate?.([10, 40, 10, 40, 10]); } // felt: three short
 
   /** The camera is watched while a time is set; a new camera (the other side) is watched anew. */
   function sense(yes) {
@@ -44,7 +52,7 @@ export function calmOf(A) {
       const seen = A.st.strands.v ? e.level : e.loud ? 1 : 0, ring = document.querySelector('#take .motion');
       if (ring) ring.style.opacity = seen >= 1 ? 1 : (seen * 0.45).toFixed(2); // the ring in the button: bright = moving, faint = a little (21.11.)
       if (!(e.moving || (e.loud && !A.st.strands.v))) return; // still: without the picture strand, quiet
-      armed = true;
+      if (!held) armed = true;
       if (A.st.rec === 'recording') { still = performance.now(); moved = true; }
     }, { video });
   }
@@ -52,21 +60,27 @@ export function calmOf(A) {
   function tick() {
     const now = performance.now(), s = A.settings, st = A.st;
     if (st.rec !== was) { if (st.rec === 'recording') { still = now; if (was === 'idle') { moved = false; auto = starting; } } starting = false; was = st.rec; }
-    const idle = st.rec === 'idle' && live(st) && !st.share && st.similar !== 'full' && st.wide < 0.02 && !setting && !A.data.timers;
-    if ((idle && !wasIdle) || st.typing) free = now; // free again (kept, dropped, the newest spot): the countdown begins
+    // 28.11. (user: "nicht wenn ich woanders aktiv in der UI unterwegs bin und die Kamera, Audio deaktiv"): both times
+    // count only with the take window – the newest spot, Similar closed or one result (the live picture under it), no
+    // sharing, timeline, typing, settings, stacked lines or chosen line – and with a sense on: the picture or sound
+    // strand, the camera running. Elsewhere nothing shows; back, the countdown begins anew and a take's stillness too.
+    const here = live(st) && (st.similar === 'closed' || st.similar === 'single') && !st.share && st.wide < 0.02 && !st.typing && !setting && !A.data.timers && !A.data.fan && st.chosenLine == null && !document.hidden;
+    const sensing = (st.strands.v || st.strands.a) && Boolean(A.take.camera?.getTracks?.().some((k) => k.readyState === 'live'));
+    const near = here && sensing, idle = st.rec === 'idle' && near;
+    if ((idle && !wasIdle) || st.typing) free = now; // free again (kept, dropped, the newest spot, back): the countdown begins
     wasIdle = idle;
+    if (st.rec === 'recording' && !near) still = now; // away: the take runs on; not still while you are elsewhere
     sense(on(s));
     if (!on(s)) return show(null);
     const recording = st.rec === 'recording';
     // nothing new while a start or a drop is on its way (27.11.: it was asked again every 100 ms until the state changed)
     const step = A.take.busy ? null : calmStep(s, { idle, freeMs: now - free, armed, recording, stillMs: now - still, moved, auto });
-    if (step) { show(null); navigator.vibrate?.(step === 'pause' ? [20, 60, 20] : 10); } // the pill closes moving
+    if (step) show(null); // the pill closes moving (felt: keep, start and drop vibrate on their own)
     if (step === 'start') { starting = true; return run(A.take.start).then(() => { if (A.st.rec === 'idle') { starting = false; free = performance.now() + RETRY_MS; } }); } // no camera: again in 2 s, not every tick
-    if (step === 'keep') return run(A.take.keep); // the series goes on: the button is free, the countdown begins
-    if (step === 'pause') return run(A.take.pause); // waits for ← (keep) or ↓ far (drop)
+    if (step === 'keep') return run(A.take.keep); // the end without motion (28.11., user): kept, out to the left, ready – the countdown begins when set
     if (step === 'drop') { armed = false; return run(A.take.anew); }
     // stillness shows only after half the time set (26.11., user: not at once); then the pill opens as wide as set, half run
-    return show(recording && s.stillEndMs && now - still > Math.max(STILL_SEEN_MS, s.stillEndMs / 2) ? { kind: 'stop', t0: still, ms: s.stillEndMs }
+    return show(recording && near && s.stillEndMs && now - still > Math.max(STILL_SEEN_MS, s.stillEndMs / 2) ? { kind: 'stop', t0: still, ms: s.stillEndMs }
       : idle && armed && s.restartMs > 0 ? { kind: 'start', t0: free, ms: s.restartMs } : null);
   }
 
@@ -136,5 +150,5 @@ export function calmOf(A) {
   }
 
   setInterval(tick, EVERY_MS);
-  return { poke, pinch, get setting() { return Boolean(setting); } };
+  return { poke, hold, pinch, get setting() { return Boolean(setting); } };
 }

@@ -22,8 +22,9 @@ import { hashBytes } from '../1-model/hash.js';
 import { signed } from '../1-model/crypto.js';
 import { timeLabel } from '../1-model/filename.js';
 import { pathOf, partsOf } from '../2-storage/layout.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 
-export const MAX_ELEMENTS = 64;
+export const MAX_ELEMENTS = LIMITS.line.value; // the preselection, 64; what counts: limit('line')
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -35,7 +36,7 @@ const dec = new TextDecoder();
  */
 export async function addLine({ own, chainPath = null, below: belowBytes = null, elements, together = false, context = null, without = false, device, person, deviceKey = null, now = Date.now() }) {
   if (!elements?.length) throw new Error('a line needs at least one element');
-  if (elements.length > MAX_ELEMENTS) throw new Error(`at most ${MAX_ELEMENTS} elements in one line`);
+  if (elements.length > limit('line')) throw new Error(`at most ${limit('line')} elements in one line`);
   const at = timeLabel(now);
   const defs = [];
   let below = null;

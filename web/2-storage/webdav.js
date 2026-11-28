@@ -29,7 +29,8 @@
 //            MOVE) once the web app's CORS list is known to allow it · other WebDAV servers: one streamed PUT.
 
 import { ExistsError, MissingError } from './memory.js';
-import { pieceSize, WHOLE, TooLargeError } from './pieces.js';
+import { pieceSize, TooLargeError } from './pieces.js';
+import { limit } from '../1-model/limits.js';
 import { hashBytes } from '../1-model/hash.js';
 
 /** Where a Nextcloud takes the pieces of a file: …/remote.php/dav/files/<user>/… → …/remote.php/dav/uploads/<user>/ · any other address: null. */
@@ -154,7 +155,8 @@ export class WebDavStore {
 
   /** A file the server takes only whole: up to WHOLE, said in numbers beyond. */
   async writeWhole(path, pieces) {
-    if (pieces.size > WHOLE) throw new TooLargeError(`${this.name} takes a file only whole: ${path} has ${pieces.size} bytes, more than ${WHOLE}`);
+    const whole = limit('whole');
+    if (pieces.size > whole) throw new TooLargeError(`${this.name} takes a file only whole: ${path} has ${pieces.size} bytes, more than ${whole}`);
     return this.write(path, await pieces.slice(0, pieces.size));
   }
 

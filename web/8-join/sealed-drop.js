@@ -46,10 +46,11 @@ import { ExistsError, MissingError } from '../2-storage/memory.js';
 import { partsOf } from '../2-storage/layout.js';
 import { readHello } from './join.js';
 import { withState, accountFolder, nameOf as fileOf } from './state.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 
-export const MOST_FILES = 100;
-export const MAX_NOTES = 50;
-const HOLD = 64 * 1024 * 1024; // sealed bytes kept in memory between checking a drop and taking it
+export const MOST_FILES = LIMITS['drop.files'].value; // the preselection, 100; what counts: limit('drop.files')
+export const MAX_NOTES = LIMITS['drop.notes'].value; // the preselection, 50; what counts: limit('drop.notes')
+// sealed bytes kept in memory between checking a drop and taking it: limit('drop.hold'), 64 MiB
 const LABEL = 'sign run 1';
 const RUN = /^\(\(sealed ([0-9A-Z]+)\)((?: \([0-9A-Z]{26}\))*) \{:sharing-point\.1\}\)/;
 const KEY = /^\(\(key ([0-9A-Z]{26})\) \((q_[0-9A-Z]+)\) \(sealed ([0-9A-Z]+ [0-9A-Z]+ [0-9A-Z]+)\)\)/;
@@ -87,7 +88,7 @@ export class SealedDrop {
   async write(path, bytes) {
     if (this.sent) throw new Error('this drop is on its way: a new one for more');
     if (this.held.has(path)) throw new ExistsError(path);
-    if (this.held.size >= MOST_FILES) throw new Error(`a drop takes ${MOST_FILES} files`);
+    if (this.held.size >= limit('drop.files')) throw new Error(`a drop takes ${limit('drop.files')} files`);
     const plain = typeof bytes === 'string' ? enc.encode(bytes) : bytes;
     const key = newKey(), sealed = await sealFile(plain, key), file = await nameOf(sealed);
     await this.door.write(sealedPath(file), sealed).catch((e) => { if (!(e instanceof ExistsError)) throw e; });
@@ -157,7 +158,7 @@ export async function knownDevices(store) {
  * (knownDevices) · device: this device's q_ (is it one the drop was sealed for?).
  * → [{ path, from, known (a device within her door), mine (sealed for this device), files: n, bytes, time }], .junk = n
  */
-export async function waitingDrops(store, { known = {}, device = null, max = MAX_NOTES } = {}) {
+export async function waitingDrops(store, { known = {}, device = null, max = limit('drop.notes') } = {}) {
   const listed = await store.list('hello/');
   const size = new Map(listed.map((f) => [f.path, f.size]));
   const notes = listed.map((f) => f.path).filter(isNote);
@@ -205,9 +206,10 @@ export async function acceptDrop({ store, notePath, device, pickupKey, into }) {
     if (!held.has(f.file) && await nameOf(sealed) !== f.file) throw new Error(`not the file the sender sealed: ${f.path}`);
     return sealed;
   };
+  const hold = limit('drop.hold');
   for (const f of files) { // all of it is checked before any of it gets in: a drop comes whole or not at all
     const sealed = await checked(f);
-    if (!held.has(f.file) && (holding += sealed.length) <= HOLD) held.set(f.file, sealed);
+    if (!held.has(f.file) && (holding += sealed.length) <= hold) held.set(f.file, sealed);
   }
   for (const f of files) {
     const sealed = await checked(f); // held from the check, or read and checked once more (beyond 64 MiB)

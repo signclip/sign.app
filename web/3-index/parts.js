@@ -29,6 +29,8 @@
 //            A part kept this way is still checked against the folder's listing (fresh), exactly as a read one.
 // EXTEND(S3, index): ETag of the folder instead of names and sizes, where the server gives it (Nextcloud does).
 
+import { limit, LIMITS } from '../1-model/limits.js';
+
 export const PARTS = 'index/';
 const enc = new TextEncoder(), dec = new TextDecoder();
 
@@ -54,7 +56,7 @@ export function fresh(part, folder, files) {
 }
 
 const readPart = async (store, path) => { try { return JSON.parse(dec.decode(await store.read(path))); } catch { return null; } };
-export const KEPT_MAX = 32 * 1024 * 1024;
+export const KEPT_MAX = LIMITS['index.parts'].value; // the preselection, 32 MiB; what counts: limit('index.parts')
 const kept = new WeakMap(); // store → { parts: Map(path → { size, at, part }), bytes }
 /** The part at path, read from the store only when its listing (f: { size, at? }) is not the one it was read under. */
 async function readPartOnce(store, path, f) {
@@ -64,7 +66,7 @@ async function readPartOnce(store, path, f) {
   const part = await readPart(store, path);
   if (have) { mine.bytes -= have.size; mine.parts.delete(path); }
   if (part && (f.size ?? 0) > 0) {
-    if (mine.bytes + f.size > KEPT_MAX) { mine.parts.clear(); mine.bytes = 0; }
+    if (mine.bytes + f.size > limit('index.parts')) { mine.parts.clear(); mine.bytes = 0; }
     mine.parts.set(path, { size: f.size, at: f.at, part });
     mine.bytes += f.size;
   }

@@ -54,6 +54,8 @@ import { mountSharing } from './sharing-engine.js';
 import { PASSWORD_PARTS } from '../8-join/flow.js';
 import { hintSvg } from './hint.js';
 import { installDavFetch } from '../2-storage/dav-fetch.js';
+import { adjustAll, limitsNow } from '../1-model/limits.js';
+import { keptLimits, keepLimit } from './limits-kept.js';
 
 installDavFetch(); // native app: PROPFIND, MKCOL, MOVE through the app's own plugin (17.11.: lost in the rewrite, so the door never answered in the APK)
 installDebug();
@@ -145,7 +147,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   st = { ...st, onboard: { ...st.onboard, on: settings.onboarding && (!nameSign || gestures < PASSWORD_PARTS.length), name: person.label, nameSign, gestures, words } };
   if (st.onboard.on) st = { ...st, context: onboardingSeries({ ...st.onboard, own: '' }) };
   A.st = st;
-  A.keepLines = () => keep('sign.lines', A.st.lines.filter((l) => !l.guest).map((l) => ({ ...l, takes: l.takes.map(({ thumb, ...x }) => x) })));
+  A.keepLines = () => keep('sign.lines', A.st.lines.filter((l) => !l.guest).map((l) => ({ ...l, takes: l.takes.filter((x) => !x.saving).map(({ thumb, ...x }) => x) }))); // a take still being written is not kept: it has no file yet (27.11.)
 
   let frame = 0, up = false; // up: the start is through (26.11.: the index or a sharing point may answer before the first paint)
   A.paint = () => { if (up && !frame) frame = requestAnimationFrame(() => { frame = 0; paint(); }); };
@@ -163,6 +165,25 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     };
     requestAnimationFrame(step);
   }
+  /**
+   * A take kept (27.11., user: "automatisch speichern und nach links auf Line"): it glides out of the button onto the
+   * line, the older ones one take on, in 0.3 s – the line shifted by one take, back to none (layout.js lineSlots).
+   * A finger on the line takes over (gestures-take.js pull).
+   */
+  A.slideIn = () => {
+    if (matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const t0 = performance.now(), id = t0;
+    A.data.sliding = id; A.data.lineShift = 1;
+    const step = (now) => {
+      if (A.data.sliding !== id) return;
+      const f = Math.min(1, (now - t0) / 300);
+      A.data.lineShift = f >= 1 ? 0 : (1 - f) ** 3;
+      if (f >= 1) A.data.sliding = null;
+      A.paint();
+      if (f < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
   A.dispatch = (e) => {
     const before = A.st;
     A.st = next(A.st, e);
@@ -172,7 +193,7 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     if ((A.st.similar === 'full') !== (before.similar === 'full')) glideFull(A.st.similar === 'full' ? 1 : 0); // the button slides down, the arcs to the screen's edges (21.11.)
     if (A.st.similar === 'closed' && before.similar !== 'closed') { A.similar?.close(); A.data.ranging = false; A.data.kindCloud = null; }
     if (!A.st.share && before.share) { A.data.shareChain = null; A.data.suggest = null; } // what was made to share is shared (or not): the next ↑ shares the line again
-    if ((A.st.at !== before.at || A.st.rec !== before.rec) && A.st.wide < 0.02 && !A.similar?.comparing) A.showAt?.();
+    if ((A.st.at !== before.at || (A.st.rec !== before.rec && isLive(A.st))) && A.st.wide < 0.02 && !A.similar?.comparing) A.showAt?.(); // the take running pauses while an earlier one plays: that one plays on
     if (A.st.dstrands !== before.dstrands || A.st.pick !== before.pick || A.st.similar !== before.similar) A.similar?.sound?.(); // the single view's sound (20.11.)
     A.paint();
   };
@@ -191,7 +212,10 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   /** The window shows what the button holds: live, or the earlier take's picture (17.11.). */
   // 26.11. (user): another take of the line chosen = the window shows that take, also while one's own take waits paused
   // (before, the live picture stayed); back on the take that runs or waits = the camera again, opened anew if it went still (take-flow.js liveAgain).
-  A.showAt = () => { const s = A.st; if (isLive(s)) { A.player.stop(); return A.take.liveAgain?.(); } const take = s.lines.at(-1).takes[Math.min(s.at, takesOn(s) - 1)]; return take ? A.player.show(take, 0) : A.player.stop(); };
+  // 27.11. (user: "Takes der Line sollen beim Durchgehen abspielen"): an earlier take plays once as soon as it is in the
+  // button – stepped to, pulled to, tapped on the line; muted while a take records (its sound would go into it); a tap
+  // pauses. play = false: its first picture only (the timeline just closed). A take still being written has no file yet.
+  A.showAt = (play = true) => { const s = A.st; if (isLive(s)) { A.player.stop(); return A.take.liveAgain?.(); } const take = s.lines.at(-1).takes[Math.min(s.at, takesOn(s) - 1)]; return take ? A.player.show(take, 0, play && !take.saving ? { play: true, muted: s.rec === 'recording', onEnd: () => A.paint() } : {}) : A.player.stop(); };
   A.similar = similarFlow(A);
 
   // ---------- onboarding: the app teaches itself (onboarding-steps.js) ----------
@@ -221,6 +245,9 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
   // ---------- the sharing menu ----------
   const panel = $('#sharing');
   const project = await fetch(new URL('../project.json', import.meta.url)).then((r) => r.json()).catch(() => null);
+  // limits (27.11., 1-model/limits.js): the project's preselection, then what this device was given for itself
+  for (const r of [...adjustAll(project?.limits, 'project').refused, ...adjustAll(keptLimits(), 'device').refused]) console.warn(`limits: ${r.refused}`);
+  A.limits = { now: limitsNow, keep: keepLimit };
   A.engine = await mountSharing({
     panel, project, own: store, keychain, person, device, t,
     onDraw: (snap) => { A.data.snap = snap; paintSharing(); },
@@ -330,7 +357,8 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
     const st = A.st, open = Boolean(A.data.fan) && (st.similar === 'closed' || st.similar === 'many') && st.lines.length > 1; // under the open cloud too: its rails choose them (27.11.)
     const stackT = stackStep(open ? 1 : 0); // the lines stacked between button and window open and fold in 0.3 s (27.11.)
     if (open) stackWant = st.lines.length - 1;
-    const L0 = takeLayout({ ...size(), stack: stackT > 0 ? { rows: stackWant, t: ease(stackT) } : null }, st.similar, st.form, A.data.picture ?? 1, A.data.fullT ?? (st.similar === 'full' ? 1 : 0));
+    if (A.data.fullT == null) A.data.fullT = st.similar === 'full' ? 1 : 0; // known from the first paint on: going full starts from 0, no frame at the end first (27.11.)
+    const L0 = takeLayout({ ...size(), stack: stackT > 0 ? { rows: stackWant, t: ease(stackT) } : null }, st.similar, st.form, A.data.picture ?? 1, A.data.fullT);
     const mark = markStep(st.chosenLine != null && st.similar !== 'full' && st.wide < 0.02 ? 1 : 0);
     const L = mark > 0 ? markedButton(L0, innerWidth, ease(mark)) : L0; // a line chosen: the button to the right (26.11.)
     A.L = L;
@@ -373,7 +401,14 @@ export async function start({ locales, lang = navigator.language.slice(0, 2) }) 
       clearTimeout(A.data.cloudTimer);
       A.data.cloudTimer = setTimeout(() => { cloud.classList.remove('arriving', 'leaving'); A.paint(); }, cloudOpen ? 420 : 240);
     }
+    const opening = st.similar === 'single' && A.data.lastLevel !== 'single' ? cloud.querySelector(`[data-key="tile:${CSS.escape(String(st.pick ?? ''))}"]`)?.getBoundingClientRect() ?? null : null; // where the result stood in the cloud
     if (!cloud.classList.contains('leaving') && cloud.dataset.text !== sim) { morph(cloud, sim); cloud.dataset.text = sim; } // only what differs is changed (morph.js, 26.11.): a tile that stays keeps its element, nothing trembles
+    if (opening && !matchMedia?.('(prefers-reduced-motion: reduce)').matches) { // the result opens out of its tile into the single view (27.11., user): 0.32 s, eased
+      const one = cloud.querySelector('.single'), r = one?.getBoundingClientRect();
+      one?.style.setProperty('transform-origin', '0 0');
+      if (one && r?.width) one.animate([{ transform: `translate(${opening.x - r.x}px, ${opening.y - r.y}px) scale(${opening.width / r.width}, ${opening.height / r.height})`, opacity: 0.6 }, { transform: 'none', opacity: 1 }], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' });
+    }
+    A.data.lastLevel = st.similar;
     const over = overHtml(st, { w: innerWidth, h: innerHeight }, { ...(A.data.similarLists ?? {}), spotMap: A.data.spotMap ?? null, spotBase: A.data.spotBase ?? null, me: A.person?.label ?? '', lang, k: L.k }); // a respect over everything (26.11.)
     if ($('#over').dataset.text !== over) { morph($('#over'), over); $('#over').dataset.text = over; }
     const cg = $('#carry'), c = A.data.carry; // what is carried follows the finger

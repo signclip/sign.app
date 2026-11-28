@@ -15,16 +15,19 @@
 //            opens what a group link opened: anyone with the invitation).
 // Depends:   1-model (file, ids, crypto, filename)
 // Test:      tests/gateway.test.mjs
-// Limits:    ≈ 350 B each, chains ≤ 3 · one prefix per grant · no end date: taken back by a revocation in the bucket
+// Limits:    ≈ 350 B each, chains ≤ 8 (27.11.: was 3 = the three cases above; a group inside a group needs one more
+//            per step, the user's "Tiefe frei"; a bound stays because the gateway checks every seal, ≈ 0.2 ms each;
+//            limit('grant.chain'), 3 … 32) · one prefix per grant · no end date: taken back by a revocation in the bucket
 //            (gateway: op revoke, setup.mjs revoke) by the grant's id, its access key, device or holder.
 
 import { readFile, headLine, defLine, fileText } from '../1-model/file.js';
 import { newId, writeId } from '../1-model/ids.js';
 import { signed, checkWitness } from '../1-model/crypto.js';
 import { timeLabel } from '../1-model/filename.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 
 const LINE = /^\(\(grant\) \(access ([0-9A-Z]+|\*)\) \((r|a|ra|rw)\) \(([^()]*)\)\)/;
-export const MOST = 3;
+export const MOST = LIMITS['grant.chain'].value; // the preselection, 8; what counts: limit('grant.chain')
 
 /** Signer (or holder of w): a grant. giver: { person, device, deviceKey } · holder: { label, id, key } of the hello (null for a door). */
 export async function makeGrant({ signer, device = null, access, prefix, rights = 'rw', now = Date.now() }) {
@@ -64,7 +67,7 @@ const within = (inner, outer) => [...inner].every((r) => (r === 'a' ? /[aw]/.tes
  */
 export async function checkChain(grants, signers = []) {
   const texts = chainOf(grants);
-  if (!texts.length || texts.length > MOST) return null;
+  if (!texts.length || texts.length > limit('grant.chain')) return null;
   const all = [];
   for (const [i, text] of texts.entries()) {
     const g = readGrant(text), up = all[i - 1];

@@ -37,16 +37,17 @@ import { readFile } from '../1-model/file.js';
 import { frameOf } from './frame.js';
 import { note as debugNote } from './debug.js';
 import { filesOf, allowed } from './ahead.js';
-import { comingOf, streamOf, startAt, FIRST, HOLD } from './stream.js';
+import { comingOf, streamOf, startAt } from './stream.js';
 import { feedType } from '../1-model/media-codec.js';
 import { secondsOf } from '../1-model/mp4-duration.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 
 const dec = new TextDecoder();
 /** A chain that only adds something computed on top of the chain below (an echo: Whisper, later landmarks), no take of its own. */
 export const isEcho = (c) => Boolean(c?.defs?.has('chain.1')) && [...c.defs.values()].every((d) => d.kind === 'chain' || d.echo) && [...c.defs.values()].some((d) => d.kind !== 'chain' && d.echo && d.echo !== ':chain.1');
 const LIST_AGAIN_MS = 30_000;
 export const WAKE_FIRST = 3 * 512 * 1024;
-export const KEPT = 96 * 2 ** 20;
+export const KEPT = LIMITS['far.kept'].value; // the preselection, 96 MiB; what counts: limit('far.kept')
 const typeOf = (path) => (path.endsWith('.png') ? 'image/png' : path.endsWith('.wav') ? 'audio/wav' : path.endsWith('.webm') ? 'video/webm' : 'video/mp4'); // as recorded (settings.js pickVideoType)
 /** A file of this device as the browser holds it (nothing read), under the type its name says; null where the store has none. */
 const onDisk = async (p) => { const b = p.store.blob ? await p.store.blob(p.path).catch(() => null) : null; return b && b.type !== typeOf(p.path) ? b.slice(0, b.size, typeOf(p.path)) : b; };
@@ -56,7 +57,7 @@ const onDisk = async (p) => { const b = p.store.blob ? await p.store.blob(p.path
  * pass their own) · Source: the browser's MediaSource (none = far videos are read whole) · first, piece: how much of a
  * far video comes at once (stream.js) · feed: hands a coming file to a video element (stream.js streamOf). → helpers
  */
-export function mediaOf(store, now, { frame = frameOf, Source = globalThis.MediaSource, first = FIRST, piece = null, feed = streamOf } = {}) {
+export function mediaOf(store, now, { frame = frameOf, Source = globalThis.MediaSource, first = null, piece = null, feed = streamOf } = {}) {
   const pics = new Map(), listings = new WeakMap();
   const comings = new Map(); // path → { file, type, ready }: far videos as they come, in order of last use
   let feeding = true; // off once a feeding failed (this browser, this kind of file): whole files from then on
@@ -109,13 +110,13 @@ export function mediaOf(store, now, { frame = frameOf, Source = globalThis.Media
     const c = { file: null, type: undefined, ready: null };
     c.ready = listOnce(p.store, p.path.slice(0, p.path.lastIndexOf('/') + 1)).then((list) => {
       const size = list.sizes?.get(p.path) ?? null;
-      c.file = comingOf((from, to) => p.store.readPiece(p.path, from, to), { size, first, ...(piece ? { piece } : {}), keep: size == null || size <= HOLD });
+      c.file = comingOf((from, to) => p.store.readPiece(p.path, from, to), { size, ...(first ? { first } : {}), ...(piece ? { piece } : {}), keep: size == null || size <= limit('stream.hold') });
       return c;
     });
     comings.set(p.path, c);
     let held = 0;
     for (const x of comings.values()) held += x.file?.bytes ?? 0;
-    for (const [path, x] of comings) { if (held <= KEPT || path === p.path) break; held -= x.file?.bytes ?? 0; comings.delete(path); } // the least recently used go
+    for (const [path, x] of comings) { if (held <= limit('far.kept') || path === p.path) break; held -= x.file?.bytes ?? 0; comings.delete(path); } // the least recently used go
     return c;
   }
   /** The beginning of a far video is here (read now, or read ahead before). → its entry */

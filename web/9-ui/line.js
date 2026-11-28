@@ -19,9 +19,10 @@
 // Limits:    64 elements per line (as add-line.js MAX_ELEMENTS); a cut needs ≥ MIN_PART_MS on both sides.
 
 import { parse, write } from '../1-model/notation.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 
 export const SERIES_GAP_MS = 10 * 60 * 1000;
-export const MAX_IN_LINE = 64;
+export const MAX_IN_LINE = LIMITS.line.value; // the preselection, 64; what counts: limit('line')
 export const MIN_PART_MS = 200;
 
 /** An empty set of lines: one open line. */
@@ -31,7 +32,7 @@ export const noLines = () => [{ id: 'l0', takes: [], sticky: '' }];
 export function sameSeries(line, { t, sticky = '' }) {
   const last = line.takes.at(-1);
   if (!last) return true;
-  return (line.sticky ?? '') === sticky && t - (last.t + (last.ms ?? 0)) < SERIES_GAP_MS && line.takes.length < MAX_IN_LINE;
+  return (line.sticky ?? '') === sticky && t - (last.t + (last.ms ?? 0)) < SERIES_GAP_MS && line.takes.length < limit('line');
 }
 
 /** A new take onto the lines: into the open line, or a new line when the series ended. → lines */
@@ -127,7 +128,7 @@ export function removeTake(lines, n, i) {
 
 /** Put a take onto line n (↑ on the button while that line is chosen): at its end. */
 export function putOnLine(lines, n, take) {
-  return lines.map((l, j) => (j !== n || l.takes.length >= MAX_IN_LINE ? l : { ...l, takes: [...l.takes, take] }));
+  return lines.map((l, j) => (j !== n || l.takes.length >= limit('line') ? l : { ...l, takes: [...l.takes, take] }));
 }
 
 /** Older lines, newest first (they lie as small arcs under the line). */

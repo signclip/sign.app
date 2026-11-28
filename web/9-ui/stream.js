@@ -29,7 +29,9 @@
 // EXTEND(W2, sealed): a sealed sharing point gives no range yet (sealed-store.js: readPiece per sealed piece of
 //            8 MiB) – with end-to-end sealing as the default (user 27.11.) that is the step that makes this count.
 
-export const FIRST = 4 * 2 ** 20, PIECE = 2 * 2 ** 20, HOLD = 64 * 2 ** 20;
+import { limit, LIMITS } from '../1-model/limits.js';
+
+export const FIRST = LIMITS['stream.first'].value, PIECE = LIMITS['stream.piece'].value, HOLD = LIMITS['stream.hold'].value; // the preselection (4, 2, 64 MiB); what counts: limit('stream.…')
 
 /**
  * A file as it comes. read(from, to) → Uint8Array (a range; shorter or empty at the file's end) · size: when known
@@ -37,7 +39,7 @@ export const FIRST = 4 * 2 ** 20, PIECE = 2 * 2 ** 20, HOLD = 64 * 2 ** 20;
  * next one is asked for (long files).
  * → { have, bytes, ended, piece(i), more(), rest(), whole() }
  */
-export function comingOf(read, { size = null, first = FIRST, piece = PIECE, keep = true } = {}) {
+export function comingOf(read, { size = null, first = limit('stream.first'), piece = limit('stream.piece'), keep = true } = {}) {
   const have = []; // the pieces in order; null where one was let go
   let bytes = 0, ended = false, job = null, spent = 0; // spent: ms the reads took, for the speed of the line
   const clock = () => globalThis.performance?.now() ?? Date.now();

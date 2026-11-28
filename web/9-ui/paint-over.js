@@ -26,6 +26,23 @@ const f1 = (n) => Number(n).toFixed(1);
 export const SIGN = { initial: 'A', date: '▮', spot: '◎', who: '◯' };
 export const EDGE = { initial: 'left', date: 'right', spot: 'top', who: 'bottom' }; // where each lies, small and large
 
+/**
+ * The row of the four respects (27.11., user: "Metadaten-Auswahl als Kurzeinstellung, schön oben … und in
+ * Gesamtansicht"): at the top of the cloud and, the same, at the top of a respect over everything. Only its sign
+ * (28.11., user: no summary of what is chosen there – that shows only in the rail or over everything): filled = some-
+ * thing of it is chosen (or the cloud is bundled by it), dark = open.
+ * Letters at the left end, the date at the right end (their rails unfold under them), spot and who in the middle;
+ * box: where it lies · open: the respect whose rail or full view is open · spots: [{ id, label }]
+ */
+export const QUICK = ['initial', 'spot', 'who', 'date']; // in the order of their edges: left · top · bottom · right
+export const QUICK_H = 34; // px at k = 1 the row takes: 28 high, 3 above and below
+export function quickHtml(f, box, { open = null } = {}) {
+  const v = f.value, chosen = { initial: (v.initial ?? []).length > 0, date: Boolean(f.on.date && v.date), spot: (v.spot ?? []).length > 0, who: (v.sharing ?? []).length + (v.name ?? []).length > 0 };
+  const cls = (z) => `q${chosen[z] || f.group?.by === z ? ' on' : ''}${z === open ? ' open' : ''}`;
+  const one = (z) => `<span class="${cls(z)}" data-key="grip:${z}" data-role="grip:${z}"><i>${SIGN[z]}</i></span>`;
+  return `<div class="quick" data-key="quick" style="left:${px(box.x)};top:${px(box.y)};width:${px(box.w)};height:${px(box.h)}">${one('initial')}<span class="q-mid">${one('spot')}${one('who')}</span>${one('date')}</div>`;
+}
+
 /** The box a respect fills over everything: the screen less 10 px round (k = 1). */
 export const overBox = ({ w, h }, k = 1) => ({ x: 10 * k, y: 10 * k, w: w - 20 * k, h: h - 20 * k });
 
@@ -48,18 +65,22 @@ const ids = new WeakMap(); let next = 1;
 const identity = (o) => { if (!o) return '0'; if (!ids.has(o)) ids.set(o, next++); return ids.get(o); };
 
 /** HTML of the respect shown over everything, or ''. data: { all, reach, spotMap, spotBase, me, lang, k } */
-export function overHtml(st, size, { all = [], reach = [], spotMap = null, spotBase = null, me = '', lang = 'de', k = 1 } = {}) {
+export function overHtml(st, size, { all = [], reach = [], spotMap = null, spotBase = null, spots = [], me = '', lang = 'de', k = 1 } = {}) {
   const f = st.filters, z = f.full;
   if (!z || f.open !== z || (st.similar !== 'many' && st.similar !== 'full')) return '';
-  const box = overBox(size, k), back = `<span class="over-back ${EDGE[z]}" data-role="full-off">${SIGN[z]}</span>`;
-  const body = z === 'spot' ? spotOver(f, box, { spotMap, spotBase, k, lang }) : z === 'who' ? whoOver(f, box, { reach, me, k }) : z === 'date' ? dateOver(f, box, { all, lang, k }) : lettersOver(f, box, { all, k });
-  return `<div class="over-panel ${z}" data-key="over:${z}" data-role="over" style="left:${px(box.x)};top:${px(box.y)};width:${px(box.w)};height:${px(box.h)}">${body}${back}</div>`;
+  // the row stays at the top (27.11.): another respect tapped = that one over everything, its own = back to its rail.
+  // The map lies under the row, edge to edge; the rings, the calendar and the keys begin below it.
+  const box = overBox(size, k), top = (QUICK_H + 6) * k, below = { x: box.x, y: box.y + top, w: box.w, h: box.h - top };
+  const row = quickHtml(f, { x: 8 * k, y: 6 * k, w: box.w - 16 * k, h: (QUICK_H - 6) * k }, { open: z });
+  const under = (html) => `<div class="over-body" style="top:${px(top)};height:${px(below.h)}">${html}</div>`;
+  const body = z === 'spot' ? spotOver(f, box, { spotMap, spotBase, k, lang, top }) : under(z === 'who' ? whoOver(f, below, { reach, me, k }) : z === 'date' ? dateOver(f, below, { all, lang, k }) : lettersOver(f, below, { all, k }));
+  return `<div class="over-panel ${z}" data-key="over:${z}" data-role="over" style="left:${px(box.x)};top:${px(box.y)};width:${px(box.w)};height:${px(box.h)}">${body}${row}</div>`;
 }
 
-function spotOver(f, box, { spotMap, spotBase, k, lang }) {
+function spotOver(f, box, { spotMap, spotBase, k, lang, top = 40 * k }) {
   if (!spotMap?.length) return '<div class="over-empty">◎</div>';
-  const b = 34 * k; // its sign at the top, back to the rail: no name under it; 12 % margin round the takes' areas, for what lies around them
-  return spotMapSvg(spotMap, spotBase, box, { k, chosen: f.value.spot ?? [], id: 'over-map', lang, pad: Math.max(12 * k, 0.12 * Math.min(box.w, box.h)), keep: [[box.w / 2 - b, 0, box.w / 2 + b, 2 * b]] });
+  // the row at the top: no name under it; 12 % margin round the takes' areas, for what lies around them
+  return spotMapSvg(spotMap, spotBase, box, { k, chosen: f.value.spot ?? [], id: 'over-map', lang, pad: Math.max(12 * k, 0.12 * Math.min(box.w, box.h)), keep: [[0, 0, box.w, top]] });
 }
 
 /** Rings round me (the Weite's steps of who), the sharing points on them as bubbles with their persons. */

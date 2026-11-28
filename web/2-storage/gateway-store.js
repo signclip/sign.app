@@ -27,13 +27,14 @@
 
 import { ExistsError, MissingError } from './memory.js';
 import { pieceSize } from './pieces.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 import { gatewayParts } from './spec.js';
 import { askGateway } from './gateway-ask.js';
 
 export { gatewayParts };
 
 const enc = new TextEncoder();
-const MiB = 2 ** 20, IN_PIECES = 16 * MiB, AT_ONCE = 3, TRIES = 3, LINK_MS = 60000;
+const TRIES = 3, LINK_MS = 60000; // in pieces above limit('in-pieces') = 16 MiB, limit('at-once') = 3 of them at once (1-model/limits.js)
 export { pieceSize }; // 8 MiB, or more so that a file needs at most 10,000 pieces (pieces.js: the Nextcloud cuts by the same)
 const b64 = (buf) => { let s = ''; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s); };
 
@@ -76,7 +77,7 @@ export class GatewayStore {
   }
   async write(path, bytes) {
     const b = typeof bytes === 'string' ? enc.encode(bytes) : bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    if (b.length > IN_PIECES) return this.writeFrom(path, { size: b.length, slice: async (from, to) => b.subarray(from, to) });
+    if (b.length > limit('in-pieces')) return this.writeFrom(path, { size: b.length, slice: async (from, to) => b.subarray(from, to) });
     const sha = b64(await crypto.subtle.digest('SHA-256', b));
     const { url, headers } = await this.ask('put', this.prefix + path, b.length, sha);
     const { 'content-length': _length, ...send } = headers; // the browser sets the length itself
@@ -87,17 +88,21 @@ export class GatewayStore {
   /** A file of any size, piece by piece (pieces.js): pieces = { size, slice(from, to) → Uint8Array }, asked in order. */
   async writeFrom(path, pieces) {
     const total = pieces.size;
-    if (total <= IN_PIECES) return this.write(path, await pieces.slice(0, total));
-    const key = this.prefix + path, size = pieceSize(total), count = Math.ceil(total / size);
+    if (total <= limit('in-pieces')) return this.write(path, await pieces.slice(0, total));
+    const key = this.prefix + path, size = pieceSize(total), count = Math.ceil(total / size), atOnce = limit('at-once');
     const lengthOf = (n) => Math.min(size, total - (n - 1) * size);
     const kept = await this.open.get(key);
-    let upload = kept?.bytes === total ? kept.upload : null, there = new Map();
+    // going on only with the piece it began with (a record from before 27.11. names none: it was the preselection):
+    // pieces of another size would stay behind the new ones and be joined into the file
+    const same = kept?.bytes === total && (kept.piece ?? pieceSize(total, LIMITS.piece.value)) === size;
+    if (kept && !same) { try { await this.ask('abort', key, kept.upload); } catch { /* the object storage clears it after a day */ } await this.open.delete(key); }
+    let upload = same ? kept.upload : null, there = new Map();
     if (upload) { // broke off earlier: only the pieces that did not arrive
       try { there = new Map((await this.ask('partlist', key, upload)).parts.map((p) => [p.n, p])); } catch { upload = null; }
     }
     if (!upload) {
       try { ({ upload } = await this.ask('start', key, total)); } catch (err) { if (err.status === 409) throw new ExistsError(path); throw err; }
-      await this.open.set(key, { upload, bytes: total });
+      await this.open.set(key, { upload, bytes: total, piece: size });
     }
     const send = async (n, piece, sha) => {
       for (let tries = 1; ; tries++) {
@@ -120,7 +125,7 @@ export class GatewayStore {
       if (had && had.size === piece.length && (!had.sha || had.sha === sha)) continue; // it arrived before the break, and it is this piece
       const job = send(n, piece, sha).catch((err) => { broken ??= err; }).finally(() => flying.delete(job));
       flying.add(job);
-      if (flying.size >= AT_ONCE) await Promise.race(flying);
+      if (flying.size >= atOnce) await Promise.race(flying);
     }
     await Promise.all(flying);
     if (broken) throw broken; // the upload stays open: the next write of this path goes on

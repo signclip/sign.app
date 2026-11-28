@@ -24,10 +24,11 @@
 
 import { saveTake } from '../4-save/save-take.js';
 import { readMarkdown, noteContext } from '../1-model/markdown.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 
 const WORD = /[\p{L}\p{N}][\p{L}\p{N}\-]*/gu;
 const dec = new TextDecoder();
-export const MOST_AT_ONCE = 500 * 2 ** 20;
+export const MOST_AT_ONCE = LIMITS.intake.value; // the preselection, 500 MiB; what counts: limit('intake')
 
 /** The words of a file name, without its ending: 'Urlaub_Ostsee 2024.mp4' → '(Urlaub Ostsee 2024)'. */
 export function nameContext(name) {
@@ -41,7 +42,7 @@ export const nameLabel = (name) => String(name || 'file').replace(/[()[\]{}\r\n\
 /** What a file becomes. file: { name, type, size } → { as: 'v' | 'note' } or { refused: reason } */
 export function sortFile({ name = '', type = '', size = 0 }) {
   const ext = /\.([A-Za-z0-9]{1,8})$/.exec(name)?.[1]?.toLowerCase() ?? '';
-  if (size > MOST_AT_ONCE) return { refused: 'too large to read at once' };
+  if (size > limit('intake')) return { refused: 'too large to read at once' };
   if (ext === 'mp4' || type === 'video/mp4') return { as: 'v' };
   if (['md', 'markdown', 'txt'].includes(ext) || type === 'text/markdown' || type === 'text/plain') return { as: 'note' };
   return { refused: `no strand for .${ext || type || '?'} yet` };

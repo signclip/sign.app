@@ -15,7 +15,8 @@
 //   row      tap = write (where: between two elements, into a bubble, at the end) · the preset "Name" pulled down = away
 //   above    spread above the take, or a tap there (26.11.) = Similar comes (spread again: full), squeeze = it goes;
 //            a tile tapped = single view
-//   Similar  the four respects at the cloud's edges (26.11.): tap a grip or spread two fingers there = its rail opens ·
+//   Similar  the four respects in one row at the top (27.11.): tap = its rail opens at its edge, again = closed, held =
+//            over everything; spread two fingers at an edge = its rail opens too (26.11.) ·
 //            a value tapped = chosen (calendar: a second one = from … to) · the arrow at its head = the order turns ·
 //            spread / squeeze = finer / coarser bundles · the rail pushed out over its edge = closed · spread on the rail
 //            itself = it lies over everything (26.11., paint-over.js), squeeze or its sign = back
@@ -31,7 +32,8 @@ import { joinTakes, cutTake, withContext, nestStep } from './line.js';
 import { nowWords, stepAfter } from './chips.js';
 import { slotPx, onTake, similarSide, onArc, timeline, wideButton, STACK, stackReach } from './layout.js';
 import { zoomed, tapFilter, turnOrder, setFilter } from './similar-view.js';
-import { zoneOf, zoomZone, openBundle, bundlesOf, periodRange } from './similar-zoom.js';
+import { zoneOf, zoomZone, openBundle, bundlesOf, periodRange, spanBetween, spreadAcross } from './similar-zoom.js';
+import { roleAt } from './touch.js';
 import { SECTORS, READY, wideOpen, stepRange } from './similar-range.js';
 import { insertGesture, fromField, contextTree, leadOf } from '../1-model/context.js';
 import { removeBefore, nestBetween, closeAt, unwrapAt, appendWord, toFront, takeOut, openAt } from '../1-model/context-edit.js';
@@ -57,6 +59,8 @@ export function gesturesOf(A) {
     if (A.st.share) return sharing(ev, e);
     if (A.st.filters.full && A.st.filters.open === A.st.filters.full && (A.st.similar === 'many' || A.st.similar === 'full')) return over(ev); // a respect over everything (26.11.)
     if (A.data.ranging) return ranging(ev);
+    if ((ev.role ?? '').startsWith('initial:') && A.st.filters.open === 'initial' && (ev.type === 'drag' || ev.type === 'drag-end' || (ev.type === 'swipe' && ev.dir !== 'left'))) return drawLetters(ev); // drawn along the letters' rail (28.11.); to the left = pushed out
+    if ((ev.role ?? '').startsWith('period:') && A.st.filters.open === 'date' && (ev.type === 'drag' || ev.type === 'drag-end' || (ev.type === 'swipe' && ev.dir !== 'right'))) return drawSpan(ev); // a finger drawn along the date's rail (27.11.); to the right = pushed out, closed as before
     if (ev.type === 'hold' && ev.role === 'window' && (A.st.similar === 'many' || A.st.similar === 'single')) { A.data.ranging = true; navigator.vibrate?.(10); return A.paint(); } // how far Similar looks: the rings with sectors (21.11.)
     const inStack = (e) => A.L.stackRows > 0 && e.y > A.L.button.y && e.y < A.L.cy - A.L.ry; // the band between the button and the window
     if (A.data.fan && ev.type !== 'pinch' && (A.st.similar === 'closed' || (ev.role ?? '').startsWith('fan:') || inStack(ev))) return fan(ev); // the stacked lines: a take = that line, elsewhere = closed; with the cloud open its rails and tiles stay its own (27.11.)
@@ -126,6 +130,7 @@ export function gesturesOf(A) {
       }
     }
     if (ev.type === 'hold' && r.startsWith('filter:')) return A.dispatch({ type: 'filters', filters: turnOrder(A.st.filters, r.slice(7)) });
+    if (ev.type === 'hold' && r.startsWith('grip:') && (A.st.similar === 'many' || A.st.similar === 'full')) return gripFull(r.slice(5));
     const mine = railOf(r); // a rail pushed out over its own edge = closed (26.11.), as everything goes that is pushed over an edge
     if (ev.type === 'swipe' && mine && mine === A.st.filters.open && ev.dir === OUT[mine]) return closeRail(mine);
     if (ev.type === 'swipe') {
@@ -276,7 +281,7 @@ export function gesturesOf(A) {
     }
     if (ev.type === 'drag') {
       const v = pulled ? (ev.dx - pulled.x) / Math.max(1, ev.t - pulled.t) : 0;
-      pulled = { x: ev.dx, t: ev.t, v: pulled ? pulled.v * 0.6 + v * 0.4 : 0 };
+      pulled = { x: ev.dx, t: ev.t, v: pulled ? pulled.v * 0.6 + v * 0.4 : 0 }; A.data.sliding = null; // a take gliding in (app.js slideIn): the finger has the line now
       A.data.lineShift = Math.max(A.st.at - n - 0.35, Math.min(A.st.at + 0.35, ev.dx / px)); // a little past the ends, then it holds
       return A.paint();
     }
@@ -386,6 +391,10 @@ export function gesturesOf(A) {
         if (bundle && ev.scale > 1.12) return openBundleAt(Number(bundle.slice(7)));
         const f = A.st.filters;
         if (f.open && ev.scale > 1.12 && [a, b].some((x) => railOf(x ?? '') === f.open)) { navigator.vibrate?.(10); return A.dispatch({ type: 'filters', filters: { ...f, full: f.open } }); } // spread on the open rail = over everything (26.11.)
+        if (ev.scale > 1.12 && spreadAcross(ev.at, ev.now)) { // spread with a part across = the respect over everything; upright = its rail, as before (27.11.)
+          const z = zoneOf(L.similarBox, ev.centre, L.k) ?? (f.open && f.open !== 'template' ? f.open : null);
+          if (z) return gripFull(z);
+        }
         const zone = (f.open && f.open !== 'template' ? f.open : null) ?? zoneOf(L.similarBox, ev.centre, L.k) ?? (f.value.bundle && ev.scale < 0.88 ? f.value.bundle.by : null); // a view open: zooming anywhere = its steps (22.11.)
         if (zone) { navigator.vibrate?.(6); return A.dispatch({ type: 'filters', filters: zoomZone(f, zone, ev.scale) }); }
       }
@@ -450,7 +459,7 @@ export function gesturesOf(A) {
   function closeWide() {
     wide = null; A.data.cut = 0; scrubFrom = null;
     A.dispatch({ type: 'wide', spread: 0 });
-    return A.showAt();
+    return A.showAt(false); // closed: it stands where it is, no new run
   }
   /** A finger on the open timeline: it stops and follows the finger; the window shows that moment. */
   let scrubFrom = null;
@@ -721,10 +730,20 @@ export function gesturesOf(A) {
     navigator.vibrate?.(6);
     return A.dispatch({ type: 'filters', filters: openBundle(A.st.filters, g.key) });
   }
-  /** A grip tapped: its rail opens (the cloud one by one, sorted by it). Its rail is closed again by pushing it out, or by squeezing. */
+  /**
+   * A respect in the row at the top tapped (27.11.): its rail opens (the cloud one by one, sorted by it); tapped again
+   * = closed, as by pushing the rail out or squeezing it. What was chosen stays chosen and stays written in the row.
+   */
   function grip(z) {
+    if (A.st.filters.open === z) return closeRail(z);
     navigator.vibrate?.(6);
     return A.dispatch({ type: 'filters', filters: zoomZone(A.st.filters, z, 1.2) });
+  }
+  /** Held (27.11.): the respect over everything at once, without its rail first (paint-over.js). */
+  function gripFull(z) {
+    const f = A.st.filters, g = f.open === z ? f : zoomZone(f, z, 1.2);
+    navigator.vibrate?.(10);
+    return A.dispatch({ type: 'filters', filters: { ...g, open: z, full: z } });
   }
   /** Which respect a role on a rail belongs to (the rail itself, its arrow, one of its values). */
   const OUT = { initial: 'left', date: 'right', spot: 'up', who: 'down' };
@@ -756,6 +775,12 @@ export function gesturesOf(A) {
     }
     if (ev.type !== 'tap') return null;
     if (r === 'full-off') return back();
+    if (r.startsWith('grip:')) { // the row at the top (27.11.): its own respect = back to its rail, another = that one over everything
+      const to = r.slice(5);
+      if (to === z) return back();
+      navigator.vibrate?.(6);
+      return A.dispatch({ type: 'filters', filters: { ...zoomZone({ ...f, full: null }, to, 1.2), open: to, full: to } });
+    }
     if (r.startsWith('period:')) return period(r.slice(7));
     if (r.startsWith('initial:')) return toggleValue('initial', r.slice(8));
     if (r.startsWith('value:')) { const [, name, id] = r.split(':'); return toggleValue(name, id); }
@@ -774,6 +799,29 @@ export function gesturesOf(A) {
     return A.dispatch({ type: 'filters', filters: { ...g, on: { ...f.on, [name]: next.length > 0 } } }); // chosen = on (21.11.: no sign row to switch it)
   }
   /** The calendar's span: [from, to] in ms, or null = every time. */
+  /** A finger drawn along the date's rail (27.11., user: "von oben bis unten kann ich ziehen"): from where it came down to where it is = the span; it shows while it is drawn. */
+  function drawSpan(ev) {
+    if (ev.type !== 'drag') return null; // lifted: what was marked stays
+    const to = roleAt(document.elementFromPoint(ev.x, ev.y)) ?? '';
+    if (!to.startsWith('period:')) return null; // off the rail: the last one on it counts
+    const span = spanBetween(ev.role.slice(7), to.slice(7)), now = A.st.filters.on.date ? A.st.filters.value.date : null;
+    if (!span || (now && now[0] === span[0] && now[1] === span[1])) return null;
+    navigator.vibrate?.(3);
+    return setSpan(span);
+  }
+  /** A finger drawn along the letters' rail (28.11., as on the date's): from where it came down to where it is = those letters. */
+  function drawLetters(ev) {
+    if (ev.type !== 'drag') return null;
+    const to = roleAt(document.elementFromPoint(ev.x, ev.y)) ?? '';
+    if (!to.startsWith('initial:')) return null; // a pale letter or off the rail: the last one counts
+    const keys = [...document.querySelectorAll('.rail [data-role^="initial:"]')].map((el) => el.dataset.role.slice(8));
+    const a = keys.indexOf(ev.role.slice(8)), b = keys.indexOf(to.slice(8)), f = A.st.filters, now = f.value.initial ?? [];
+    if (a < 0 || b < 0) return null;
+    const pick = keys.slice(Math.min(a, b), Math.max(a, b) + 1);
+    if (pick.length === now.length && pick.every((x) => now.includes(x))) return null;
+    navigator.vibrate?.(3);
+    return A.dispatch({ type: 'filters', filters: { ...setFilter(f, 'initial', pick), on: { ...f.on, initial: true } } });
+  }
   function setSpan(span) {
     const f = A.st.filters;
     return A.dispatch({ type: 'filters', filters: { ...setFilter(f, 'date', span), on: { ...f.on, date: Boolean(span) } } });

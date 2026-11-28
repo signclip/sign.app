@@ -70,10 +70,11 @@ import { newId, writeId, uOf } from '../1-model/ids.js';
 import { timeLabel, buildName } from '../1-model/filename.js';
 import { msOf } from '../1-model/time.js';
 import { sealForPaper, openWithPaper } from './backup-key.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 
 export const KEYS = 'e2e/key/';
-export const MOST = 200;
-export const MOST_TRIES = 100;
+export const MOST = LIMITS.keys.value; // the preselection, 200; what counts: limit('keys')
+export const MOST_TRIES = LIMITS['key.tries'].value; // the preselection, 100; what counts: limit('key.tries')
 const NAME = '[0-9A-Z]{26}', N = '[1-9]\\d{0,2}';
 const HOLDER = `q_[0-9A-Z]+|paper|(?:passkey|thing|spare) ${NAME}`;
 const LINE = new RegExp(`^\\(\\(((key|spare|view) (${NAME})|part (${NAME}) (${N}) (${N}) (${N}))\\) \\((${HOLDER})\\) \\(sealed ([0-9A-Z]+ [0-9A-Z]+ [0-9A-Z]+)\\)\\)`);
@@ -195,7 +196,7 @@ export async function giveView({ store, signer, view = newKey(), holders = [], a
  */
 export async function keyNotes({ store, signers, members = null }) {
   const listed = (await store.list(KEYS).catch(() => [])).filter((f) => named(f.path));
-  const newest = listed.sort((a, b) => (b.at ?? 0) - (a.at ?? 0) || (a.path < b.path ? 1 : -1)).slice(0, MOST);
+  const newest = listed.sort((a, b) => (b.at ?? 0) - (a.at ?? 0) || (a.path < b.path ? 1 : -1)).slice(0, limit('keys'));
   const out = [];
   for (const f of newest) {
     try {
@@ -227,15 +228,16 @@ function spareNames(notes) {
 async function joined(name, parts) {
   const seen = new Set(), all = parts.filter((p) => { const id = `${p.x} ${p.need} ${keyText(p.part)}`; return seen.has(id) ? false : seen.add(id); });
   let tries = 0;
+  const most = limit('key.tries');
   for (const need of new Set(all.map((p) => p.need))) {
     const pool = all.filter((p) => p.need === need);
     const pick = async (from, chosen) => {
       if (chosen.length === need) {
-        if (tries++ >= MOST_TRIES) return null;
+        if (tries++ >= most) return null;
         const key = joinParts(chosen);
         return (await keyName(key)) === name ? key : null;
       }
-      for (let i = from; i < pool.length && tries < MOST_TRIES; i++) {
+      for (let i = from; i < pool.length && tries < most; i++) {
         if (chosen.some((c) => c.x === pool[i].x)) continue;
         const key = await pick(i + 1, [...chosen, pool[i]]);
         if (key) return key;

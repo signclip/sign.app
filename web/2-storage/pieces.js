@@ -34,14 +34,15 @@
 
 import { hashStream } from '../1-model/hash-stream.js';
 import { MissingError } from './memory.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 
 const MiB = 2 ** 20;
 /** The piece every store cuts by, unless it has a reason (the object storage: at most 10,000 pieces). */
-export const PIECE = 8 * MiB;
+export const PIECE = LIMITS.piece.value; // the preselection, 8 MiB; what counts: limit('piece')
 /** The most a store without readPiece / writeFrom gives or takes in one piece. */
-export const WHOLE = 256 * MiB;
+export const WHOLE = LIMITS.whole.value; // the preselection, 256 MiB; what counts: limit('whole')
 /** The piece a store cuts by that takes at most 10,000 of them (object storage, Nextcloud): 8 MiB, or more for a file above 78 GiB. */
-export const pieceSize = (bytes) => Math.max(PIECE, Math.ceil(bytes / 10000 / MiB) * MiB);
+export const pieceSize = (bytes, piece = limit('piece')) => Math.max(piece, Math.ceil(bytes / 10000 / MiB) * MiB);
 
 /** A file too big for a store that only knows whole files. */
 export class TooLargeError extends Error {}
@@ -66,7 +67,7 @@ export function piecesOf(from) {
  * A file that lies in a sharing point → its pieces. size: from the index or a listing when the caller has it,
  * otherwise the folder is listed once.
  */
-export async function piecesIn(store, path, { size = null, whole = WHOLE } = {}) {
+export async function piecesIn(store, path, { size = null, whole = limit('whole') } = {}) {
   if (size == null) {
     const found = (await store.list(path.slice(0, path.lastIndexOf('/') + 1))).find((f) => f.path === path); // its folder: the object storage lists folders only
     if (!found) throw new MissingError(path);
@@ -79,7 +80,7 @@ export async function piecesIn(store, path, { size = null, whole = WHOLE } = {})
 }
 
 /** The hash of a file (as hashBytes gives it), read piece by piece. */
-export async function hashPieces(from, { piece = PIECE } = {}) {
+export async function hashPieces(from, { piece = limit('piece') } = {}) {
   const pieces = piecesOf(from), sum = hashStream();
   for (let at = 0; at < pieces.size; at += piece) sum.add(await pieces.slice(at, Math.min(at + piece, pieces.size)));
   return sum.done();
@@ -92,7 +93,7 @@ export async function hashPieces(from, { piece = PIECE } = {}) {
  * for every byte (a store that goes on after a break skips what is there), otherwise in a second pass.
  * hash: false – who only sends needs none ({ size, hash: null }): the sum is the slowest step on a phone.
  */
-export async function writePieces(store, path, from, { whole = WHOLE, onPiece = null, hash = true } = {}) {
+export async function writePieces(store, path, from, { whole = limit('whole'), onPiece = null, hash = true } = {}) {
   const pieces = piecesOf(from), size = pieces.size, sum = hash ? hashStream() : null;
   let next = 0, inOrder = true;
   const passing = {
@@ -113,6 +114,6 @@ export async function writePieces(store, path, from, { whole = WHOLE, onPiece = 
 }
 
 /** Copy one file from a sharing point to another (as: its path there). → { size, hash } */
-export async function copyPieces(from, to, path, { as = path, size = null, whole = WHOLE, onPiece = null, hash = true } = {}) {
+export async function copyPieces(from, to, path, { as = path, size = null, whole = limit('whole'), onPiece = null, hash = true } = {}) {
   return writePieces(to, as, await piecesIn(from, path, { size, whole }), { whole, onPiece, hash });
 }

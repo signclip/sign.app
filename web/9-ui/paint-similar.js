@@ -14,8 +14,8 @@
 //            bubble; ≤ 16 spots in the strip that stands in for the map.
 
 import { cloudSpots, cloudParts } from './similar-view.js';
-import { bundlesOf, LADDERS, railValues, periodLabel, inSpan } from './similar-zoom.js';
-import { spotMapSvg } from './paint-over.js';
+import { bundlesOf, LADDERS, railValues, periodLabel, inSpan, shortLabel } from './similar-zoom.js';
+import { spotMapSvg, quickHtml } from './paint-over.js';
 import { outline, curve, pathOf } from './form.js';
 import { ARCS, GAP } from './layout.js';
 
@@ -75,18 +75,17 @@ export function similarHtml(st, entries, L, { compare = null, picked = null, sea
   }
   if (single) return out.join(''); // one result large: the cloud's grips and rails wait until it is small again
 
-  // ---------- the four respects at the cloud's four edges (26.11., user) ----------
-  // closed: a pale grip in the middle of its edge (filled = something of it is chosen, or the cloud is bundled by it) ·
-  // open: its rail along that edge instead, one arrow at its head = the order (tap turns it); pushed out over its
-  // edge, or squeezed below its coarsest step = closed again.
-  const chosen = { initial: (f.value.initial ?? []).length > 0, date: Boolean(f.on.date && f.value.date), spot: (f.value.spot ?? []).length > 0, who: (f.value.sharing ?? []).length + (f.value.name ?? []).length > 0 };
-  for (const z of ['initial', 'date', 'spot', 'who']) {
-    if (z === open) continue;
-    const c = parts.grips[z];
-    out.push(`<span class="grip${chosen[z] || f.group?.by === z ? ' on' : ''}" data-key="grip:${z}" data-role="grip:${z}" style="left:${px(c.x - 13 * k)};top:${px(c.y - 14 * k)}">${ICON[z]}</span>`);
-  }
-  const corner = { x: inner.x + 10 * k, y: open === 'spot' ? inner.y : box.y + 1 * k }; // the words of an opened similar, the bubbles of the kinds: top left, under the map while it is open
-  if (search) out.push(`<span class="chip pick on search-on" data-role="search-off" style="position:absolute;left:${px(corner.x)};top:${px(corner.y)}">? ${esc(search.words.join(' '))}</span>`); // a similar opened: its words; pulled down = the window's again (21.11.)
+  // ---------- the four respects: one row at the top, their rails at the cloud's four edges ----------
+  // the row (27.11., user: "Metadaten-Auswahl als Kurzeinstellung, schön oben"): letters · spot · who · date, in the
+  // order of their edges (left · top · bottom · right). A sign alone = nothing chosen; filled with what is chosen in
+  // short = something of it is chosen, or the cloud is bundled by it; dark = its rail is open. Tap = its rail opens,
+  // tapped again = closed; held = the respect over everything (paint-over.js), where the same row stays at the top.
+  // the rail (26.11.): along the respect's own edge, one arrow at its head = the order (tap turns it); pushed out over
+  // its edge, or squeezed below its coarsest step = closed again.
+  const corner = { x: inner.x + 4 * k, y: inner.y + 2 * k }; // the words of an opened similar, the bubbles of the kinds: under the row at the left, beside the letters' rail and under the map while they are open
+  const wordsMax = 0.6 * inner.w, said = search ? `? ${search.words.join(' ')}` : '';
+  out.push(quickHtml(f, parts.quick, { open }));
+  if (search) out.push(`<span class="chip pick on search-on" data-role="search-off" style="position:absolute;left:${px(corner.x)};top:${px(corner.y)};max-width:${px(wordsMax)};justify-content:flex-start;overflow:hidden;white-space:nowrap">${esc(said)}</span>`); // a similar opened: its words (at most 60 % of the cloud's width, the rest cut); pulled down = the window's again (21.11.)
   else if (kindCloud) out.push(`<span class="chip pick on search-on" data-role="kinds-off" style="position:absolute;left:${px(corner.x)};top:${px(corner.y)}">${KIND_SIGN[kindCloud] ?? ''} · ${entries.length}</span>`); // a kind's own cloud; pulled down = the takes again
   else if (searches) out.push(`<span class="kind-bubble in-similar" data-role="kinds:search" style="position:absolute;left:${px(corner.x)};top:${px(corner.y)}"><em>?</em><b>${searches}</b></span>`); // the saved similar: a bubble at the top, spread or tap = their cloud
   if (asks && !search && !kindCloud) out.push(`<span class="kind-bubble in-similar ask" data-role="kinds:ask" style="position:absolute;left:${px(corner.x + (searches ? 56 : 0) * k)};top:${px(corner.y)}"><em>↗</em><b>${asks}</b></span>`); // requests to pass on my takes: their own cloud, ↑ / ↓ on the button decides (21.11.)
@@ -95,6 +94,7 @@ export function similarHtml(st, entries, L, { compare = null, picked = null, sea
 }
 
 const ARROW = { down: '↓', up: '↑', right: '→', left: '←' };
+const ALPHABET = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'];
 /**
  * The rail of the open respect (26.11.). Upright bars: letters (left) and the calendar (right), the arrow on top;
  * lying: the spot's map (top) and who (bottom), the arrow at the left end. What is chosen is filled.
@@ -104,12 +104,30 @@ function railHtml(z, r, f, all, { k, lang, reach, spotMap, spotBase, spots }) {
   const upright = z === 'initial' || z === 'date';
   const order = `<em class="rail-order" data-role="order:${z}">${upright ? (turned ? ARROW.up : ARROW.down) : (turned ? ARROW.left : ARROW.right)}</em>`;
   if (z === 'initial') {
-    const { values } = railValues(all, f, 'initial'), on = f.value.initial ?? [];
-    return `<div class="rail upright" data-key="rail:initial" data-role="rail:initial" style="${box}">${order}<div class="rail-list">${values.map((v) => `<span class="${on.includes(v.key) ? 'on' : ''}" data-role="initial:${esc(v.key)}">${esc(v.key)}</span>`).join('')}</div></div>`;
+    // all of A to Z, one under the other, fitted – no scrolling (28.11., user); a letter without takes pale, it cannot
+    // be chosen; Ä, #, … where they have takes. Rows lower than 11 px: every second (third …) letter written, the others
+    // a dot, each still a row. Tapped = that letter, drawn along = from … to (as on the date's rail).
+    const { step, values } = railValues(all, f, 'initial'), on = f.value.initial ?? [], has = new Set(values.map((v) => v.key));
+    const keys = step === 'letter' ? [...new Set([...ALPHABET, ...has])].sort((a, b) => (turned ? -1 : 1) * a.localeCompare(b, 'de', { numeric: true })) : values.map((v) => v.key);
+    const rowH = Math.max(1, r.h - 32 * k) / keys.length, every = Math.max(1, Math.ceil((11 * k) / rowH)); // phone upright: ≈ 9.6 px a row → every second written
+    const row = (key, i) => {
+      if (on.includes(key)) return `<span class="on" data-role="initial:${esc(key)}"><b>${esc(key)}</b></span>`; // chosen: a pill of 16 px over its row, as the ends on the date's rail
+      const shown = i % every === 0 ? esc(key) : '·';
+      return has.has(key) ? `<span data-role="initial:${esc(key)}">${shown}</span>` : `<span class="none">${shown}</span>`;
+    };
+    return `<div class="rail upright span letters${rowH < 14 * k ? ' tight' : ''}" data-key="rail:initial" data-role="rail:initial" style="${box}">${order}<div class="rail-list">${keys.map(row).join('')}</div></div>`;
   }
   if (z === 'date') {
-    const { values } = railValues(all, f, 'date'), span = f.on.date ? f.value.date : null, years = new Set(values.map((v) => v.key.slice(0, 4))).size > 1;
-    return `<div class="rail upright" data-key="rail:date" data-role="rail:date" style="${box}">${order}<div class="rail-list">${values.map((v) => `<span class="${v.head ? 'head' : ''}${inSpan(v.key, span) ? ' on' : ''}" data-role="period:${esc(v.key)}">${esc(periodLabel(v.key, lang, { year: years && v.head }))}</span>`).join('')}</div></div>`;
+    // a narrow bar without numbers (28.11., user: "schmale Leiste"; no first and last date at its ends either, only
+    // those of what is marked): what is marked filled, with the number of its first and last day on the bar. A row is the whole width (a finger needs it), the bar in it 12 px; a month begins
+    // after a thin line. Drawn along = from … to (27.11.), tapped = that one.
+    const { values } = railValues(all, f, 'date'), span = f.on.date ? f.value.date : null;
+    const days = values.filter((v) => !v.head), marked = days.filter((v) => inSpan(v.key, span)).map((v) => v.key);
+    const ends = new Set([marked[0], marked[marked.length - 1]].filter(Boolean));
+    const row = (v) => (v.head
+      ? '<span class="month"></span>'
+      : `<span class="${inSpan(v.key, span) ? 'on' : ''}${ends.has(v.key) ? ' end' : ''}" data-role="period:${esc(v.key)}"><i></i>${ends.has(v.key) ? `<b>${esc(shortLabel(v.key, lang))}</b>` : ''}</span>`);
+    return `<div class="rail upright span slim" data-key="rail:date" data-role="rail:date" style="${box}">${order}<div class="rail-list">${values.map(row).join('')}</div></div>`;
   }
   if (z === 'spot') {
     const on = f.value.spot ?? [], area = { w: r.w - 34 * k, h: r.h };

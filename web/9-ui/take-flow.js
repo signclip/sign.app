@@ -3,8 +3,8 @@
 // Purpose:   what the button does to the hardware and the files; the state stays in take-state.js (A.dispatch).
 //            The camera opens after the first paint (15.11.: the start is the background with the window, never a bare
 //            camera picture). Without a camera (a desktop, a page in a frame) a take still works with the strands that
-//            are there: context alone is a take too. Keep = saveTake (originals first, chain last), then the take goes
-//            onto the line: a series is one line in the chain (add-line.js), the next take of the series lays on it.
+//            are there: context alone is a take too. Keep = the take onto the line at once (27.11., fix), then saveTake
+//            behind it (originals first, chain last): a series is one line in the chain (add-line.js), the next take lays on it.
 //            Onboarding: the first take is the name sign (localStorage sign.nameSign), the next three the password
 //            gestures (sign.passwords); after the third the hello goes to the project's door (engine.joinProject).
 //            The camera after being away (26.11., user: the picture stood still when coming back to the take): the
@@ -25,6 +25,7 @@ import { stillOf } from './frame.js';
 import { mainLens } from './camera.js';
 import { deviceKeys } from './device-keys.js';
 import { contextForTake } from './chips.js';
+import { leadOf } from '../1-model/context.js';
 import { count } from './take-state.js';
 import { withContext } from './line.js';
 
@@ -125,7 +126,8 @@ export function takeFlow(A) {
       const tap = await browserTap(t.camera).catch(() => null);
       t.recorder = startTake(t.camera, { MediaRecorder, tapAudio: () => tap });
       A.heard?.begin(tap); // the flow sound → context on: Whisper reads it while it runs (26.11.)
-      setTimeout(() => stillOf(live).then((b) => { t.wake = b; A.data.buttonPic = URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })); A.paint(); }, () => {}), 150);
+      const mine = t.recorder; // kept or dropped within 150 ms: the picture is not this take's any more – the button stays free
+      setTimeout(() => stillOf(live).then((b) => { if (t.recorder !== mine) return; t.wake = b; A.data.buttonPic = URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })); A.paint(); }, () => {}), 150);
     }
     here.refresh?.();
     navigator.vibrate?.(12);
@@ -158,10 +160,11 @@ export function takeFlow(A) {
     t.recorder = null;
     navigator.vibrate?.([15, 60, 15]);
     A.dispatch({ type: 'rec', to: 'idle' });
+    const fixed = fix(step, began, Date.now() - began);
     const run = saving.then(async () => {
       const r = rec ? await rec.stop() : { video: null, audio: null, lengthMs: Date.now() - began };
-      const out = await save({ video: r.video, audio: r.audio, lengthMs: r.lengthMs, began, wake, step });
-      if (heard && r.audio && A.st.strands.a) A.heard.finish(heard, r.audio, out); // the rest of its words, then the echo – the next take need not wait
+      const out = await save({ video: r.video, audio: r.audio, lengthMs: r.lengthMs, began, wake, fixed });
+      if (heard && r.audio && fixed.strands.a) A.heard.finish(heard, r.audio, out); // the rest of its words, then the echo – the next take need not wait
       return out;
     });
     saving = run.catch(() => {});
@@ -169,17 +172,44 @@ export function takeFlow(A) {
   }
 
   /**
+   * What a take keeps is fixed the moment it is kept (27.11.): its context, the result it answers, the strands on and
+   * taken over – the save runs behind (a second or more over the network) and reads nothing that changed meanwhile.
+   * The take lies on the line at once, with the button's picture, and glides out of the button to the left (A.slideIn);
+   * the series shows its next word at once, so a take that starts by itself right after never shows the old word.
+   * → what save() needs
+   */
+  function fix(step, began, ms) {
+    const st = A.st, adding = t.addTo, from = A.data.takeFrom, pic = A.data.buttonPic;
+    t.addTo = null; A.data.takeFrom = null; A.data.buttonPic = null; // the button is free: its picture went with the take
+    const fixed = { step, adding, from, typed: st.context, strands: { ...st.strands }, pending: null,
+      context: st.strands.x ? contextForTake(st.context, st.sticky) : '',
+      answering: st.similar === 'single' ? A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === st.pick) ?? null : null };
+    if (adding) return fixed; // a strand onto a take that lies on the line already: nothing new on it
+    fixed.pending = `saving:${began}`;
+    if (pic) A.data.thumbs[fixed.pending] = pic;
+    A.dispatch({ type: 'kept', take: { id: fixed.pending, ms, t: began, context: fixed.context, kinds: Object.keys(st.strands).filter((k) => st.strands[k]), thumb: pic }, step });
+    const n = A.st.lines.length - 1;
+    Object.assign(fixed, { n, first: A.st.lines[n].takes.length === 1, after: A.st.context }); // first of its line: its own chain, else onto the line's (save) · after: the series moved on to
+    // a stop on the way (27.11., user): ← left a nesting – the next take has other prefixes – so the start by itself waits
+    // for a touch: ((Obst)((Banane) (Apfel))) after Apfel → ((Obst)()) stops (more can be written into it); flat words never stop; the end neither
+    if (A.st.context && leadOf(fixed.context).join('\n') !== leadOf(contextForTake(A.st.context, A.st.sticky)).join('\n')) A.calm?.hold();
+    A.slideIn?.();
+    return fixed;
+  }
+
+  /**
    * One picture, kept at once (21.11.: ← or ↑ on the ready button, instead of the photo dot). Visual strand off: a take
    * of the other strands (its context) without a picture.
    */
   async function photo(step = 'inner') {
-    if (!A.st.strands.v) return save({ lengthMs: 0, began: Date.now(), wake: null, step });
+    if (!A.st.strands.v) { const began = Date.now(); return save({ lengthMs: 0, began, wake: null, fixed: fix(step, began, 0) }); }
     await openCamera();
     if (!t.camera) return A.shake('button');
     const picture = await snapshot(live);
     navigator.vibrate?.(8);
-    const small = await stillOf(live).catch(() => null);
-    return save({ picture, lengthMs: 0, began: Date.now(), wake: small, step });
+    const small = await stillOf(live).catch(() => null), began = Date.now();
+    if (small) A.data.buttonPic = URL.createObjectURL(new Blob([small], { type: 'image/jpeg' })); // it lies on the line at once with its picture
+    return save({ picture, lengthMs: 0, began, wake: small, fixed: fix(step, began, 0) });
   }
   /** → while recording or paused (26.11., user): kept, and at once played in the window – the take just made, in the button. */
   async function keepAndPlay() {
@@ -194,29 +224,31 @@ export function takeFlow(A) {
     return A.player.show(onLine, 0, { play: true, onEnd: back }).then((ok) => { if (!ok) back(); return ok; }, () => back());
   }
 
-  async function save({ video = null, audio = null, picture = null, lengthMs, began, wake, step = 'inner' }) {
-    const adding = t.addTo; t.addTo = null;
-    if (adding) return addStrandSave(adding, { video, audio, lengthMs });
-    const st = A.st, on = st.strands, answering = st.similar === 'single' ? A.data.picked ?? (A.data.entries ?? []).find((x) => x.key === st.pick) : null;
-    const context = on.x ? contextForTake(st.context, st.sticky) : '';
+  async function save({ video = null, audio = null, picture = null, lengthMs, began, wake, fixed }) {
+    if (fixed.adding) return addStrandSave(fixed.adding, { video, audio, lengthMs });
+    const on = fixed.strands, answering = fixed.answering, context = fixed.context;
     // strands taken over from a result (21.11.): each kept by reference, per strand; the text only while it was not changed
-    const from = A.data.takeFrom; A.data.takeFrom = null;
-    const keep = from ? from.kinds.filter((k) => k !== 'x' || st.context === from.text) : [], kept = (k) => keep.includes(k);
+    const from = fixed.from;
+    const keep = from ? from.kinds.filter((k) => k !== 'x' || fixed.typed === from.text) : [], kept = (k) => keep.includes(k);
     let saved;
     try {
       saved = await saveTake({ device: A.device, person: A.person, store: A.store, cell: here.now?.() ?? null, now: began, lengthMs, context: kept('x') ? '' : context,
         video: on.v && !kept('v') ? video : null, picture: on.v && !kept('v') ? picture : null, audio: on.a && !kept('a') ? audio : null, deviceKey: await sealKey(), wake: on.v && video && !kept('v') ? wake : null,
         ...(from && keep.length ? { onto: from.path, ontoStore: from.store, keep } : {}) });
-    } catch (err) { console.warn('save', err); A.dispatch({ type: 'discard' }); return A.shake('button'); }
+    } catch (err) { // off the line again; a take that runs meanwhile goes on; its word comes back while nothing else changed – to be signed again
+      console.warn('save', err);
+      if (fixed.pending) A.dispatch({ type: 'unkept', id: fixed.pending });
+      if (fixed.pending && A.st.rec === 'idle' && A.st.context === fixed.after) A.dispatch({ type: 'context', text: fixed.typed });
+      return A.shake('button');
+    }
     const thumb = wake ? URL.createObjectURL(new Blob([wake], { type: 'image/jpeg' })) : null;
     const take = { id: saved.chain.path, ms: lengthMs, t: began, context, kinds: Object.keys(on).filter((k) => on[k]), thumb };
     if (thumb) A.data.thumbs[take.id] = thumb;
-    const before = A.st.lines.length;
-    A.dispatch({ type: 'took', take, step });
-    A.data.buttonPic = null;
-    // the series in the chain: the first take of a line is its own chain; the next ones lay onto the line (add-line.js)
-    if (A.st.lines.length !== before || count(A.st) === 1) remember(A.st.lines.length - 1, saved.chain.path);
-    else remember(A.st.lines.length - 1, (await addLine({ own: A.store, chainPath: t.lineChain, elements: [{ bytes: await A.store.read(saved.chain.path) }], device: A.device, person: A.person, deviceKey: await sealKey() }).catch(() => ({ chain: t.lineChain }))).chain);
+    A.dispatch({ type: 'took', take, replace: fixed.pending }); // where the one kept lies; the button's picture went already (fix)
+    // the series in the chain: the first take of a line is its own chain; the next ones lay onto the line (add-line.js).
+    // Saves run one after another, so the line's chain is known (t.lineChain) when the second one gets here.
+    if (fixed.first) remember(fixed.n, saved.chain.path);
+    else remember(fixed.n, (await addLine({ own: A.store, chainPath: t.lineChain, elements: [{ bytes: await A.store.read(saved.chain.path) }], device: A.device, person: A.person, deviceKey: await sealKey() }).catch(() => ({ chain: t.lineChain }))).chain);
     A.keepLines();
     if (answering) await answer(answering, saved.chain.path); // taken in the single view: one's own version, with a reference to that one (21.11.)
     await A.onboardTook(saved.paths, take);

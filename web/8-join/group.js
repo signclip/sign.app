@@ -30,10 +30,11 @@ import { ExistsError } from '../2-storage/memory.js';
 import { gatewayParts, packGrant } from '../2-storage/spec.js';
 import { newSource } from '../1-model/ids.js';
 import { makeGrant, chainOf } from './grant.js';
+import { limit, LIMITS } from '../1-model/limits.js';
 
 const dec = new TextDecoder();
 /** Hellos read per look into a drop: the newest; a flood of junk costs at most this many reads. */
-export const MAX_HELLOS = 50;
+export const MAX_HELLOS = LIMITS.hellos.value; // the preselection, 50; what counts: limit('hellos')
 
 /**
  * Make the two links of a group folder. nc: the owner's Nextcloud · folder: path in the owner's tree ·
@@ -113,7 +114,7 @@ export const invitation = (label, group) => (group.gateway
  * Hellos in the group folder still without an answer in join/. store: the folder as the signer reaches
  * it. → [helloPath]
  */
-export async function waitingHellos(store, { max = MAX_HELLOS } = {}) {
+export async function waitingHellos(store, { max = limit('hellos') } = {}) {
   const paths = (await store.list()).map((f) => f.path);
   const named = paths.filter((p) => p.startsWith('hello/') && p.endsWith('.chain.sign') && /\(hello /.test(p) && !answerFor(paths, p));
   // the drop is open to anyone (spam): only the newest few are read, and only a hello sealed by the device key

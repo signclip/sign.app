@@ -25,7 +25,9 @@
 //            (RESEARCH: file transfer).
 
 export const DAV_VERBS = new Set(['PROPFIND', 'PROPPATCH', 'MKCOL', 'MOVE', 'COPY', 'LOCK', 'UNLOCK', 'REPORT', 'SEARCH']);
-export const BRIDGE_MAX = 48 * 1024 * 1024;
+import { limit, LIMITS } from '../1-model/limits.js';
+
+export const BRIDGE_MAX = LIMITS.bridge.value; // the preselection, 48 MiB; what counts: limit('bridge')
 export const SLICE = 3 * 256 * 1024; // a multiple of 3: the Base64 of the slices, joined, is the Base64 of the whole
 const CALM_MS = 8;
 
@@ -67,7 +69,8 @@ export function davFetch(plugin, base) {
     if (!DAV_VERBS.has(method) && !isBytes(init.body)) return base(url, init);
     const headers = Object.fromEntries(new Headers(init.headers ?? {}).entries());
     const body = await bytesOf(init.body);
-    if (body && body.length > BRIDGE_MAX) throw new Error(`too large for the bridge: ${Math.round(body.length / 1048576)} MiB (at most ${BRIDGE_MAX / 1048576})`);
+    const most = limit('bridge');
+    if (body && body.length > most) throw new Error(`too large for the bridge: ${Math.round(body.length / 1048576)} MiB (at most ${most / 1048576})`);
     const data = !body ? null : body.length > SLICE ? await toB64Calm(body) : toB64(body);
     const r = await plugin.request({ url: String(url), method, headers, ...(body ? { data } : {}) });
     const empty = r.status === 204 || r.status === 304;
